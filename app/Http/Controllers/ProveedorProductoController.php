@@ -11,6 +11,8 @@ class ProveedorProductoController extends BaseController
     protected $codeField = 'PRO3COD';  
     protected $key1Field = 'PRD3COD';          
     protected $key2Field = 'PRD3DEL';          
+    protected $skipNewCode = true;          
+    
     protected $mapping = [
         'delegacion_proveedor'          => 'PRO3DEL',
         'codigo_proveedor'              => 'PRO3COD',

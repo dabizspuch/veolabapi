@@ -15,6 +15,8 @@ class OperacionResultadoController extends BaseController
     protected $key4Field = 'COR1COD';    
     protected $inactiveField = 'CORBACT';
     protected $searchFields = ['CORCVAL'];
+    protected $skipNewCode = true;          
+    
     protected $mapping = [
         'operacion_delegacion'          => 'OPE3DEL',
         'operacion_serie'               => 'OPE3SER',
@@ -67,7 +69,7 @@ class OperacionResultadoController extends BaseController
     {  
         // Valida la existencia de la operación 
         if (!empty($data['operacion_codigo'])) {
-            $exist = DB::table('LABTEC')
+            $exist = DB::table('LABOPE')
                 ->where('DEL3COD', $data['operacion_delegacion'])
                 ->where('OPE1SER', $data['operacion_serie'])
                 ->where('OPE1COD', $data['operacion_codigo'])
@@ -79,7 +81,7 @@ class OperacionResultadoController extends BaseController
 
         // Valida la existencia del parámetro 
         if (!empty($data['parametro_codigo'])) {
-            $exist = DB::table('LABMAR')
+            $exist = DB::table('LABTEC')
                 ->where('DEL3COD', $data['parametro_delegacion'])
                 ->where('TEC1COD', $data['parametro_codigo'])
                 ->first(); 
@@ -243,16 +245,23 @@ class OperacionResultadoController extends BaseController
                 ->where('COR1COD', $key4)
                 ->update([
                     'CORCVAL' => $replacedValue,
-                ]);
-
-                // Elimina el campo de $data para que perdure el reemplazo y no el nuevo valor
-                unset($data['valor']); 
+                ]); 
             }
         }
 
         return $data;
     } 
 
+    /**
+     * Verifica si existe una marca no evaluable en la tabla `LABMAR` para una delegación específica.
+     * 
+     * Esta función consulta la base de datos para determinar si hay un registro 
+     * en la tabla `LABMAR` donde el código de marca (`MAR1COD`) sea igual a -2, 
+     * lo que indica que no es evaluable, asociado a una delegación dada.
+     * 
+     * @param string|int $delegation - El código de la delegación a buscar.
+     * @return bool True si existe al menos un registro que cumpla con las condiciones, false en caso contrario.
+     */
     private function existMarkNotEvaluable($delegation) 
     {
         return DB::table('LABMAR')
@@ -261,23 +270,37 @@ class OperacionResultadoController extends BaseController
                 ->exists();      
     }
 
-
+    /**
+     * Valida si un valor está dentro de un rango dado y evalúa si el rango es procesable.
+     * 
+     * La función evalúa si el valor proporcionado pertenece a alguno de los intervalos
+     * especificados en el rango. Adicionalmente, determina si el rango es evaluable
+     * (por ejemplo, si los límites son coherentes) y captura información sobre 
+     * si se excede algún límite.
+     * 
+     * @param object $range - Un objeto que contiene los datos del rango, incluyendo `CYRCVAR` con los intervalos.
+     * @param string $value - El valor a evaluar, que puede incluir prefijos como "<" o ">" para definir límites.
+     * @return array Un array que contiene:
+     *               - bool $isInInterval: Indica si el valor está dentro del rango.
+     *               - bool $isEvaluable: Indica si el rango es válido para la evaluación.
+     *               - string $limitExceeded: Mensaje indicando si el valor excede los límites.
+     */
     private function validateRange($range, $value)
     {
         $INFINITESIMAL = 0.000001;
         $isEvaluable = true;
         $isInInterval = false;
         $limitExceeded = '';
-    
-        $intervals = explode(',', $range->CYRCVAR); 
+
+        $intervals = $this->getIntervals($range->CYRCVAR); 
 
         foreach ($intervals as $interval) {
             $interval = trim($interval);
-    
+
             if (empty($interval)) {
                 continue;
             }
-    
+
             $firstChar = substr($value, 0, 1);
             if ($firstChar === '<') {
 
@@ -328,10 +351,30 @@ class OperacionResultadoController extends BaseController
         return [$isInInterval, $isEvaluable, $limitExceeded];
     }
     
+    /**
+     * Verifica si un número está dentro de un intervalo dado, considerando la inclusividad de los límites.
+     * 
+     * El intervalo se especifica como una cadena en el formato:
+     * - "[a;b]" para límites inclusivos.
+     * - "(a;b)" para límites exclusivos.
+     * - "[a;b)" o "(a;b]" para combinaciones de inclusividad.
+     * 
+     * @param float $value - El número que se desea comprobar.
+     * @param string $interval - La cadena que representa el intervalo (por ejemplo, "[1;10]", "(0;5)").
+     * @param string|null $limitExceeded - Variable pasada por referencia para almacenar un mensaje si el valor está fuera de los límites.
+     * @return bool True si el número está dentro del intervalo, false en caso contrario.
+     */
     private function isNumberInInterval($value, $interval, &$limitExceeded = null)
     {        
         $cleanedInterval = str_replace(['[', ']', '(', ')'], '', $interval);
-        $intervalParts = explode(';', $cleanedInterval); 
+        
+        if (strpos($cleanedInterval, ';')) {
+            $separator = ';';
+        } else {
+            $separator = ',';
+        }
+        
+        $intervalParts = explode($separator, $cleanedInterval); 
 
         if (count($intervalParts) !== 2) {
             return false;
@@ -353,6 +396,25 @@ class OperacionResultadoController extends BaseController
         }
     
         return $isWithinStart && $isWithinEnd;
-    }    
-
+    }  
+    
+    /**
+     * Obtiene la lista de intervalos separados por comas.
+     * 
+     * La función analiza una expresión y retorna un array con los intervalos.
+     * Si la expresión contiene un punto y coma (;), se separan los valores usando comas (,).
+     * En caso contrario, se asume que toda la expresión representa un único intervalo.
+     * 
+     * @param string $expression - La expresión que contiene los intervalos (por ejemplo, "1,2,3" o "1;2,3").
+     * @return array Un array con los intervalos separados.
+     */
+    private function getIntervals($expression)
+    {
+        if (strpos($expression, ';') !== false) {             
+            $intervals = explode(',', $expression); 
+        } else {
+            $intervals = [$expression];
+        }
+        return $intervals;
+    }
 }

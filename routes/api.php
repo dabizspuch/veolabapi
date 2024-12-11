@@ -155,6 +155,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/productos-lotes/{codigo}/{delegacion?}/{clave1}', [ProductoLoteController::class, 'update']);
     Route::delete('/productos-lotes/{codigo}/{delegacion?}/{clave1}', [ProductoLoteController::class, 'destroy']);
 
-
 });
 

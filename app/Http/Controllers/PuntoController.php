@@ -8,10 +8,12 @@ class PuntoController extends BaseController
 {
     protected $table = 'LABPUM';
     protected $delegationField = 'DEL3COD';
-    protected $codeField = 'CLI3COD';    
-    protected $key1Field = 'PUM1COD';          
+    protected $codeField = 'PUM1COD';    
+    protected $key1Field = 'CLI3COD';  // Se utilizará como serie en la generación del código        
     protected $inactiveField = 'PUMBBAJ';
     protected $searchFields = ['PUMCDES'];
+    protected $skipNewCode = true;
+    
     protected $mapping = [
         'delegacion'                    => 'DEL3COD',
         'cliente_codigo'                => 'CLI3COD',
@@ -112,8 +114,17 @@ class PuntoController extends BaseController
     {
         $isCreating = request()->isMethod('post'); 
 
-        // Excluir campos clave de los datos a actualizar porque no serán editables
-        if (!$isCreating) {
+        if ($isCreating) {
+            // Genera el código sin usar claves técnicas
+            if (empty($data['codigo'])) {
+                $data['delegacion'] = $data['delegacion'] ?? '';
+                $data['codigo'] = $this->getNextPointCode(
+                    $data['delegacion'], 
+                    $data['cliente_codigo']
+                );
+            }            
+        } else {
+            // Excluir campos clave de los datos a actualizar porque no serán editables
             unset(
                 $data['delegacion'], 
                 $data['cliente_codigo'], 
@@ -180,4 +191,20 @@ class PuntoController extends BaseController
         return $data;
     }    
     
+    /**
+     * Obtiene el siguiente código de punto para el cliente de entrada.
+     * 
+     * @param string $clientDelegation - Delegación del cliente para filtrar los lotes.
+     * @param string $clientCode - Código del cliente para filtrar los lotes.
+     * @return string - El siguiente código de punto
+     */
+    private function getNextPointCode($clientDelegation, $clientCode)
+    {
+        $maxPoint = DB::table('LABPUM')
+            ->where('DEL3COD', $clientDelegation)
+            ->where('CLI3COD', $clientCode) 
+            ->max('PUM1COD');    
+
+        return $maxPoint ? $maxPoint + 1 : 1;
+    }    
 }

@@ -21,6 +21,8 @@ abstract class BaseController extends Controller
     protected $key4Field;           // Campo de clave4 (codigo auxiliar)
     protected $inactiveField;       // Campo que indica si el registro está dado de baja
     protected $searchFields;        // Campos que se usarán para realizar búsquedas de texto
+    protected $skipInsert = false;  // Indica si debe saltarse la inserción 
+    protected $skipNewCode = false; // Indica si debe saltarse la generación del nuevo código
 
     // Definir las reglas de validación de los datos (abstracto)
     abstract protected function rules();
@@ -206,18 +208,22 @@ abstract class BaseController extends Controller
             // Validar el nombre o descripción
             $validatedData = $this->validateAdditionalCriteria($validatedData);
 
-            if (empty($validatedData['generando'])) { // Caso especial
+            $fieldCodeName = array_search($this->codeField, $this->mapping);
+            $fieldDelegationName = array_search($this->delegationField, $this->mapping);
+            $fieldSeriesName = array_search($this->key1Field, $this->mapping);
+
+            if (!$this->skipNewCode) { 
                 // Evitar campos nulos
-                $validatedData['delegacion'] = $validatedData['delegacion'] ?? '';
-                $validatedData['serie'] = $validatedData['serie'] ?? '';
+                $validatedData[$fieldDelegationName] = $validatedData[$fieldDelegationName] ?? '';
+                $validatedData[$fieldSeriesName] = $validatedData[$fieldSeriesName] ?? '';
 
                 // Si no hay código, generar uno nuevo
-                if (empty($validatedData['codigo'])) {
-                    $validatedData['codigo'] = $this->generateNewCode(
-                        $validatedData['delegacion'],       // Delegación
-                        $validatedData['serie'],            // Serie (si aplica)                    
-                        $this->table,                       // Nombre de la tabla
-                        true                                // Bloqueo pesismista
+                if (empty($validatedData[$fieldCodeName])) {
+                    $validatedData[$fieldCodeName] = $this->generateNewCode(
+                        $validatedData[$fieldDelegationName],   // Delegación
+                        $validatedData[$fieldSeriesName],       // Serie (si aplica)                    
+                        $this->table,                           // Nombre de la tabla
+                        true                                    // Bloqueo pesismista
                     ); 
                 }
             }
@@ -228,14 +234,7 @@ abstract class BaseController extends Controller
             // Iniciar la transacción
             DB::beginTransaction();
 
-            // Realizar actualizaciones adicionales                       
-            $validatedData = $this->updateAdditionalData(
-                $validatedData, 
-                $validatedData['codigo'] ?? 0, 
-                $validatedData['delegacion'] ?? '', 
-                $validatedData['serie'] ?? ''); 
-
-            if (empty($validatedData['generando'])) { 
+            if (!$this->skipInsert) { 
                 // Convertir los datos a formato de base de datos
                 $dbData = $this->mapToDatabaseFields($validatedData);
                 
@@ -243,6 +242,13 @@ abstract class BaseController extends Controller
                 DB::table($this->table)->insert($dbData);            
             }
             
+            // Realizar actualizaciones adicionales    
+            $validatedData = $this->updateAdditionalData(
+                $validatedData, 
+                $validatedData[$fieldCodeName] ?? 0, 
+                $validatedData[$fieldDelegationName] ?? '', 
+                $validatedData[$fieldSeriesName] ?? ''); 
+
             // Confirmar la transacción
             DB::commit();
 
@@ -250,17 +256,17 @@ abstract class BaseController extends Controller
                 'message' => 'Registro creado correctamente'
             ];
             
-            if (empty($validatedData['generando'])) {
+            if (!$this->skipNewCode) {
                 $response['data'] = [];
                 
-                if (!empty($validatedData['codigo'])) {
-                    $response['data']['codigo'] = $validatedData['codigo'];
+                if (!empty($validatedData[$fieldCodeName])) {
+                    $response['data'][$fieldCodeName] = $validatedData[$fieldCodeName];
                 }
-                if (!empty($validatedData['delegacion'])) {
-                    $response['data']['delegacion'] = $validatedData['delegacion'];
+                if (!empty($validatedData[$fieldDelegationName])) {
+                    $response['data'][$fieldDelegationName] = $validatedData[$fieldDelegationName];
                 }
-                if (!empty($validatedData['serie'])) {
-                    $response['data']['serie'] = $validatedData['serie'];
+                if (!empty($validatedData[$fieldSeriesName])) {
+                    $response['data'][$fieldSeriesName] = $validatedData[$fieldSeriesName];
                 }
             }
             
@@ -323,9 +329,6 @@ abstract class BaseController extends Controller
             // Validar el nombre o descripción
             $validatedData = $this->validateAdditionalCriteria($validatedData, $code, $delegation, $key1);
 
-            // Realizar actualizaciones adicionales
-            $validatedData = $this->updateAdditionalData($validatedData, $code, $delegation, $key1, $key2, $key3, $key4);
-
             // Convertir los datos a formato de base de datos
             $datosBD = $this->mapToDatabaseFields($validatedData);
 
@@ -340,6 +343,9 @@ abstract class BaseController extends Controller
                     ->where($this->key4Field, $key4)
                     ->update($datosBD);   
             }
+
+            // Realizar actualizaciones adicionales
+            $validatedData = $this->updateAdditionalData($validatedData, $code, $delegation, $key1, $key2, $key3, $key4);            
             
             // Confirmar la transacción
             DB::commit();

@@ -12,6 +12,8 @@ class OrdenAnalistaController extends BaseController
     protected $codeField = 'ORD3COD';  
     protected $key2Field = 'EMP3COD';          
     protected $key3Field = 'EMP3DEL';          
+    protected $skipNewCode = true;          
+    
     protected $mapping = [
         'orden_delegacion'              => 'ORD3DEL',
         'orden_serie'                   => 'ORD3SER',

@@ -12,7 +12,9 @@ class OrdenOperacionController extends BaseController
     protected $codeField = 'ORD3COD';  
     protected $key2Field = 'OPE3COD';          
     protected $key3Field = 'OPE3SER';          
-    protected $key4Field = 'OPE3DEL';          
+    protected $key4Field = 'OPE3DEL';
+    protected $skipNewCode = true;          
+    
     protected $mapping = [
         'orden_delegacion'              => 'ORD3DEL',
         'orden_serie'                   => 'ORD3SER',

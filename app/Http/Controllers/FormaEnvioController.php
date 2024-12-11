@@ -11,6 +11,7 @@ class FormaEnvioController extends BaseController
     protected $codeField = 'FDE1COD';    
     protected $inactiveField = 'FDEBBAJ';
     protected $searchFields = ['FDECDES'];
+    
     protected $mapping = [
         'delegacion'                    => 'DEL3COD',
         'codigo'                        => 'FDE1COD',

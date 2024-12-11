@@ -17,6 +17,8 @@ class OperacionParametroController extends BaseController
     protected $key3Field = 'TEC3DEL';    
     protected $inactiveField = 'RESBEXP';
     protected $searchFields = ['RESCNOM', 'RESCNOI'];
+    protected $skipInsert = true; // Se genera el parámetro desde la estructura de ficheros
+    
     protected $mapping = [
         'operacion_delegacion'          => 'OPE3DEL',
         'operacion_serie'               => 'OPE3SER',
@@ -169,23 +171,9 @@ class OperacionParametroController extends BaseController
             $this->validateOperation($data['operacion_delegacion'] ?? '', $data['operacion_serie'] ?? '', $data['operacion_codigo']);  
         }
 
-        if (!empty($code)) {
-            // --- Modificación de parámetro --- 
-
-            //Las claves y el servicio no pueden ser modificados            
-            unset(
-                $data['operacion_delegacion'], 
-                $data['operacion_serie'], 
-                $data['operacion_codigo'], 
-                $data['parametro_delegacion'], 
-                $data['parametro_codigo'],
-                $data['servicio_delegacion'],
-                $data['servicio_codigo']             
-            );
-        } else {
-            // --- Asignación de nuevo de parámetro a la operación --- 
-                        
-            // se deben exluir todos los campos salvo la operación, parámetro y servicio
+        $isCreating = request()->isMethod('post');
+        if ($isCreating) {
+            // se deben excluir todos los campos salvo la operación, parámetro y servicio
             $allowedKeys = [
                 'operacion_delegacion', 
                 'operacion_serie',
@@ -230,9 +218,17 @@ class OperacionParametroController extends BaseController
             if ($paramExist) {
                 throw new \Exception("El parámetro ya estaba asociado a la operación");
             }
-
-            // Se indica un caso especial: que se genera un nuevo parámetro copiando la estructura
-            $data['generando'] = 1;
+        } else {                        
+            // Las claves y el servicio no pueden ser modificados            
+            unset(
+                $data['operacion_delegacion'], 
+                $data['operacion_serie'], 
+                $data['operacion_codigo'], 
+                $data['parametro_delegacion'], 
+                $data['parametro_codigo'],
+                $data['servicio_delegacion'],
+                $data['servicio_codigo']             
+            );
         }
 
         return $data;               
@@ -322,72 +318,10 @@ class OperacionParametroController extends BaseController
 
     protected function updateAdditionalData (array $data, $code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
-        if (empty($data['generando'])) {    
-            // --- Modificación de parámetro en LABRES ---                         
-
-            if (!empty($data['seccion_codigo'])) {  
-
-                // Borra los departamentos de la operación para ser regenerados      
-                DB::table('LABOYD')
-                    ->where('OPE3DEL', $delegation)
-                    ->where('OPE3SER', $key1)
-                    ->where('OPE3COD', $code)
-                    ->delete();
-
-                // Lee la seccion de los parámetros
-                $parameters = DB::table('LABRES')
-                    ->join('LABSEC', function($join) {
-                        $join->on('LABRES.SEC2DEL', '=', 'LABSEC.DEL3COD')
-                            ->on('LABRES.SEC2COD', '=', 'LABSEC.SEC1COD');
-                    })       
-                    ->select('LABRES.TEC3DEL', 'LABRES.TEC3COD', 'LABSEC.DEP2DEL', 'LABSEC.DEP2COD')     
-                    ->where('OPE3DEL', $delegation)
-                    ->where('OPE3SER', $key1)
-                    ->where('OPE3COD', $code)
-                    ->get();
-
-                // Obtiene el departamento de la sección modificada
-                $section = DB::table('LABSEC')
-                    ->where('DEL3COD', $data['seccion_delegacion'])
-                    ->where('SEC1COD', $data['seccion_codigo'])
-                    ->first();
-                
-                // Construye una lista con las secciones de los parámetros, salvo el de entrada que entra el modificado
-                $rowsToInsert = collect();
-
-                foreach ($parameters as $parameter) {
-
-                    // Para la técnica modificada no se considera la sección de la tabla
-                    if ($parameter->TEC3DEL === $key3 && $parameter->TEC3COD === $key2) {
-                        $departmentDelegation =$section->DEP2DEL ?? '';
-                        $departmentCode = $section->DEP2COD ?? 0;
-                    } else {
-                        $departmentDelegation =$parameter->DEP2DEL ?? '';
-                        $departmentCode = $parameter->DEP2COD ?? 0;
-                    }
-
-                    if ($departmentCode !== 0) {
-                        $item = [
-                            'OPE3DEL' => $delegation,
-                            'OPE3SER' => $key1,
-                            'OPE3COD' => $code,
-                            'DEP3DEL' => $departmentDelegation,
-                            'DEP3COD' => $departmentCode,
-                        ];
-
-                        $rowsToInsert->push($item);
-                    }
-                }
-
-                $rowsToInsert = $rowsToInsert->unique(function ($item) {
-                    return $item['OPE3DEL'] . $item['OPE3SER'] . $item['OPE3COD'] . $item['DEP3DEL'] . $item['DEP3COD'];
-                });
-
-                // Inserta en LABOYD
-                DB::table('LABOYD')->insert($rowsToInsert->toArray());            
-            }
-        } else {
+        $isCreating = request()->isMethod('post');
+        if ($isCreating) {
             // --- Generacion de nuevo parámetro a partir de estructuras de ficheros ---
+            
             $delegation = $data['operacion_delegacion'];
             $key1 = $data['operacion_serie'];
             $code = $data['operacion_codigo'];
@@ -470,7 +404,71 @@ class OperacionParametroController extends BaseController
                 ->update([
                     'OPECTEC' => DB::raw("IF(OPECTEC = '', '$parameter->TECCNOM', CONCAT(OPECTEC, ';', '$parameter->TECCNOM'))")
                 ]);
-            
+
+        } else {                
+            // --- Modificación de parámetro en LABRES ---                         
+
+            if (!empty($data['seccion_codigo'])) {  // Sólo se permite modificar la sección
+
+                // Borra los departamentos de la operación para ser regenerados      
+                DB::table('LABOYD')
+                    ->where('OPE3DEL', $delegation)
+                    ->where('OPE3SER', $key1)
+                    ->where('OPE3COD', $code)
+                    ->delete();
+
+                // Lee la seccion de los parámetros
+                $parameters = DB::table('LABRES')
+                    ->join('LABSEC', function($join) {
+                        $join->on('LABRES.SEC2DEL', '=', 'LABSEC.DEL3COD')
+                            ->on('LABRES.SEC2COD', '=', 'LABSEC.SEC1COD');
+                    })       
+                    ->select('LABRES.TEC3DEL', 'LABRES.TEC3COD', 'LABSEC.DEP2DEL', 'LABSEC.DEP2COD')     
+                    ->where('OPE3DEL', $delegation)
+                    ->where('OPE3SER', $key1)
+                    ->where('OPE3COD', $code)
+                    ->get();
+
+                // Obtiene el departamento de la sección modificada
+                $section = DB::table('LABSEC')
+                    ->where('DEL3COD', $data['seccion_delegacion'])
+                    ->where('SEC1COD', $data['seccion_codigo'])
+                    ->first();
+                
+                // Construye una lista con las secciones de los parámetros, salvo el de entrada que entra el modificado
+                $rowsToInsert = collect();
+
+                foreach ($parameters as $parameter) {
+
+                    // Para la técnica modificada no se considera la sección de la tabla
+                    if ($parameter->TEC3DEL === $key3 && $parameter->TEC3COD === $key2) {
+                        $departmentDelegation =$section->DEP2DEL ?? '';
+                        $departmentCode = $section->DEP2COD ?? 0;
+                    } else {
+                        $departmentDelegation =$parameter->DEP2DEL ?? '';
+                        $departmentCode = $parameter->DEP2COD ?? 0;
+                    }
+
+                    if ($departmentCode !== 0) {
+                        $item = [
+                            'OPE3DEL' => $delegation,
+                            'OPE3SER' => $key1,
+                            'OPE3COD' => $code,
+                            'DEP3DEL' => $departmentDelegation,
+                            'DEP3COD' => $departmentCode,
+                        ];
+
+                        $rowsToInsert->push($item);
+                    }
+                }
+
+                $rowsToInsert = $rowsToInsert->unique(function ($item) {
+                    return $item['OPE3DEL'] . $item['OPE3SER'] . $item['OPE3COD'] . $item['DEP3DEL'] . $item['DEP3COD'];
+                });
+
+                // Inserta en LABOYD
+                DB::table('LABOYD')->insert($rowsToInsert->toArray());            
+            }
         }
 
         return $data;

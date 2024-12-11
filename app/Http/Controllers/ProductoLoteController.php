@@ -11,11 +11,13 @@ class ProductoLoteController extends BaseController
 
     protected $table = 'ALMSEL';
     protected $delegationField = 'PRD3DEL';
-    protected $codeField = 'PRD3COD';    
-    protected $key1Field = 'SEL1COD';
+    protected $codeField = 'SEL1COD';    
+    protected $key1Field = 'PRD3COD'; // Se utilizará como serie en la generación del código
     protected $searchFields = ['SELCDES', 'SELCCOB'];
+    protected $skipNewCode = true;
+
     protected $mapping = [
-        'delegacion'                  => 'PRD3DEL',
+        'producto_delegacion'         => 'PRD3DEL',
         'producto_codigo'             => 'PRD3COD',
         'numero_serie_lote'           => 'SEL1COD',
         'descripcion'                 => 'SELCDES',
@@ -56,11 +58,13 @@ class ProductoLoteController extends BaseController
 
     protected function rules()
     {
+        $isCreating = request()->isMethod('post');
+
         // Reglas generales
         return [
-            'delegacion'                 => 'nullable|string|max:10',
-            'producto_codigo'            => 'required|string|max:15',
-            'numero_serie_lote'          => 'required|string|max:30',
+            'producto_delegacion'        => 'nullable|string|max:10',
+            'producto_codigo'            => $isCreating ? 'required|string|max:15' : 'nullable|string|max:15',
+            'numero_serie_lote'          => 'nullable|string|max:30',
             'descripcion'                => 'nullable|string|max:50',
             'codigo_barras'              => 'nullable|string|max:100',
             'estado'                     => 'nullable|string|in:N,U,L,F,B|max:1',
@@ -105,7 +109,7 @@ class ProductoLoteController extends BaseController
         // Valida la existencia del producto
         if (!empty($data['producto_codigo'])) {
             $family = DB::table('ALMPRD')
-                ->where('DEL3COD', $data['delegacion'] ?? '')
+                ->where('DEL3COD', $data['producto_delegacion'] ?? '')
                 ->where('PRD1COD', $data['producto_codigo'])
                 ->first(); 
             if (!$family) {
@@ -133,7 +137,7 @@ class ProductoLoteController extends BaseController
         if ($isCreating) { 
             if (!empty($data['numero_serie_lote'])) {
                 $existingRecord = DB::table('ALMSEL')
-                    ->where('PRD3DEL', $data['delegacion'] ?? '')
+                    ->where('PRD3DEL', $data['producto_delegacion'] ?? '')
                     ->where('PRD3COD', $data['producto_codigo'])
                     ->where('SEL1COD', $data['numero_serie_lote'])
                     ->exists();
@@ -143,10 +147,19 @@ class ProductoLoteController extends BaseController
             }
         }
 
-        // Excluir campos clave de los datos a actualizar porque no serán editables
-        if (!$isCreating) { 
+        if ($isCreating) {
+            // Genera el código sin usar claves técnicas
+            if (empty($data['numero_serie_lote'])) {
+                $data['producto_delegacion'] = $data['producto_delegacion'] ?? '';
+                $data['numero_serie_lote'] = $this->getNextLotValue(
+                    $data['producto_delegacion'], 
+                    $data['producto_codigo']
+                );
+            }
+        } else { 
+            // Excluir campos clave de los datos a actualizar porque no serán editables
             unset( 
-                $data['delegacion'], 
+                $data['producto_delegacion'], 
                 $data['producto_codigo'],
                 $data['numero_serie_lote'] 
             );
@@ -168,6 +181,17 @@ class ProductoLoteController extends BaseController
         if ($usedInAnotherTable) {
             throw new \Exception("La serie o lote no puede ser eliminada porque está referenciada en alguna operación");
         }             
+
+        // Comprueba que la serie o lote no está siendo usada como materia prima en otro producto
+        $usedInAnotherTable = DB::table('ALMMAT')
+            ->where('PRM3DEL', $delegation)
+            ->where('PRM3COD', $code)
+            ->where('SEM3COD', $key1)
+            ->exists();
+        if ($usedInAnotherTable) {
+            throw new \Exception("La serie o lote no puede ser eliminada porque está siendo usada como materia prima");
+        }             
+
     }
 
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
@@ -197,15 +221,36 @@ class ProductoLoteController extends BaseController
             ]);     
             
         // Recalcula el stock del producto
-        $this->recalculateAffectedProductStock(["{$delegation}" . self::SEPARATOR . "{$code}"]);
+        $this->recalculateAffectedProductStock(["{$delegation}" . self::SEPARATOR . "{$key1}"]);
     }    
 
     protected function updateAdditionalData (array $data, $code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
-        // Actualizar existencias producto
-        //...        
+        // Recalcula el stock del producto
+        $this->recalculateAffectedProductStock(["{$delegation}" . self::SEPARATOR . "{$key1}"]);     
 
         return $data;
-    }    
+    }  
+    
+    /**
+     * Obtiene el siguiente valor de lote para el producto de entrada.
+     * 
+     * @param string $productDelegation - Delegación del producto para filtrar los lotes.
+     * @param string $productCode - Código del producto para filtrar los lotes.
+     * @return string - El siguiente valor de lote 
+     */
+    private function getNextLotValue($productDelegation, $productCode)
+    {
+        $maxLot = DB::table('ALMSEL')
+            ->where('PRD3DEL', $productDelegation)
+            ->where('PRD3COD', $productCode)        
+            ->selectRaw('MAX(CAST(SEL1COD AS UNSIGNED)) as max_numeric')
+            ->value('max_numeric');
+
+        if (!is_null($maxLot)) {
+            return (string)($maxLot + 1);
+        }
+        return '1';
+    }
 
 }

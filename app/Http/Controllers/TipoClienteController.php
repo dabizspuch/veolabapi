@@ -11,6 +11,7 @@ class TipoClienteController extends BaseController
     protected $codeField = 'TIC1COD';    
     protected $inactiveField = 'TICBBAJ';
     protected $searchFields = ['TICCDES'];
+
     protected $mapping = [
         'delegacion'                    => 'DEL3COD',
         'codigo'                        => 'TIC1COD',

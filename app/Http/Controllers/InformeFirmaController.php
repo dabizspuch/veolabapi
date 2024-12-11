@@ -14,7 +14,8 @@ class InformeFirmaController extends BaseController
     protected $key3Field = 'TIF3DEL';
     protected $key4Field = 'DEP3COD';          
     protected $key5Field = 'DEP3DEL';
-
+    protected $skipNewCode = true;          
+    
     protected $mapping = [
         'informe_delegacion'            => 'INF3DEL',
         'informe_serie'                 => 'INF3SER',

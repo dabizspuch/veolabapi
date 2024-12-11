@@ -10,6 +10,7 @@ class FamiliaController extends BaseController
     protected $delegationField = 'DEL3COD';
     protected $codeField = 'FAM1COD';    
     protected $searchFields = ['FAMCDES'];
+    
     protected $mapping = [
         'delegacion'                    => 'DEL3COD',
         'codigo'                        => 'FAM1COD',

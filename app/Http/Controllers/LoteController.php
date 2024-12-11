@@ -11,6 +11,7 @@ class LoteController extends BaseController
     protected $key1Field = 'LOT1SER';
     protected $codeField = 'LOT1COD';    
     protected $searchFields = ['LOTCREF', 'LOTCDES'];
+    
     protected $mapping = [
         'delegacion'                    => 'DEL3COD',
         'serie'                         => 'LOT1SER',

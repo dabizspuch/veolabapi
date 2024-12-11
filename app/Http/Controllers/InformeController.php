@@ -10,6 +10,7 @@ class InformeController extends BaseController
     protected $delegationField = 'DEL3COD';
     protected $key1Field = 'INF1SER';
     protected $codeField = 'INF1COD';    
+    
     protected $mapping = [
         'delegacion'                => 'DEL3COD',
         'serie'                     => 'INF1SER',
@@ -43,7 +44,7 @@ class InformeController extends BaseController
             'delegacion'                        => 'nullable|string|max:10',
             'serie'                             => 'nullable|string|max:10',
             'codigo'                            => 'nullable|integer',
-            'estado_validacion'                 => 'nullable|string|in:P,V,R|max:1', // Pendiente, Validado, Rechazado
+            'estado_validacion'                 => 'required|string|in:P,V,R|max:1', // Pendiente, Validado, Rechazado
             'fecha_creacion'                    => 'nullable|date',
             'fecha_envio'                       => 'nullable|date',
             'fecha_validacion'                  => 'nullable|date',
@@ -268,12 +269,11 @@ class InformeController extends BaseController
             ->where('INF1COD', $code)
             ->first();
         
-        // Prevalecen los datos que serán almacenados
-        $final          = $data['final']                ?? ($report ? $report->INFBFIN : null);
-        $status         = $data['estado_validacion']    ?? ($report ? $report->INFCVAL : null);
-        $creationDate   = $data['fecha_creacion']       ?? ($report ? $report->INFDCRE : null);
-        $sendingDate    = $data['fecha_envio']          ?? ($report ? $report->INFDENV : null);
-        $validationDate = $data['fecha_validacion']     ?? ($report ? $report->INFDVAL : now());
+        $final          = $report ? $report->INFBFIN : null;
+        $status         = $report ? $report->INFCVAL : null;
+        $creationDate   = $report ? $report->INFDCRE : null;
+        $sendingDate    = $report ? $report->INFDENV : null;
+        $validationDate = $report ? $report->INFDVAL : now();
 
         if ($final) {
             // Se actualizan los estados de las operaciones

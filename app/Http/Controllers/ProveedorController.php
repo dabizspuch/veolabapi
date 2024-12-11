@@ -11,6 +11,7 @@ class ProveedorController extends BaseController
     protected $codeField = 'PRO1COD';    
     protected $inactiveField = 'PROBBAJ';
     protected $searchFields = ['PROCNOM', 'PROCRAS'];
+    
     protected $mapping = [
         'delegacion'                    => 'DEL3COD',
         'codigo'                        => 'PRO1COD',

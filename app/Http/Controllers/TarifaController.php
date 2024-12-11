@@ -11,6 +11,7 @@ class TarifaController extends BaseController
     protected $codeField = 'TAR1COD';    
     protected $inactiveField = 'TARBBAJ';
     protected $searchFields = ['TARCDES'];
+    
     protected $mapping = [
         'delegacion'                    => 'DEL3COD',
         'codigo'                        => 'TAR1COD',

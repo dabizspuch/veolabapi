@@ -11,6 +11,7 @@ class OrdenController extends BaseController
     protected $key1Field = 'ORD1SER';
     protected $codeField = 'ORD1COD';    
     protected $searchFields = ['ORDCOBS'];
+    
     protected $mapping = [
         'delegacion'                    => 'DEL3COD',
         'serie'                         => 'ORD1SER',

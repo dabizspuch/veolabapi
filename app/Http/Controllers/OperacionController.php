@@ -15,6 +15,7 @@ class OperacionController extends BaseController
     protected $codeField = 'OPE1COD';    
     protected $inactiveField = 'OPEBANU';
     protected $searchFields = ['OPECDES', 'OPECREF'];
+    
     protected $mapping = [
         'delegacion'                    => 'DEL3COD',
         'serie'                         => 'OPE1SER',
@@ -782,7 +783,6 @@ class OperacionController extends BaseController
 
                         // Se recordará la posición último parámetro del servicio
                         $maxParameterPosition = max($maxParameterPosition, $parameter->SYTNORD);
-
                     }                
 
                     // Inserta gastos en LABOYG por cada servicio

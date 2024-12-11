@@ -11,6 +11,7 @@ class ProductoController extends BaseController
     protected $codeField = 'PRD1COD';    
     protected $inactiveField = 'PRDBBAJ';
     protected $searchFields = ['PRDCDES'];
+    
     protected $mapping = [
         'delegacion'                    => 'DEL3COD',
         'codigo'                        => 'PRD1COD',

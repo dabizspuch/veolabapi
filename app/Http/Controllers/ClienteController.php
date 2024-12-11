@@ -11,6 +11,7 @@ class ClienteController extends BaseController
     protected $codeField = 'CLI1COD';    
     protected $inactiveField = 'CLIBBAJ';
     protected $searchFields = ['CLICNOM', 'CLICRAS'];
+    
     protected $mapping = [
         'delegacion'                    => 'DEL3COD',
         'codigo'                        => 'CLI1COD',
