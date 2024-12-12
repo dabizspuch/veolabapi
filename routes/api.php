@@ -11,6 +11,7 @@ use App\Http\Controllers\FormaEnvioController;
 use App\Http\Controllers\InformeController;
 use App\Http\Controllers\InformeFirmaController;
 use App\Http\Controllers\LoteController;
+use App\Http\Controllers\MateriaPrimaController;
 use App\Http\Controllers\OperacionController;
 use App\Http\Controllers\OperacionResultadoController;
 use App\Http\Controllers\OperacionParametroController;
@@ -154,6 +155,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/productos-lotes', [ProductoLoteController::class, 'store']);
     Route::put('/productos-lotes/{codigo}/{delegacion?}/{clave1}', [ProductoLoteController::class, 'update']);
     Route::delete('/productos-lotes/{codigo}/{delegacion?}/{clave1}', [ProductoLoteController::class, 'destroy']);
+
+    // Materias primas
+    Route::get('/materias-primas/{codigo}/{delegacion?}/{clave1}', [MateriaPrimaController::class, 'index']);
+    Route::get('/materias-primas/{codigo}/{delegacion?}/{clave1}/{clave2}/{clave3?}/{clave4}', [MateriaPrimaController::class, 'show']);
+    Route::post('/materias-primas', [MateriaPrimaController::class, 'store']);
+    Route::put('/materias-primas/{codigo}/{delegacion?}/{clave1}/{clave2}/{clave3?}/{clave4}', [MateriaPrimaController::class, 'update']);
+    Route::delete('/materias-primas/{codigo}/{delegacion?}/{clave1}/{clave2}/{clave3?}/{clave4}', [MateriaPrimaController::class, 'destroy']);   
 
 });
 

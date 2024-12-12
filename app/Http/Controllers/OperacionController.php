@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Traits\OperationInventoryTools;
 use Illuminate\Support\Facades\DB;
-use App\Traits\ToolsOperation;
 
 class OperacionController extends BaseController
 {
-    use ToolsOperation;
+    use OperationInventoryTools;
     
     protected $table = 'LABOPE';
     protected $delegationField = 'DEL3COD';
@@ -512,7 +512,7 @@ class OperacionController extends BaseController
         
     }
 
-    protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null)
+    protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         $isCreating = request()->isMethod('post');
 

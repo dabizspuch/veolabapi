@@ -102,7 +102,7 @@ class OperacionResultadoController extends BaseController
         }
     }
 
-    protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null)
+    protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Si se está modificando una operación se debe comprobar que no se hayan firmado o validado informes relacionados
         if (!is_null($code)) {

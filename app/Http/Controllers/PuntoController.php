@@ -110,7 +110,7 @@ class PuntoController extends BaseController
         }           
     }
 
-    protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null)
+    protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         $isCreating = request()->isMethod('post'); 
 
@@ -143,8 +143,8 @@ class PuntoController extends BaseController
         // Comprueba que no esté referenciado en operaciones
         $usedInAnotherTable = DB::table('LABOPE')
             ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $code)
-            ->where('PUM2COD', $key1)
+            ->where('CLI2COD', $key1)
+            ->where('PUM2COD', $code)
             ->exists();
         if ($usedInAnotherTable) {
             throw new \Exception("El punto no puede ser eliminado porque está siendo referenciado en operaciones");
@@ -153,8 +153,8 @@ class PuntoController extends BaseController
         // Comprueba que no esté referenciado en planificaciones
         $usedInAnotherTable = DB::table('LABPLO')
             ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $code)
-            ->where('PUM2COD', $key1)
+            ->where('CLI2COD', $key1)
+            ->where('PUM2COD', $code)
             ->exists();
         if ($usedInAnotherTable) {
             throw new \Exception("El punto no puede ser eliminado porque está siendo referenciado en planificaciones");
@@ -163,8 +163,8 @@ class PuntoController extends BaseController
         // Comprueba que no esté referenciado en líneas de factura
         $usedInAnotherTable = DB::table('FACLIF')
             ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $code)
-            ->where('PUM2COD', $key1)
+            ->where('CLI2COD', $key1)
+            ->where('PUM2COD', $code)
             ->exists();
         if ($usedInAnotherTable) {
             throw new \Exception("El punto no puede ser eliminado porque está siendo referenciado en líneas de factura");
@@ -173,8 +173,8 @@ class PuntoController extends BaseController
         // Comprueba que no esté referenciado en puntos como categoría
         $usedInAnotherTable = DB::table('LABPUM')
             ->where('DEL3COD', $delegation)
-            ->where('CLI3COD', $code)
-            ->where('PUM2COD', $key1)
+            ->where('CLI3COD', $key1)
+            ->where('PUM2COD', $code)
             ->exists();
         if ($usedInAnotherTable) {
             throw new \Exception("El punto no puede ser eliminado porque está siendo referenciado desde otro punto (categoría)");

@@ -90,7 +90,7 @@ class LoteController extends BaseController
         }        
     }
 
-    protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null)
+    protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
 
         $isCreating = request()->isMethod('post');

@@ -31,7 +31,7 @@ abstract class BaseController extends Controller
     abstract protected function validateRelationships(array $data);
     
     // Definir las validaciones adicionales como nombre único, estado, etc. (abstracto)
-    abstract protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null);
+    abstract protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null);
 
     // Definir las validaciones de relaciones (abstracto)
     abstract protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null);
@@ -327,7 +327,7 @@ abstract class BaseController extends Controller
             $this->validateRelationships($validatedData);
 
             // Validar el nombre o descripción
-            $validatedData = $this->validateAdditionalCriteria($validatedData, $code, $delegation, $key1);
+            $validatedData = $this->validateAdditionalCriteria($validatedData, $code, $delegation, $key1, $key2, $key3, $key4);
 
             // Convertir los datos a formato de base de datos
             $datosBD = $this->mapToDatabaseFields($validatedData);

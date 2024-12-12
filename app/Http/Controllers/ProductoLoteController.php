@@ -2,12 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Traits\ToolsOperation;
+use App\Traits\OperationInventoryTools;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class ProductoLoteController extends BaseController
 {
-    use ToolsOperation;
+    use OperationInventoryTools;
 
     protected $table = 'ALMSEL';
     protected $delegationField = 'PRD3DEL';
@@ -15,6 +16,9 @@ class ProductoLoteController extends BaseController
     protected $key1Field = 'PRD3COD'; // Se utilizará como serie en la generación del código
     protected $searchFields = ['SELCDES', 'SELCCOB'];
     protected $skipNewCode = true;
+
+    protected $previousState; // Estado antes de grabar
+    protected $previousAmount = 0; // Existencias antes de grabar
 
     protected $mapping = [
         'producto_delegacion'         => 'PRD3DEL',
@@ -129,7 +133,7 @@ class ProductoLoteController extends BaseController
         }        
     }
 
-    protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null)
+    protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         $isCreating = request()->isMethod('post');
 
@@ -164,7 +168,20 @@ class ProductoLoteController extends BaseController
                 $data['numero_serie_lote'] 
             );
         } 
-                
+
+        if (!$isCreating) {
+            // Recuerda valores anteriores
+            $result = DB::table('ALMSEL')
+                ->select('SELCESA', 'SELNCAE')
+                ->where('PRD3DEL', $delegation)
+                ->where('PRD3COD', $key1)
+                ->where('SEL1COD', $code)
+                ->first();
+
+            $this->previousAmount = $result->SELNCAE ?? 0;
+            $this->previousState = $result->SELCESA ?? '';
+        }
+            
         return $data;        
     }
         
@@ -175,8 +192,8 @@ class ProductoLoteController extends BaseController
         // Comprueba que la serie o lote no está vinculado a ninguna operación
         $usedInAnotherTable = DB::table('LABOPE')
             ->where('PRD2DEL', $delegation)
-            ->where('PRD2COD', $code)
-            ->where('SEL2COD', $key1)
+            ->where('PRD2COD', $key1)
+            ->where('SEL2COD', $code)
             ->exists();
         if ($usedInAnotherTable) {
             throw new \Exception("La serie o lote no puede ser eliminada porque está referenciada en alguna operación");
@@ -185,8 +202,8 @@ class ProductoLoteController extends BaseController
         // Comprueba que la serie o lote no está siendo usada como materia prima en otro producto
         $usedInAnotherTable = DB::table('ALMMAT')
             ->where('PRM3DEL', $delegation)
-            ->where('PRM3COD', $code)
-            ->where('SEM3COD', $key1)
+            ->where('PRM3COD', $key1)
+            ->where('SEM3COD', $code)
             ->exists();
         if ($usedInAnotherTable) {
             throw new \Exception("La serie o lote no puede ser eliminada porque está siendo usada como materia prima");
@@ -199,22 +216,22 @@ class ProductoLoteController extends BaseController
         // Borra los movimientos relacionados
         DB::table('ALMMOV')
             ->where('PRD2DEL', $delegation)
-            ->where('PRD2COD', $code)
-            ->where('SEL2COD', $key1)
+            ->where('PRD2COD', $key1)
+            ->where('SEL2COD', $code)
             ->delete();
 
         // Borra las materias primas
         DB::table('ALMMAT')
             ->where('PRD3DEL', $delegation)
-            ->where('PRD3COD', $code)
-            ->where('SEL3COD', $key1)
+            ->where('PRD3COD', $key1)
+            ->where('SEL3COD', $code)
             ->delete();            
 
         // Documentos a la papelera
         DB::table('DOCFAT')
             ->where('DEL3COD', $delegation)
-            ->where('PRD2COD', $code)
-            ->where('SEL2COD', $key1)
+            ->where('PRD2COD', $key1)
+            ->where('SEL2COD', $code)
             ->update([
                 'DIR2DEL' => $delegation,
                 'DIR2COD' => 0
@@ -226,6 +243,56 @@ class ProductoLoteController extends BaseController
 
     protected function updateAdditionalData (array $data, $code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
+        // Crea el movimiento en inventario si procede
+        $isCreating = request()->isMethod('post');
+
+        if ($isCreating) {
+            // Nueva
+            $movementType = "I"; // Inicial
+            $amount = $data['existencias_cantidad'];
+        } else {
+            // Modificación
+            if (!empty($data['estado'])) {
+                if ($data['estado'] == 'B') { 
+                    // Nuevo estado es baja
+                    if ($this->previousState != 'B') {
+                        $movementType = 'B'; // Baja
+                        $amount = -$this->previousAmount;
+                    }
+                } else {
+                    // Nuevo estado no es baja
+                    if ($this->previousState == 'B' && $data['estado'] != 'B') {
+                        // Si estaba de baja y ya no lo está
+                        $movementType = 'J'; // Ajuste
+                        $amount = $data['existencias_cantidad'];
+                    } else {
+                        if (!empty($data['existencias_cantidad'])) {
+                            // Ajuste por cantidad modificada
+                            $movementType = 'J'; // Ajuste
+                            $amount = ($data['existencias_cantidad'] ?? 0) - $this->previousAmount;
+                        }
+                    }
+                }
+            } else {
+                if (!empty($data['existencias_cantidad'])) {
+                    $movementType = "J"; // Ajuste
+                    $amount = ($data['existencias_cantidad'] ?? 0) - $this->previousAmount;
+                }
+            }
+        }
+
+        // Genera el movimiento        
+        DB::table('ALMMOV')->insert([
+            'DEL3COD' => $delegation,
+            'MOV1COD' => $this->generateNewCode($delegation, '', 'ALMMOV'),
+            'MOVCTIP' => $movementType,
+            'MOVDFEC' => Carbon::now(),
+            'MOVNCAN' => (float)$amount,
+            'PRD2DEL' => $delegation,
+            'PRD2COD' => $key1,
+            'SEL2COD' => $code,
+        ]);
+
         // Recalcula el stock del producto
         $this->recalculateAffectedProductStock(["{$delegation}" . self::SEPARATOR . "{$key1}"]);     
 
@@ -239,7 +306,7 @@ class ProductoLoteController extends BaseController
      * @param string $productCode - Código del producto para filtrar los lotes.
      * @return string - El siguiente valor de lote 
      */
-    private function getNextLotValue($productDelegation, $productCode)
+    protected function getNextLotValue($productDelegation, $productCode)
     {
         $maxLot = DB::table('ALMSEL')
             ->where('PRD3DEL', $productDelegation)
