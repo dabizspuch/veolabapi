@@ -788,7 +788,7 @@ trait OperationInventoryTools
     }     
 
     /**
-     * Obtiene el número de orden del parámetro de entrada dentro del servicio
+     * Obtiene el número de orden del parámetro de entrada dentro del servicio.
      * 
      * @param stdClass $parameter - Información del parámetro.
      * @param stdClass $service - Información del servicio.
@@ -804,5 +804,5 @@ trait OperationInventoryTools
             ->pluck('SYTNORD')
             ->first();
         return $orderNumber ?? 0;
-    }  
+    }    
 }

@@ -171,7 +171,7 @@ class ProductoController extends BaseController
             ->where('PRD3COD', $code)
             ->exists();
         if ($usedInAnotherTable) {
-            throw new \Exception("El producto no puede ser eliminado porque está vinculado a alguna técnica (equipo)");
+            throw new \Exception("El producto no puede ser eliminado porque está vinculado a algún parámetro (equipo)");
         }        
 
         // Comprueba que el producto no está vinculado a alguna técnica
@@ -180,7 +180,7 @@ class ProductoController extends BaseController
             ->where('PRD3COD', $code)
             ->exists();
         if ($usedInAnotherTable) {
-            throw new \Exception("El producto no puede ser eliminado porque está vinculado a alguna técnica (consumible)");
+            throw new \Exception("El producto no puede ser eliminado porque está vinculado a algún parámetro (consumible)");
         }        
     }
 

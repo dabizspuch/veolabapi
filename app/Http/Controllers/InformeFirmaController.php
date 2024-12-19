@@ -33,20 +33,22 @@ class InformeFirmaController extends BaseController
 
     protected function rules()
     {
+        $isCreating = request()->isMethod('post');
+
         // Reglas generales
         $rules = [
             'informe_delegacion'        => 'nullable|string|max:10',
             'informe_serie'             => 'nullable|string|max:10',
-            'informe_codigo'            => 'required|integer',
+            'informe_codigo'            => $isCreating ? 'required|integer' : 'nullable|integer',
             'firma_delegacion'          => 'nullable|string|max:10',
-            'firma_codigo'              => 'required|integer',
+            'firma_codigo'              => $isCreating ? 'required|integer' : 'nullable|integer',
             'departamento_delegacion'   => 'nullable|string|max:10',
-            'departamento_codigo'       => 'required|integer',
+            'departamento_codigo'       => $isCreating ? 'required|integer' : 'nullable|integer',
             'fecha_firma'               => 'nullable|date',
             'estado_firma'              => 'nullable|string|in:T,F|max:1',
             'comentarios'               => 'nullable|string|max:255',
             'usuario_delegacion'        => 'nullable|string|max:10',
-            'usuario_codigo'            => 'required|string|max:15',                       
+            'usuario_codigo'            => $isCreating ? 'required|string|max:15' : 'nullable|string|max:15',                       
         ];
 
         return $rules;
@@ -118,6 +120,17 @@ class InformeFirmaController extends BaseController
             if ($exist) {
                 throw new \Exception("La firma ya existe");            
             }
+        } else {
+            // Excluir campos clave de los datos a actualizar porque no serán editables
+            unset(
+                $data['informe_delegacion'],
+                $data['informe_serie'],
+                $data['informe_codigo'],
+                $data['firma_delegacion'],
+                $data['firma_codigo'],
+                $data['departamento_delegacion'],
+                $data['departamento_codigo'],
+            );
         }
         
         return $data;

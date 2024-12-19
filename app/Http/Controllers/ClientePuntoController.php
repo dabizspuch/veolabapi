@@ -4,18 +4,18 @@ namespace App\Http\Controllers;
 
 use Illuminate\Support\Facades\DB;
 
-class PuntoController extends BaseController
+class ClientePuntoController extends BaseController
 {
     protected $table = 'LABPUM';
     protected $delegationField = 'DEL3COD';
-    protected $codeField = 'PUM1COD';    
-    protected $key1Field = 'CLI3COD';  // Se utilizará como serie en la generación del código        
+    protected $codeField = 'CLI3COD';  
+    protected $key1Field = 'PUM1COD';         
     protected $inactiveField = 'PUMBBAJ';
     protected $searchFields = ['PUMCDES'];
     protected $skipNewCode = true;
     
     protected $mapping = [
-        'delegacion'                    => 'DEL3COD',
+        'cliente_delegacion'            => 'DEL3COD',
         'cliente_codigo'                => 'CLI3COD',
         'codigo'                        => 'PUM1COD',
         'descripcion'                   => 'PUMCDES',
@@ -43,10 +43,12 @@ class PuntoController extends BaseController
 
     protected function rules()
     {
+        $isCreating = request()->isMethod('post');
+        
         // Reglas generales
         $rules = [
-            'delegacion'                => 'nullable|string|max:10',
-            'cliente_codigo'            => 'nullable|string|max:15',
+            'cliente_delegacion'        => 'nullable|string|max:10',
+            'cliente_codigo'            => $isCreating ? 'required|string|max:15' : 'nullable|string|max:15',
             'codigo'                    => 'nullable|integer',
             'descripcion'               => 'nullable|string|max:255',
             'referencia'                => 'nullable|string|max:100',
@@ -76,20 +78,10 @@ class PuntoController extends BaseController
 
     protected function validateRelationships(array $data)
     {  
-        // Valida la existencia de la delegación 
-        if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
-                ->where('DEL1COD', $data['delegacion'])
-                ->first(); 
-            if (!$delegation) {
-                throw new \Exception("La delegación no existe");
-            }
-        }
-
         // Valida la existencia del cliente 
-        if (!empty($data['codigo'])) {
+        if (!empty($data['cliente_codigo'])) {
             $client = DB::table('SINCLI')
-                ->where('DEL3COD', $data['delegacion'] ?? '')
+                ->where('DEL3COD', $data['cliente_delegacion'] ?? '')
                 ->where('CLI1COD', $data['cliente_codigo'])
                 ->first(); 
             if (!$client) {
@@ -100,7 +92,7 @@ class PuntoController extends BaseController
         // Valida la existencia de la categoría
         if (!empty($data['categoria'])) {
             $category = DB::table('LABPUM')
-                ->where('DEL3COD', $data['delegacion'] ?? '')
+                ->where('DEL3COD', $data['cliente_delegacion'] ?? '')
                 ->where('PUM2COD', $data['categoria'])
                 ->where('es_categoria', 'T')
                 ->first(); 
@@ -117,16 +109,16 @@ class PuntoController extends BaseController
         if ($isCreating) {
             // Genera el código sin usar claves técnicas
             if (empty($data['codigo'])) {
-                $data['delegacion'] = $data['delegacion'] ?? '';
+                $data['cliente_delegacion'] = $data['cliente_delegacion'] ?? '';
                 $data['codigo'] = $this->getNextPointCode(
-                    $data['delegacion'], 
+                    $data['cliente_delegacion'], 
                     $data['cliente_codigo']
                 );
             }            
         } else {
             // Excluir campos clave de los datos a actualizar porque no serán editables
             unset(
-                $data['delegacion'], 
+                $data['cliente_delegacion'], 
                 $data['cliente_codigo'], 
                 $data['codigo']
             ); 
@@ -143,8 +135,8 @@ class PuntoController extends BaseController
         // Comprueba que no esté referenciado en operaciones
         $usedInAnotherTable = DB::table('LABOPE')
             ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $key1)
-            ->where('PUM2COD', $code)
+            ->where('CLI2COD', $code)
+            ->where('PUM2COD', $key1)
             ->exists();
         if ($usedInAnotherTable) {
             throw new \Exception("El punto no puede ser eliminado porque está siendo referenciado en operaciones");
@@ -153,8 +145,8 @@ class PuntoController extends BaseController
         // Comprueba que no esté referenciado en planificaciones
         $usedInAnotherTable = DB::table('LABPLO')
             ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $key1)
-            ->where('PUM2COD', $code)
+            ->where('CLI2COD', $code)
+            ->where('PUM2COD', $key1)
             ->exists();
         if ($usedInAnotherTable) {
             throw new \Exception("El punto no puede ser eliminado porque está siendo referenciado en planificaciones");
@@ -163,8 +155,8 @@ class PuntoController extends BaseController
         // Comprueba que no esté referenciado en líneas de factura
         $usedInAnotherTable = DB::table('FACLIF')
             ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $key1)
-            ->where('PUM2COD', $code)
+            ->where('CLI2COD', $code)
+            ->where('PUM2COD', $key1)
             ->exists();
         if ($usedInAnotherTable) {
             throw new \Exception("El punto no puede ser eliminado porque está siendo referenciado en líneas de factura");
@@ -173,8 +165,8 @@ class PuntoController extends BaseController
         // Comprueba que no esté referenciado en puntos como categoría
         $usedInAnotherTable = DB::table('LABPUM')
             ->where('DEL3COD', $delegation)
-            ->where('CLI3COD', $key1)
-            ->where('PUM2COD', $code)
+            ->where('CLI3COD', $code)
+            ->where('PUM2COD', $key1)
             ->exists();
         if ($usedInAnotherTable) {
             throw new \Exception("El punto no puede ser eliminado porque está siendo referenciado desde otro punto (categoría)");

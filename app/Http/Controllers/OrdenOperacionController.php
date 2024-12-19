@@ -80,6 +80,9 @@ class OrdenOperacionController extends BaseController
         if ($exist) {
             throw new \Exception("La orden ya tiene asociada esta operación");            
         }
+
+        // Modificaciones no soportadas (put)
+
         return $data;
     }    
 

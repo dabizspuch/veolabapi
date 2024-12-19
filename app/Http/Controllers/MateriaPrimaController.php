@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Traits\OperationInventoryTools;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class MateriaPrimaController extends BaseController
@@ -22,25 +21,27 @@ class MateriaPrimaController extends BaseController
     protected $previousAmount = 0; // Existencias antes de grabar
 
     protected $mapping = [
-        'delegacion_producto'           => 'PRD3DEL',
-        'codigo_producto'               => 'PRD3COD',
+        'producto_delegacion'           => 'PRD3DEL',
+        'producto_codigo'               => 'PRD3COD',
         'numero_serie_lote'             => 'SEL3COD',
-        'delegacion_producto_materia'   => 'PRM3DEL',
-        'codigo_producto_materia'       => 'PRM3COD',
-        'numero_serie_lote_materia'     => 'SEM3COD',
+        'producto_materia_delegacion'   => 'PRM3DEL',
+        'producto_materia_codigo'       => 'PRM3COD',
+        'materia_numero_serie_lote'     => 'SEM3COD',
         'cantidad'                      => 'MATNCAN'
     ];
 
     protected function rules()
     {
+        $isCreating = request()->isMethod('post');
+
         // Reglas generales
         $rules = [
-            'delegacion_producto'           => 'nullable|string|max:10',
-            'codigo_producto'               => 'required|string|max:15',
-            'numero_serie_lote'             => 'required|string|max:30',
-            'delegacion_producto_materia'   => 'nullable|string|max:10',
-            'codigo_producto_materia'       => 'required|string|max:15',
-            'numero_serie_lote_materia'     => 'required|string|max:30',
+            'producto_delegacion'           => 'nullable|string|max:10',
+            'producto_codigo'               => $isCreating ? 'required|string|max:15' : 'nullable|string|max:15',
+            'numero_serie_lote'             => $isCreating ? 'required|string|max:30' : 'nullable|string|max:30',
+            'producto_materia_delegacion'   => 'nullable|string|max:10',
+            'producto_materia_codigo'       => $isCreating ? 'required|string|max:15' : 'nullable|string|max:15',
+            'materia_numero_serie_lote'     => $isCreating ? 'required|string|max:30' : 'nullable|string|max:30',
             'cantidad'                      => 'nullable|numeric'
         ];
 
@@ -52,8 +53,8 @@ class MateriaPrimaController extends BaseController
         // Valida la existencia del lote 
         if (!empty($data['numero_serie_lote'])) {
             $order = DB::table('ALMSEL')
-                ->where('PRD3DEL', $data['delegacion_producto'] ?? '')
-                ->where('PRD3COD', $data['codigo_producto'])
+                ->where('PRD3DEL', $data['producto_delegacion'] ?? '')
+                ->where('PRD3COD', $data['producto_codigo'])
                 ->where('SEL1COD', $data['numero_serie_lote'])
                 ->first(); 
             if (!$order) {
@@ -62,11 +63,11 @@ class MateriaPrimaController extends BaseController
         }   
 
         // Valida la existencia del lote (materia prima)
-        if (!empty($data['numero_serie_lote_materia'])) {
+        if (!empty($data['materia_numero_serie_lote'])) {
             $order = DB::table('ALMSEL')
-                ->where('PRD3DEL', $data['delegacion_producto_materia'] ?? '')
-                ->where('PRD3COD', $data['codigo_producto_materia'])
-                ->where('SEL1COD', $data['numero_serie_lote_materia'])
+                ->where('PRD3DEL', $data['producto_materia_delegacion'] ?? '')
+                ->where('PRD3COD', $data['producto_materia_codigo'])
+                ->where('SEL1COD', $data['materia_numero_serie_lote'])
                 ->first(); 
             if (!$order) {
                 throw new \Exception("La serie o lote no existe (materia prima)");
@@ -81,16 +82,26 @@ class MateriaPrimaController extends BaseController
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
             $exist = DB::table('ALMMAT')
-                ->where('PRM3DEL', $data['delegacion_producto'] ?? '')
-                ->where('PRM3COD', $data['codigo_producto'])
+                ->where('PRM3DEL', $data['producto_delegacion'] ?? '')
+                ->where('PRM3COD', $data['producto_codigo'])
                 ->where('SEM3COD', $data['numero_serie_lote'])
-                ->where('PRD3DEL', $data['delegacion_producto_materia'] ?? '')
-                ->where('PRD3COD', $data['codigo_producto_materia'])
-                ->where('SEL3COD', $data['numero_serie_lote_materia'])
+                ->where('PRD3DEL', $data['producto_materia_delegacion'] ?? '')
+                ->where('PRD3COD', $data['producto_materia_codigo'])
+                ->where('SEL3COD', $data['materia_numero_serie_lote'])
                 ->exists();
             if ($exist) {
                 throw new \Exception("Los lotes indicados ya están vinculados como materias primas");            
-            }            
+            }
+        } else {
+            // Excluir campos clave de los datos a actualizar porque no serán editables
+            unset( 
+                $data['producto_delegacion'], 
+                $data['producto_codigo'], 
+                $data['numero_serie_lote'], 
+                $data['producto_materia_delegacion'], 
+                $data['producto_materia_codigo'], 
+                $data['materia_numero_serie_lote'], 
+            );                        
         }
 
         // Recuerda cantidad anterior
@@ -137,9 +148,9 @@ class MateriaPrimaController extends BaseController
         $isCreating = request()->isMethod('post');
 
         if ($isCreating) {        
-            $productDelegation = $data['delegacion_producto_materia'] ?? '';
-            $productCode = $data['codigo_producto_materia'];
-            $lotNumber = $data['numero_serie_lote_materia'];                
+            $productDelegation = $data['producto_materia_delegacion'] ?? '';
+            $productCode = $data['producto_materia_codigo'];
+            $lotNumber = $data['materia_numero_serie_lote'];                
             $movementType = "O"; // Consumo
             $amount = -$data['cantidad'] ?? 0;
         

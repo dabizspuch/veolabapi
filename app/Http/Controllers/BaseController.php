@@ -100,14 +100,19 @@ abstract class BaseController extends Controller
      * @param Request $request - Solicitud HTTP con los parámetros de búsqueda y paginación
      * @return \Illuminate\Http\JsonResponse - Respuesta JSON con los registros
      */    
-    public function index(Request $request, $code = null, $delegation = null)
+    public function index(Request $request, $code = null, $delegation = null, $key1 = null)
     {
         $query = DB::table($this->table);     
 
-        // Filtro por codigo o supercodigo (si aplica)
+        // Filtro por codigo y delegación
         if (!empty($code)) { 
             $query->where($this->codeField, '=', $code)
                   ->where($this->delegationField, '=', $delegation ?? '');
+        }
+
+        // Filtro por serie (no se utilizá en index otras claves de tablas relacionadas)
+        if (!empty($key1)) {
+            $query->where($this->key1Field, '=', $key1 ?? '');
         }
 
         // Filtro por baja (si aplica)
@@ -165,12 +170,12 @@ abstract class BaseController extends Controller
      */    
     public function show($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
-        $delegation = $delegation ?? '';
+        if ($this->delegationField) $delegation = $delegation ?? '';
         if ($this->key1Field) $key1 = $key1 ?? '';
         if ($this->key2Field) $key2 = $key2 ?? '';
         if ($this->key3Field) $key3 = $key3 ?? '';
         if ($this->key4Field) $key4 = $key4 ?? '';
- 
+
         $record = DB::table($this->table)
             ->where($this->delegationField, $delegation)
             ->where($this->codeField, $code)
@@ -294,7 +299,7 @@ abstract class BaseController extends Controller
      */    
     public function update(Request $request, $code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {     
-        $delegation = $delegation ?? '';
+        if ($this->delegationField) $delegation = $delegation ?? '';
         if ($this->key1Field) $key1 = $key1 ?? '';
         if ($this->key2Field) $key2 = $key2 ?? '';
         if ($this->key3Field) $key3 = $key3 ?? '';
@@ -372,7 +377,7 @@ abstract class BaseController extends Controller
      */    
     public function destroy($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
-        $delegation = $delegation ?? '';
+        if ($this->delegationField) $delegation = $delegation ?? '';
         if ($this->key1Field) $key1 = $key1 ?? '';
         if ($this->key2Field) $key2 = $key2 ?? '';
         if ($this->key3Field) $key3 = $key3 ?? '';
