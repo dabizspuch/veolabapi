@@ -80,7 +80,7 @@ class ClientePuntoController extends BaseController
     {  
         // Valida la existencia del cliente 
         if (!empty($data['cliente_codigo'])) {
-            $client = DB::table('SINCLI')
+            $client = DB::connection('dynamic')->table('SINCLI')
                 ->where('DEL3COD', $data['cliente_delegacion'] ?? '')
                 ->where('CLI1COD', $data['cliente_codigo'])
                 ->first(); 
@@ -91,7 +91,7 @@ class ClientePuntoController extends BaseController
 
         // Valida la existencia de la categoría
         if (!empty($data['categoria'])) {
-            $category = DB::table('LABPUM')
+            $category = DB::connection('dynamic')->table('LABPUM')
                 ->where('DEL3COD', $data['cliente_delegacion'] ?? '')
                 ->where('PUM2COD', $data['categoria'])
                 ->where('es_categoria', 'T')
@@ -133,7 +133,7 @@ class ClientePuntoController extends BaseController
         $key1 = $key1 ?? '';
 
         // Comprueba que no esté referenciado en operaciones
-        $usedInAnotherTable = DB::table('LABOPE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOPE')
             ->where('CLI2DEL', $delegation)
             ->where('CLI2COD', $code)
             ->where('PUM2COD', $key1)
@@ -143,7 +143,7 @@ class ClientePuntoController extends BaseController
         }
 
         // Comprueba que no esté referenciado en planificaciones
-        $usedInAnotherTable = DB::table('LABPLO')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABPLO')
             ->where('CLI2DEL', $delegation)
             ->where('CLI2COD', $code)
             ->where('PUM2COD', $key1)
@@ -153,7 +153,7 @@ class ClientePuntoController extends BaseController
         }
 
         // Comprueba que no esté referenciado en líneas de factura
-        $usedInAnotherTable = DB::table('FACLIF')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIF')
             ->where('CLI2DEL', $delegation)
             ->where('CLI2COD', $code)
             ->where('PUM2COD', $key1)
@@ -163,7 +163,7 @@ class ClientePuntoController extends BaseController
         }
 
         // Comprueba que no esté referenciado en puntos como categoría
-        $usedInAnotherTable = DB::table('LABPUM')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABPUM')
             ->where('DEL3COD', $delegation)
             ->where('CLI3COD', $code)
             ->where('PUM2COD', $key1)
@@ -192,7 +192,7 @@ class ClientePuntoController extends BaseController
      */
     private function getNextPointCode($clientDelegation, $clientCode)
     {
-        $maxPoint = DB::table('LABPUM')
+        $maxPoint = DB::connection('dynamic')->table('LABPUM')
             ->where('DEL3COD', $clientDelegation)
             ->where('CLI3COD', $clientCode) 
             ->max('PUM1COD');    

@@ -52,7 +52,7 @@ class MateriaPrimaController extends BaseController
     {         
         // Valida la existencia del lote 
         if (!empty($data['numero_serie_lote'])) {
-            $order = DB::table('ALMSEL')
+            $order = DB::connection('dynamic')->table('ALMSEL')
                 ->where('PRD3DEL', $data['producto_delegacion'] ?? '')
                 ->where('PRD3COD', $data['producto_codigo'])
                 ->where('SEL1COD', $data['numero_serie_lote'])
@@ -64,7 +64,7 @@ class MateriaPrimaController extends BaseController
 
         // Valida la existencia del lote (materia prima)
         if (!empty($data['materia_numero_serie_lote'])) {
-            $order = DB::table('ALMSEL')
+            $order = DB::connection('dynamic')->table('ALMSEL')
                 ->where('PRD3DEL', $data['producto_materia_delegacion'] ?? '')
                 ->where('PRD3COD', $data['producto_materia_codigo'])
                 ->where('SEL1COD', $data['materia_numero_serie_lote'])
@@ -81,7 +81,7 @@ class MateriaPrimaController extends BaseController
 
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
-            $exist = DB::table('ALMMAT')
+            $exist = DB::connection('dynamic')->table('ALMMAT')
                 ->where('PRM3DEL', $data['producto_delegacion'] ?? '')
                 ->where('PRM3COD', $data['producto_codigo'])
                 ->where('SEM3COD', $data['numero_serie_lote'])
@@ -106,7 +106,7 @@ class MateriaPrimaController extends BaseController
 
         // Recuerda cantidad anterior
         if (!$isCreating) {
-            $result = DB::table('ALMMAT')
+            $result = DB::connection('dynamic')->table('ALMMAT')
                 ->select('MATNCAN')
                 ->where('PRD3DEL', $delegation)
                 ->where('PRD3COD', $key1)
@@ -125,7 +125,7 @@ class MateriaPrimaController extends BaseController
     protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Recuerda cantidad anterior para generar el movimiento
-        $result = DB::table('ALMMAT')
+        $result = DB::connection('dynamic')->table('ALMMAT')
             ->select('MATNCAN')
             ->where('PRD3DEL', $delegation)
             ->where('PRD3COD', $key1)

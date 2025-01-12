@@ -37,7 +37,7 @@ class TipoEquipoController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -47,7 +47,7 @@ class TipoEquipoController extends BaseController
 
         // Valida la existencia del tipo de equipo padre 
         if (!empty($data['tipo_equipo_codigo'])) {
-            $type = DB::table('LABTEQ')
+            $type = DB::connection('dynamic')->table('LABTEQ')
                 ->where('DEL3COD', $data['tipo_equipo_delegacion'] ?? '')
                 ->where('TEQ1COD', $data['tipo_equipo_codigo'])
                 ->first(); 
@@ -63,7 +63,7 @@ class TipoEquipoController extends BaseController
 
         // Comprueba que la descripción del gasto no esté en uso
         if (!empty($data['descripcion'])) {
-            $existingRecord = DB::table('LABTEQ')->where('TEQCDES', $data['descripcion']);            
+            $existingRecord = DB::connection('dynamic')->table('LABTEQ')->where('TEQCDES', $data['descripcion']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización la descripción no debe estar repetida pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -81,7 +81,7 @@ class TipoEquipoController extends BaseController
         // Comprueba que el código para la nueva normativa no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('LABTEQ')
+                $existingRecord = DB::connection('dynamic')->table('LABTEQ')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('TEQ1COD', $data['codigo'])
                     ->exists();
@@ -105,7 +105,7 @@ class TipoEquipoController extends BaseController
     protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Equipos
-        $usedInAnotherTable = DB::table('LABEQU')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABEQU')
             ->where('TEQ2DEL', $delegation)
             ->where('TEQ2COD', $code)
             ->exists();
@@ -114,7 +114,7 @@ class TipoEquipoController extends BaseController
         }
        
         // Tipos de equipo
-        $usedInAnotherTable = DB::table('LABTEQ')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABTEQ')
             ->where('TEQ2DEL', $delegation)
             ->where('TEQ2COD', $code)
             ->exists();

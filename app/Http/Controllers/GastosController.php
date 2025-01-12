@@ -46,7 +46,7 @@ class GastosController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -61,7 +61,7 @@ class GastosController extends BaseController
 
         // Comprueba que la descripción del gasto no esté en uso
         if (!empty($data['descripcion'])) {
-            $existingRecord = DB::table('LABESC')->where('ESCCDES', $data['descripcion']);            
+            $existingRecord = DB::connection('dynamic')->table('LABESC')->where('ESCCDES', $data['descripcion']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización el nombre no debe estar repetido pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -79,7 +79,7 @@ class GastosController extends BaseController
         // Comprueba que el código para la nueva normativa no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('LABESC')
+                $existingRecord = DB::connection('dynamic')->table('LABESC')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('ESC1COD', $data['codigo'])
                     ->exists();
@@ -103,7 +103,7 @@ class GastosController extends BaseController
     protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Planificaciones
-        $usedInAnotherTable = DB::table('LABPYG')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABPYG')
             ->where('ESC3DEL', $delegation)
             ->where('ESC3COD', $code)
             ->exists();
@@ -112,7 +112,7 @@ class GastosController extends BaseController
         }
        
         // Operaciones
-        $usedInAnotherTable = DB::table('LABOYG')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOYG')
             ->where('ESC3DEL', $delegation)
             ->where('ESC3COD', $code)
             ->exists();
@@ -121,7 +121,7 @@ class GastosController extends BaseController
         }      
         
         // Servicios
-        $usedInAnotherTable = DB::table('LABSYE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABSYE')
             ->where('DEL3ESC', $delegation)
             ->where('ESC3COD', $code)
             ->exists();
@@ -130,7 +130,7 @@ class GastosController extends BaseController
         }    
         
         // Líneas de factura
-        $usedInAnotherTable = DB::table('FACLIF')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIF')
             ->where('ESC2DEL', $delegation)
             ->where('ESC2COD', $code)
             ->exists();
@@ -139,7 +139,7 @@ class GastosController extends BaseController
         }
         
         // Líneas de contratos
-        $usedInAnotherTable = DB::table('FACLIC')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIC')
             ->where('ESC2DEL', $delegation)
             ->where('ESC2COD', $code)
             ->exists();
@@ -148,7 +148,7 @@ class GastosController extends BaseController
         } 
         
         // Líneas de presupuesto
-        $usedInAnotherTable = DB::table('FACLIP')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIP')
             ->where('ESC2DEL', $delegation)
             ->where('ESC2COD', $code)
             ->exists();

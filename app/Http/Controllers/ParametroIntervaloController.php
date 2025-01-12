@@ -48,7 +48,7 @@ class ParametroIntervaloController extends BaseController
     {  
         // Valida la existencia de la columna 
         if (!empty($data['columna_codigo'])) {
-            $column = DB::table('LABCOT')
+            $column = DB::connection('dynamic')->table('LABCOT')
                 ->where('TEC3DEL', $data['parametro_delegacion'] ?? '')
                 ->where('TEC3COD', $data['parametro_codigo'])
                 ->where('COT1COD', $data['columna_codigo'])
@@ -60,7 +60,7 @@ class ParametroIntervaloController extends BaseController
         
         // Valida la existencia del rango 
         if (!empty($data['rango_codigo'])) {
-            $range = DB::table('LABRAN')
+            $range = DB::connection('dynamic')->table('LABRAN')
                 ->where('DEL3COD', $data['rango_delegacion'] ?? '')
                 ->where('RAN1COD', $data['rango_codigo'])
                 ->first(); 
@@ -71,7 +71,7 @@ class ParametroIntervaloController extends BaseController
 
         // Valida la existencia de la marca 
         if (!empty($data['marca_codigo'])) {
-            $mark = DB::table('LABMAR')
+            $mark = DB::connection('dynamic')->table('LABMAR')
                 ->where('DEL3COD', $data['marca_delegacion'] ?? '')
                 ->where('MAR1COD', $data['marca_codigo'])
                 ->first(); 
@@ -87,7 +87,7 @@ class ParametroIntervaloController extends BaseController
 
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
-            $exist = DB::table('LABCYR')
+            $exist = DB::connection('dynamic')->table('LABCYR')
                 ->where('TEC3DEL', $data['parametro_delegacion'] ?? '')
                 ->where('TEC3COD', $data['parametro_codigo'])
                 ->where('COT3COD', $data['columna_codigo'])

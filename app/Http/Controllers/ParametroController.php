@@ -114,7 +114,7 @@ class ParametroController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -124,7 +124,7 @@ class ParametroController extends BaseController
 
         // Valida la existencia de la sección 
         if (!empty($data['seccion_codigo'])) {
-            $section = DB::table('LABSEC')
+            $section = DB::connection('dynamic')->table('LABSEC')
                 ->where('DEL3COD', $data['seccion_delegacion'] ?? '')
                 ->where('SEC1COD', $data['seccion_codigo'])
                 ->first(); 
@@ -140,7 +140,7 @@ class ParametroController extends BaseController
 
         // Comprueba que el nombre del parámetro no esté en uso
         if (!empty($data['nombre'])) {
-            $existingRecord = DB::table('LABTEC')->where('TECCNOM', $data['nombre']);            
+            $existingRecord = DB::connection('dynamic')->table('LABTEC')->where('TECCNOM', $data['nombre']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización el nombre no debe estar repetido pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -158,7 +158,7 @@ class ParametroController extends BaseController
         // Comprueba que el código para el nuevo parámetro no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('LABTEC')
+                $existingRecord = DB::connection('dynamic')->table('LABTEC')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('TEC1COD', $data['codigo'])
                     ->exists();
@@ -182,7 +182,7 @@ class ParametroController extends BaseController
     protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Resultados
-        $usedInAnotherTable = DB::table('LABRES')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABRES')
             ->where('TEC3DEL', $delegation)
             ->where('TEC3COD', $code)
             ->exists();
@@ -191,7 +191,7 @@ class ParametroController extends BaseController
         }
 
         // Servicios 
-        $usedInAnotherTable = DB::table('LABSYT')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABSYT')
             ->where('DEL3TEC', $delegation)
             ->where('TEC3COD', $code)
             ->exists();
@@ -200,7 +200,7 @@ class ParametroController extends BaseController
         }
 
         // Cartas de control 
-        $usedInAnotherTable = DB::table('LABCYT')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABCYT')
             ->where('TEC3DEL', $delegation)
             ->where('TEC3COD', $code)
             ->exists();
@@ -209,7 +209,7 @@ class ParametroController extends BaseController
         }
 
         // Líneas de factura 
-        $usedInAnotherTable = DB::table('FACLIF')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIF')
             ->where('TEC2DEL', $delegation)
             ->where('TEC2COD', $code)
             ->exists();
@@ -218,7 +218,7 @@ class ParametroController extends BaseController
         }     
         
         // Líneas de contrato 
-        $usedInAnotherTable = DB::table('FACLIC')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIC')
             ->where('TEC2DEL', $delegation)
             ->where('TEC2COD', $code)
             ->exists();
@@ -227,7 +227,7 @@ class ParametroController extends BaseController
         }          
 
         // Líneas de presupuesto 
-        $usedInAnotherTable = DB::table('FACLIP')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIP')
             ->where('TEC2DEL', $delegation)
             ->where('TEC2COD', $code)
             ->exists();
@@ -236,7 +236,7 @@ class ParametroController extends BaseController
         }         
         
         // Movimientos de inventario 
-        $usedInAnotherTable = DB::table('ALMMOV')
+        $usedInAnotherTable = DB::connection('dynamic')->table('ALMMOV')
             ->where('TEC2DEL', $delegation)
             ->where('TEC2COD', $code)
             ->exists();
@@ -245,7 +245,7 @@ class ParametroController extends BaseController
         }     
         
         // Operaciones 
-        $usedInAnotherTable = DB::table('LABOPE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOPE')
             ->where('TEC2DEL', $delegation)
             ->where('TEC2COD', $code)
             ->exists();
@@ -254,7 +254,7 @@ class ParametroController extends BaseController
         }          
 
         // Órdenes 
-        $usedInAnotherTable = DB::table('LABORD')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABORD')
             ->where('TEC2DEL', $delegation)
             ->where('TEC2COD', $code)
             ->exists();
@@ -263,7 +263,7 @@ class ParametroController extends BaseController
         }          
 
         // Residuos
-        $usedInAnotherTable = DB::table('LABRED')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABRED')
             ->where('TEC2DEL', $delegation)
             ->where('TEC2COD', $code)
             ->exists();
@@ -276,73 +276,73 @@ class ParametroController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra vínculos con plantillas
-        DB::table('PLAPYT')
+        DB::connection('dynamic')->table('PLAPYT')
             ->where('DEL3TEC', $delegation)
             ->where('TEC3COD', $code)
             ->delete();   
             
         // Borra vínculos con planificaciones
-        DB::table('LABPYT')
+        DB::connection('dynamic')->table('LABPYT')
             ->where('TEC3DEL', $delegation)
             ->where('TEC3COD', $code)
             ->delete();
 
         // Borra valores de normativa
-        DB::table('LABTYN')
+        DB::connection('dynamic')->table('LABTYN')
             ->where('TEC3DEL', $delegation)
             ->where('TEC3COD', $code)
             ->delete();  
             
         // Borra vínculos con matrices
-        DB::table('LABTYM')
+        DB::connection('dynamic')->table('LABTYM')
             ->where('DEL3TEC', $delegation)
             ->where('TEC3COD', $code)
             ->delete();             
 
         // Borra precios por cliente
-        DB::table('LABTYC')
+        DB::connection('dynamic')->table('LABTYC')
             ->where('TEC3DEL', $delegation)
             ->where('TEC3COD', $code)
             ->delete(); 
 
         // Borra precios por tarifa
-        DB::table('LABTYF')
+        DB::connection('dynamic')->table('LABTYF')
             ->where('TEC3DEL', $delegation)
             ->where('TEC3COD', $code)
             ->delete();  
             
         // Borra personal cualificado
-        DB::table('LABTYE')
+        DB::connection('dynamic')->table('LABTYE')
             ->where('TEC3DEL', $delegation)
             ->where('TEC3COD', $code)
             ->delete();  
             
         // Borra equipos vinculados
-        DB::table('LABTYQ')
+        DB::connection('dynamic')->table('LABTYQ')
             ->where('TEC3DEL', $delegation)
             ->where('TEC3COD', $code)
             ->delete();
             
         // Borra consumibles vinculados
-        DB::table('LABTYP')
+        DB::connection('dynamic')->table('LABTYP')
             ->where('TEC3DEL', $delegation)
             ->where('TEC3COD', $code)
             ->delete();  
             
         // Borra columnas
-        DB::table('LABCOT')
+        DB::connection('dynamic')->table('LABCOT')
             ->where('TEC3DEL', $delegation)
             ->where('TEC3COD', $code)
             ->delete(); 
             
         // Borra intervalos
-        DB::table('LABCYR')
+        DB::connection('dynamic')->table('LABCYR')
             ->where('TEC3DEL', $delegation)
             ->where('TEC3COD', $code)
             ->delete();
 
         // Documentos a la papelera
-        DB::table('DOCFAT')
+        DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)
             ->where('TEC2COD', $code)
             ->update([

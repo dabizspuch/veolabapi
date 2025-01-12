@@ -36,7 +36,7 @@ class TipoClienteController extends BaseController
     {  
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -52,7 +52,7 @@ class TipoClienteController extends BaseController
         // Comprueba que la descripción de tipo de cliente no esté en uso
         if (!empty($data['descripcion'])) {
             
-            $existingRecord = DB::table('SINTIC')->where('TICCDES', $data['descripcion']);                            
+            $existingRecord = DB::connection('dynamic')->table('SINTIC')->where('TICCDES', $data['descripcion']);                            
             
             if (!$isCreating) {
                 // Si se trata de una actualización la descripción no debe estar repetida pero excluyendo el registro actual
@@ -73,7 +73,7 @@ class TipoClienteController extends BaseController
         // Comprueba que el código para el nuevo tipo de cliente no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('SINTIC')
+                $existingRecord = DB::connection('dynamic')->table('SINTIC')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('TIC1COD', $data['codigo'])
                     ->exists();
@@ -99,7 +99,7 @@ class TipoClienteController extends BaseController
         $delegation = $delegation ?? '';
 
         // Comprueba que no esté referenciado en clientes
-        $usedInAnotherTable = DB::table('SINCLI')
+        $usedInAnotherTable = DB::connection('dynamic')->table('SINCLI')
             ->where('TIC2DEL', $delegation)
             ->where('TIC2COD', $code)
             ->exists();

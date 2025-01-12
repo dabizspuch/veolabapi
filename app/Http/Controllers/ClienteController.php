@@ -184,7 +184,7 @@ class ClienteController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -194,7 +194,7 @@ class ClienteController extends BaseController
 
         // Valida la existencia del código de cliente principal
         if (!empty($data['cliente_principal_codigo'])) {
-            $mainClient = DB::table('SINCLI')
+            $mainClient = DB::connection('dynamic')->table('SINCLI')
                 ->where('DEL3COD', $data['cliente_principal_delegacion'] ?? '')
                 ->where('CLI1COD', $data['cliente_principal_codigo'])
                 ->first(); 
@@ -205,7 +205,7 @@ class ClienteController extends BaseController
 
         // Valida la existencia del tipo de cliente
         if (!empty($data['tipo_cliente_codigo'])) {
-            $clientType = DB::table('SINTIC')
+            $clientType = DB::connection('dynamic')->table('SINTIC')
                 ->where('DEL3COD', $data['tipo_cliente_delegacion'] ?? '')
                 ->where('TIC1COD', $data['tipo_cliente_codigo'])
                 ->first(); 
@@ -216,7 +216,7 @@ class ClienteController extends BaseController
 
         // Valida la existencia de forma de envío
         if (!empty($data['forma_envio_codigo'])) {
-            $method = DB::table('LABFDE')
+            $method = DB::connection('dynamic')->table('LABFDE')
                 ->where('DEL3COD', $data['forma_envio_delegacion'] ?? '')
                 ->where('FDE1COD', $data['forma_envio_codigo'])
                 ->first(); 
@@ -227,7 +227,7 @@ class ClienteController extends BaseController
 
         // Valida la existencia de tarifa
         if (!empty($data['tarifa_codigo'])) {
-            $rate = DB::table('LABTAR')
+            $rate = DB::connection('dynamic')->table('LABTAR')
                 ->where('DEL3COD', $data['tarifa_delegacion'] ?? '')
                 ->where('TAR1COD', $data['tarifa_codigo'])
                 ->first(); 
@@ -243,7 +243,7 @@ class ClienteController extends BaseController
 
         // Comprueba que el nombre de cliente no esté en uso
         if (!empty($data['nombre'])) {
-            $existingRecord = DB::table('SINCLI')->where('CLICNOM', $data['nombre']);            
+            $existingRecord = DB::connection('dynamic')->table('SINCLI')->where('CLICNOM', $data['nombre']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización el nombre no debe estar repetido pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -261,7 +261,7 @@ class ClienteController extends BaseController
         // Comprueba que el código para el nuevo cliente no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('SINCLI')
+                $existingRecord = DB::connection('dynamic')->table('SINCLI')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('CLI1COD', $data['codigo'])
                     ->exists();
@@ -287,7 +287,7 @@ class ClienteController extends BaseController
         $delegation = $delegation ?? '';
 
         // Comprueba que el cliente no está como cliente principal en otros clientes
-        $usedInAnotherTable = DB::table('SINCLI')
+        $usedInAnotherTable = DB::connection('dynamic')->table('SINCLI')
             ->where('CLI2DEL', $delegation)
             ->where('CLI2COD', $code)
             ->exists();
@@ -296,7 +296,7 @@ class ClienteController extends BaseController
         }
 
         // Comprueba que el cliente no está vinculado a ningún usuario
-        $usedInAnotherTable = DB::table('ACCUSU')
+        $usedInAnotherTable = DB::connection('dynamic')->table('ACCUSU')
             ->where('CLI2DEL', $delegation)
             ->where('CLI2COD', $code)
             ->exists();
@@ -305,7 +305,7 @@ class ClienteController extends BaseController
         }
 
         // Comprueba que el cliente no está vinculado a ninguna factura
-        $usedInAnotherTable = DB::table('FACFAC')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACFAC')
             ->where('CLI2DEL', $delegation)
             ->where('CLI2COD', $code)
             ->exists();
@@ -314,7 +314,7 @@ class ClienteController extends BaseController
         }        
 
         // Comprueba que el cliente no está vinculado a ninguna línea de factura
-        $usedInAnotherTable = DB::table('FACLIF')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIF')
             ->where('CLI2DEL', $delegation)
             ->where('CLI2COD', $code)
             ->exists();
@@ -323,7 +323,7 @@ class ClienteController extends BaseController
         }
 
         // Comprueba que el cliente no está vinculado a ningún contrato
-        $usedInAnotherTable = DB::table('FACCON')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACCON')
             ->where('CLI2DEL', $delegation)
             ->where('CLI2COD', $code)
             ->exists();
@@ -332,7 +332,7 @@ class ClienteController extends BaseController
         }
         
         // Comprueba que el cliente no está vinculado a ningún presupuesto
-        $usedInAnotherTable = DB::table('FACPRE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACPRE')
             ->where('CLI2DEL', $delegation)
             ->where('CLI2COD', $code)
             ->exists();
@@ -341,7 +341,7 @@ class ClienteController extends BaseController
         }
         
         // Comprueba que el cliente no está vinculado a ninguna planificación
-        $usedInAnotherTable = DB::table('LABPLO')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABPLO')
             ->where('CLI2DEL', $delegation)
             ->where('CLI2COD', $code)
             ->exists();
@@ -350,7 +350,7 @@ class ClienteController extends BaseController
         }
 
         // Comprueba que el cliente no está vinculado a ninguna operación
-        $usedInAnotherTable = DB::table('LABOPE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOPE')
             ->where('CLI2DEL', $delegation)
             ->where('CLI2COD', $code)
             ->exists();
@@ -359,7 +359,7 @@ class ClienteController extends BaseController
         }        
 
         // Comprueba que el cliente no está vinculado a ningún lote
-        $usedInAnotherTable = DB::table('LABLOT')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABLOT')
             ->where('CLI2DEL', $delegation)
             ->where('CLI2COD', $code)
             ->exists();
@@ -368,7 +368,7 @@ class ClienteController extends BaseController
         }        
 
         // Comprueba que el cliente no está vinculado a ningún equipo de cliente
-        $usedInAnotherTable = DB::table('LABEQU')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABEQU')
             ->where('CLI2DEL', $delegation)
             ->where('CLI2COD', $code)
             ->exists();
@@ -381,37 +381,37 @@ class ClienteController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra puntos de muestreo relacionados
-        DB::table('LABPUM')
+        DB::connection('dynamic')->table('LABPUM')
         ->where('DEL3COD', $delegation)
         ->where('CLI3COD', $code)
         ->delete();
 
         // Borra las relaciones del cliente con plantillas
-        DB::table('PLAPYC')
+        DB::connection('dynamic')->table('PLAPYC')
         ->where('DEL3CLI', $delegation)
         ->where('CLI3COD', $code)
         ->delete();
 
         // Borra asociaciones del cliente con empleados
-        DB::table('GRHCLI')
+        DB::connection('dynamic')->table('GRHCLI')
         ->where('CLI3DEL', $delegation)
         ->where('CLI3COD', $code)
         ->delete();
 
         // Borra precios por cliente de servicios
-        DB::table('LABSYC')
+        DB::connection('dynamic')->table('LABSYC')
         ->where('CLI3DEL', $delegation)
         ->where('CLI3COD', $code)
         ->delete();
 
         // Borra precios por cliente de técnicas
-        DB::table('LABTYC')
+        DB::connection('dynamic')->table('LABTYC')
         ->where('CLI3DEL', $delegation)
         ->where('CLI3COD', $code)
         ->delete(); 
 
         // Documentos a la papelera
-        DB::table('DOCFAT')
+        DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)
             ->where('CLI2COD', $code)
             ->update([

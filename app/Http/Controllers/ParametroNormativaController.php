@@ -43,7 +43,7 @@ class ParametroNormativaController extends BaseController
     {  
         // Valida la existencia del parámetro 
         if (!empty($data['parametro_codigo'])) {
-            $service = DB::table('LABTEC')
+            $service = DB::connection('dynamic')->table('LABTEC')
                 ->where('DEL3COD', $data['parametro_delegacion'] ?? '')
                 ->where('TEC1COD', $data['parametro_codigo'])
                 ->first(); 
@@ -54,7 +54,7 @@ class ParametroNormativaController extends BaseController
 
         // Valida la existencia de la normativa 
         if (!empty($data['normativa_codigo'])) {
-            $parameter = DB::table('LABNOR')
+            $parameter = DB::connection('dynamic')->table('LABNOR')
                 ->where('DEL3COD', $data['normativa_delegacion'] ?? '')
                 ->where('NOR1COD', $data['normativa_codigo'])
                 ->first(); 
@@ -70,7 +70,7 @@ class ParametroNormativaController extends BaseController
 
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
-            $exist = DB::table('LABTYN')
+            $exist = DB::connection('dynamic')->table('LABTYN')
                 ->where('TEC3DEL', $data['parametro_delegacion'] ?? '')
                 ->where('TEC3COD', $data['parametro_codigo'])
                 ->where('NOR3DEL', $data['normativa_delegacion'] ?? '')

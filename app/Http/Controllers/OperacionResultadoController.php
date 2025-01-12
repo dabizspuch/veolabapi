@@ -69,7 +69,7 @@ class OperacionResultadoController extends BaseController
     {  
         // Valida la existencia de la operación 
         if (!empty($data['operacion_codigo'])) {
-            $exist = DB::table('LABOPE')
+            $exist = DB::connection('dynamic')->table('LABOPE')
                 ->where('DEL3COD', $data['operacion_delegacion'])
                 ->where('OPE1SER', $data['operacion_serie'])
                 ->where('OPE1COD', $data['operacion_codigo'])
@@ -81,7 +81,7 @@ class OperacionResultadoController extends BaseController
 
         // Valida la existencia del parámetro 
         if (!empty($data['parametro_codigo'])) {
-            $exist = DB::table('LABTEC')
+            $exist = DB::connection('dynamic')->table('LABTEC')
                 ->where('DEL3COD', $data['parametro_delegacion'])
                 ->where('TEC1COD', $data['parametro_codigo'])
                 ->first(); 
@@ -92,7 +92,7 @@ class OperacionResultadoController extends BaseController
         
         // Valida la existencia de la marca 
         if (!empty($data['marca_codigo'])) {
-            $exist = DB::table('LABMAR')
+            $exist = DB::connection('dynamic')->table('LABMAR')
                 ->where('DEL3COD', $data['marca_delegacion'])
                 ->where('MAR1COD', $data['marca_codigo'])
                 ->first(); 
@@ -106,7 +106,7 @@ class OperacionResultadoController extends BaseController
     {
         // Si se está modificando una operación se debe comprobar que no se hayan firmado o validado informes relacionados
         if (!is_null($code)) {
-            $hasValidSignatureOrValidatedReport = DB::table('LABIYO')
+            $hasValidSignatureOrValidatedReport = DB::connection('dynamic')->table('LABIYO')
             ->leftJoin('LABINF', function($join) {
                 $join->on('LABIYO.INF3DEL', '=', 'LABINF.DEL3COD')
                      ->on('LABIYO.INF3SER', '=', 'LABINF.INF1SER')
@@ -174,7 +174,7 @@ class OperacionResultadoController extends BaseController
             if ($data['valor'] != '') {
 
                 // Para la celda indicada obtiene la lista de rangos a considerar 
-                $ranges = DB::table('LABCYR')
+                $ranges = DB::connection('dynamic')->table('LABCYR')
                     ->leftJoin('LABRAN', function($join) {
                         $join->on('LABCYR.RAN3DEL', '=', 'LABRAN.DEL3COD')
                             ->on('LABCYR.RAN3COD', '=', 'LABRAN.RAN1COD');
@@ -222,7 +222,7 @@ class OperacionResultadoController extends BaseController
             }
 
             // Aplica la marca obtenida en la evaluación de rangos
-            DB::table('LABCOR')
+            DB::connection('dynamic')->table('LABCOR')
                 ->where('OPE3DEL', $delegation)
                 ->where('OPE3SER', $key1)
                 ->where('OPE3COD', $code)
@@ -236,7 +236,7 @@ class OperacionResultadoController extends BaseController
 
             // Aplica el reemplazo del valor si procede
             if ($replacedValue !== '') {
-                DB::table('LABCOR')
+                DB::connection('dynamic')->table('LABCOR')
                 ->where('OPE3DEL', $delegation)
                 ->where('OPE3SER', $key1)
                 ->where('OPE3COD', $code)
@@ -264,7 +264,7 @@ class OperacionResultadoController extends BaseController
      */
     private function existMarkNotEvaluable($delegation) 
     {
-        return DB::table('LABMAR')
+        return DB::connection('dynamic')->table('LABMAR')
                 ->where('DEL3COD', $delegation)
                 ->where('MAR1COD', -2)
                 ->exists();      

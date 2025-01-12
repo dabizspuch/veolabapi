@@ -47,7 +47,7 @@ class PerfilController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -57,7 +57,7 @@ class PerfilController extends BaseController
 
         // Valida la existencia del tipo de firma 
         if (!empty($data['tipo_firma_codigo'])) {
-            $sign = DB::table('LABTIF')
+            $sign = DB::connection('dynamic')->table('LABTIF')
                 ->where('DEL3COD', $data['tipo_firma_delegacion'] ?? '')
                 ->where('TIF1COD', $data['tipo_firma_codigo'])
                 ->first(); 
@@ -73,7 +73,7 @@ class PerfilController extends BaseController
 
         // Comprueba que la descripción del perfil no esté en uso
         if (!empty($data['descripcion'])) {
-            $existingRecord = DB::table('ACCPER')->where('PERCDES', $data['descripcion']);            
+            $existingRecord = DB::connection('dynamic')->table('ACCPER')->where('PERCDES', $data['descripcion']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización la descripción no debe estar repetida pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -91,7 +91,7 @@ class PerfilController extends BaseController
         // Comprueba que el código para el perfil no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('ACCPER')
+                $existingRecord = DB::connection('dynamic')->table('ACCPER')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('PER1COD', $data['codigo'])
                     ->exists();
@@ -115,7 +115,7 @@ class PerfilController extends BaseController
     protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Comprueba que el usuario no está vinculado a ningún usuario
-        $usedInAnotherTable = DB::table('ACCUSU')
+        $usedInAnotherTable = DB::connection('dynamic')->table('ACCUSU')
             ->where('PER2DEL', $delegation)
             ->where('PER2COD', $code)
             ->exists();
@@ -127,13 +127,13 @@ class PerfilController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra funcionalidades del perfil
-        DB::table('ACCPYF')
+        DB::connection('dynamic')->table('ACCPYF')
             ->where('DEL3COD', $delegation)
             ->where('PER3COD', $code)
             ->delete();
 
         // Borra la configuración de carpetas compartidas
-        DB::table('DOCDYP')
+        DB::connection('dynamic')->table('DOCDYP')
             ->where('PER3DEL', $delegation)
             ->where('PER3COD', $code)
             ->delete();

@@ -44,7 +44,7 @@ class SeccionController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -54,7 +54,7 @@ class SeccionController extends BaseController
 
         // Valida la existencia del departamento 
         if (!empty($data['departamento_codigo'])) {
-            $department = DB::table('GRHDEP')
+            $department = DB::connection('dynamic')->table('GRHDEP')
                 ->where('DEL3COD', $data['departamento_delegacion'] ?? '')
                 ->where('DEP1COD', $data['departamento_codigo'])
                 ->first(); 
@@ -70,7 +70,7 @@ class SeccionController extends BaseController
 
         // Comprueba que la descripcón de la sección no esté en uso
         if (!empty($data['descripcion'])) {
-            $existingRecord = DB::table('LABSEC')->where('SECCDES', $data['descripcion']);            
+            $existingRecord = DB::connection('dynamic')->table('LABSEC')->where('SECCDES', $data['descripcion']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización la descripicón no debe estar repetido pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -88,7 +88,7 @@ class SeccionController extends BaseController
         // Comprueba que el código para la nueva sección no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('LABSEC')
+                $existingRecord = DB::connection('dynamic')->table('LABSEC')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('SEC1COD', $data['codigo'])
                     ->exists();
@@ -112,7 +112,7 @@ class SeccionController extends BaseController
     protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Parámetros
-        $usedInAnotherTable = DB::table('LABTEC')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABTEC')
             ->where('SEC2DEL', $delegation)
             ->where('SEC2COD', $code)
             ->exists();
@@ -121,7 +121,7 @@ class SeccionController extends BaseController
         }
 
         // Resultados
-        $usedInAnotherTable = DB::table('LABRES')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABRES')
             ->where('SEC2DEL', $delegation)
             ->where('SEC2COD', $code)
             ->exists();
@@ -130,7 +130,7 @@ class SeccionController extends BaseController
         }
 
         // Líneas de factura
-        $usedInAnotherTable = DB::table('FACLIF')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIF')
             ->where('SEC2DEL', $delegation)
             ->where('SEC2COD', $code)
             ->exists();
@@ -139,7 +139,7 @@ class SeccionController extends BaseController
         }
 
         // Líneas de presupuesto
-        $usedInAnotherTable = DB::table('FACLIC')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIC')
             ->where('SEC2DEL', $delegation)
             ->where('SEC2COD', $code)
             ->exists();

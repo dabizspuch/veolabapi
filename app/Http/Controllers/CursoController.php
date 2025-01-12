@@ -55,7 +55,7 @@ class CursoController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -70,7 +70,7 @@ class CursoController extends BaseController
 
         // Comprueba que la descripción del curso no esté en uso
         if (!empty($data['descripcion'])) {
-            $existingRecord = DB::table('GRHPAF')->where('PAFCDES', $data['descripcion']);            
+            $existingRecord = DB::connection('dynamic')->table('GRHPAF')->where('PAFCDES', $data['descripcion']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización la descripción no debe estar repetida pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -88,7 +88,7 @@ class CursoController extends BaseController
         // Comprueba que el código para el nuevo curso no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('GRHPAF')
+                $existingRecord = DB::connection('dynamic')->table('GRHPAF')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('PAF1COD', $data['codigo'])
                     ->exists();
@@ -117,19 +117,19 @@ class CursoController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra los alumnos del curso
-        DB::table('GRHALU')
+        DB::connection('dynamic')->table('GRHALU')
             ->where('PAF3DEL', $delegation)
             ->where('PAF3COD', $code)
             ->delete();
 
         // Borra los profesores del curso
-        DB::table('GRHPRO')
+        DB::connection('dynamic')->table('GRHPRO')
             ->where('PAF3DEL', $delegation)
             ->where('PAF3COD', $code)
             ->delete();
 
         // Documentos a la papelera
-        DB::table('DOCFAT')
+        DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)
             ->where('PAF2COD', $code)
             ->update([

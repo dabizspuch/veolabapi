@@ -52,7 +52,7 @@ class CursoAlumnoController extends BaseController
     {  
         // Valida la existencia del curso 
         if (!empty($data['curso_codigo'])) {
-            $course = DB::table('GRHPAF')
+            $course = DB::connection('dynamic')->table('GRHPAF')
                 ->where('DEL3COD', $data['curso_delegacion'] ?? '')
                 ->where('PAF1COD', $data['curso_codigo'])
                 ->first(); 
@@ -63,7 +63,7 @@ class CursoAlumnoController extends BaseController
 
         // Valida la existencia del empleado 
         if (!empty($data['empleado_codigo'])) {
-            $employee = DB::table('GRHEMP')
+            $employee = DB::connection('dynamic')->table('GRHEMP')
                 ->where('DEL3COD', $data['empleado_delegacion'] ?? '')
                 ->where('EMP1COD', $data['empleado_codigo'])
                 ->first(); 
@@ -74,7 +74,7 @@ class CursoAlumnoController extends BaseController
         
         // Valida la existencia del empleado que evalúa 
         if (!empty($data['empleado_evaluador_codigo'])) {
-            $employee = DB::table('GRHEMP')
+            $employee = DB::connection('dynamic')->table('GRHEMP')
                 ->where('DEL3COD', $data['empleado_evaluador_delegacion'] ?? '')
                 ->where('EMP1COD', $data['empleado_evaluador_codigo'])
                 ->first(); 
@@ -90,7 +90,7 @@ class CursoAlumnoController extends BaseController
 
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
-            $exist = DB::table('GRHALU')
+            $exist = DB::connection('dynamic')->table('GRHALU')
                 ->where('PAF3DEL', $data['curso_delegacion'] ?? '')
                 ->where('PAF3COD', $data['curso_codigo'])
                 ->where('EMP3DEL', $data['empleado_delegacion'] ?? '')

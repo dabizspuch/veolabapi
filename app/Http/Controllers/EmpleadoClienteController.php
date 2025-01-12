@@ -37,7 +37,7 @@ class EmpleadoClienteController extends BaseController
     {  
         // Valida la existencia del empleado 
         if (!empty($data['empleado_codigo'])) {
-            $analyst = DB::table('GRHEMP')
+            $analyst = DB::connection('dynamic')->table('GRHEMP')
                 ->where('DEL3COD', $data['empleado_delegacion'] ?? '')
                 ->where('EMP1COD', $data['empleado_codigo'])
                 ->first(); 
@@ -48,7 +48,7 @@ class EmpleadoClienteController extends BaseController
 
         // Valida la existencia del cliente 
         if (!empty($data['cliente_codigo'])) {
-            $order = DB::table('SINCLI')
+            $order = DB::connection('dynamic')->table('SINCLI')
                 ->where('DEL3COD', $data['cliente_delegacion'] ?? '')
                 ->where('CLI1COD', $data['cliente_codigo'])
                 ->first(); 
@@ -61,7 +61,7 @@ class EmpleadoClienteController extends BaseController
     protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Comprueba que no estaban ya enlazados
-        $exist = DB::table('GRHCLI')
+        $exist = DB::connection('dynamic')->table('GRHCLI')
             ->where('EMP3DEL', $data['empleado_delegacion'] ?? '')
             ->where('EMP3COD', $data['empleado_codigo'])
             ->where('CLI3DEL', $data['cliente_delegacion'] ?? '')

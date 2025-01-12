@@ -37,7 +37,7 @@ class CursoProfesorController extends BaseController
     {  
         // Valida la existencia del curso 
         if (!empty($data['curso_codigo'])) {
-            $order = DB::table('GRHPAF')
+            $order = DB::connection('dynamic')->table('GRHPAF')
                 ->where('DEL3COD', $data['curso_delegacion'] ?? '')
                 ->where('PAF1COD', $data['curso_codigo'])
                 ->first(); 
@@ -48,7 +48,7 @@ class CursoProfesorController extends BaseController
 
         // Valida la existencia del empleado 
         if (!empty($data['empleado_codigo'])) {
-            $analyst = DB::table('GRHEMP')
+            $analyst = DB::connection('dynamic')->table('GRHEMP')
                 ->where('DEL3COD', $data['empleado_delegacion'] ?? '')
                 ->where('EMP1COD', $data['empleado_codigo'])
                 ->first(); 
@@ -61,7 +61,7 @@ class CursoProfesorController extends BaseController
     protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Comprueba que no estaban ya enlazados
-        $exist = DB::table('GRHPRO')
+        $exist = DB::connection('dynamic')->table('GRHPRO')
             ->where('PAF3DEL', $data['curso_delegacion'] ?? '')
             ->where('PAF3COD', $data['curso_codigo'])
             ->where('EMP3DEL', $data['empleado_delegacion'] ?? '')

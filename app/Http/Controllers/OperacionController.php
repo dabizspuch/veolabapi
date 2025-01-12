@@ -223,7 +223,7 @@ class OperacionController extends BaseController
     {  
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -233,7 +233,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia del tipo de operación 
         if (!empty($data['tipo_operacion_codigo'])) {        
-            $type = DB::table('LABTIO')
+            $type = DB::connection('dynamic')->table('LABTIO')
                 ->where('DEL3COD', $data['tipo_operacion_delegacion'] ?? '')
                 ->where('TIO1COD', $data['tipo_operacion_codigo'])
                 ->first(); 
@@ -244,7 +244,7 @@ class OperacionController extends BaseController
         
         // Valida la existencia de la matriz
         if (!empty($data['matriz_codigo'])) {
-            $matrix = DB::table('LABMAT')
+            $matrix = DB::connection('dynamic')->table('LABMAT')
                 ->where('DEL3COD', $data['matriz_delegacion'] ?? '')
                 ->where('MAT1COD', $data['matriz_codigo'])
                 ->first(); 
@@ -255,7 +255,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia del equipo de cliente
         if (!empty($data['equipamiento_codigo'])) {
-            $equipment = DB::table('LABEQU')
+            $equipment = DB::connection('dynamic')->table('LABEQU')
                 ->where('DEL3COD', $data['equipamiento_delegacion'] ?? '')
                 ->where('EQU1COD', $data['equipamiento_codigo'])
                 ->first(); 
@@ -266,7 +266,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia del cliente
         if (!empty($data['cliente_codigo'])) {
-            $client = DB::table('SINCLI')
+            $client = DB::connection('dynamic')->table('SINCLI')
                 ->where('DEL3COD', $data['cliente_delegacion'] ?? '')
                 ->where('CLI1COD', $data['cliente_codigo'])
                 ->first();
@@ -282,7 +282,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia del punto de muestreo
         if (!empty($data['cliente_codigo']) && !empty($data['punto_muestreo_codigo'])) {
-            $samplingPoint = DB::table('LABPUM')
+            $samplingPoint = DB::connection('dynamic')->table('LABPUM')
                 ->where('DEL3COD', $data['cliente_delegacion'] ?? '')
                 ->where('CLI3COD', $data['cliente_codigo'])
                 ->where('PUM1COD', $data['punto_muestreo_codigo'])
@@ -299,7 +299,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia del contrato
         if (!empty($data['contrato_codigo'])) {
-            $contract = DB::table('FACCON')
+            $contract = DB::connection('dynamic')->table('FACCON')
                 ->where('DEL3COD', $data['contrato_delegacion'] ?? '')
                 ->where('CON1COD', $data['contrato_codigo'])
                 ->where(function ($query) use ($data) {
@@ -323,7 +323,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia del presupuesto
         if (!empty($data['presupuesto_codigo'])) {
-            $budget = DB::table('FACPRE')
+            $budget = DB::connection('dynamic')->table('FACPRE')
                 ->where('DEL3COD', $data['presupuesto_delegacion'] ?? '')
                 ->where('PRE1COD', $data['presupuesto_codigo'])
                 ->where(function ($query) use ($data) {
@@ -342,7 +342,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia del empleado recolector
         if (!empty($data['empleado_recolector_codigo'])) {
-            $employee = DB::table('GRHEMP')
+            $employee = DB::connection('dynamic')->table('GRHEMP')
                 ->where('DEL3COD', $data['empleado_recolector_delegacion'] ?? '')
                 ->where('PRE1COD', $data['empleado_recolector_codigo'])
                 ->first();
@@ -353,7 +353,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia del lote
         if (!empty($data['lote_codigo'])) {
-            $batch = DB::table('LABLOT')
+            $batch = DB::connection('dynamic')->table('LABLOT')
                 ->where('DEL3COD', $data['lote_delegacion'] ?? '')
                 ->where('LOT1COD', $data['lote_codigo'])
                 ->where(function ($query) use ($data) {
@@ -372,7 +372,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia del lote relacionado
         if (!empty($data['lote_relacionado_codigo'])) {
-            $batch = DB::table('LABLOT')
+            $batch = DB::connection('dynamic')->table('LABLOT')
                 ->where('DEL3COD', $data['lote_relacionado_delegacion'] ?? '')
                 ->where('LOT1COD', $data['lote_relacionado_codigo'])
                 ->where(function ($query) use ($data) {
@@ -391,7 +391,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia de la factura
         if (!empty($data['factura_codigo'])) {
-            $invoice = DB::table('FACFAC')
+            $invoice = DB::connection('dynamic')->table('FACFAC')
                 ->where('DEL3COD', $data['factura_delegacion'] ?? '')
                 ->where('FAC1COD', $data['factura_codigo'])
                 ->where(function ($query) use ($data) {
@@ -410,7 +410,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia de la planificación
         if (!empty($data['planificacion_codigo'])) {
-            $planning = DB::table('LABPLO')
+            $planning = DB::connection('dynamic')->table('LABPLO')
                 ->where('DEL3COD', $data['planificacion_delegacion'] ?? '')
                 ->where('PLO1COD', $data['planificacion_codigo'])
                 ->first();
@@ -421,7 +421,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia del dictamen
         if (!empty($data['dictamen_codigo'])) {
-            $opinion = DB::table('LABDIC')
+            $opinion = DB::connection('dynamic')->table('LABDIC')
                 ->where('DEL3COD', $data['dictamen_delegacion'] ?? '')
                 ->where('DIC1COD', $data['dictamen_codigo'])
                 ->first();
@@ -432,7 +432,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia de la tarifa
         if (!empty($data['tarifa_codigo'])) {
-            $rate = DB::table('LABTAR')
+            $rate = DB::connection('dynamic')->table('LABTAR')
                 ->where('DEL3COD', $data['tarifa_delegacion'] ?? '')
                 ->where('TAR1COD', $data['tarifa_codigo'])
                 ->first();
@@ -443,7 +443,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia del proveedor
         if (!empty($data['proveedor_codigo'])) {
-            $supplier = DB::table('SINPRO')
+            $supplier = DB::connection('dynamic')->table('SINPRO')
                 ->where('DEL3COD', $data['proveedor_delegacion'] ?? '')
                 ->where('PRO1COD', $data['proveedor_codigo'])
                 ->first();
@@ -454,7 +454,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia del producto
         if (!empty($data['producto_codigo'])) {
-            $product = DB::table('ALMPRD')
+            $product = DB::connection('dynamic')->table('ALMPRD')
                 ->where('DEL3COD', $data['producto_delegacion'] ?? '')
                 ->where('PRD1COD', $data['producto_codigo'])
                 ->first();
@@ -470,7 +470,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia de la serie o lote
         if (!empty($data['numero_serie_lote']) && !empty($data['producto_codigo'])) {
-            $product = DB::table('ALMSEL')
+            $product = DB::connection('dynamic')->table('ALMSEL')
                 ->where('PRD3DEL', $data['producto_delegacion'] ?? '')
                 ->where('PRD3COD', $data['producto_codigo'])
                 ->where('SEL1COD', $data['numero_serie_lote'])
@@ -482,7 +482,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia de la técnica
         if (!empty($data['tecnica_codigo'])) {
-            $parameter = DB::table('LABTEC')
+            $parameter = DB::connection('dynamic')->table('LABTEC')
                 ->where('DEL3COD', $data['tecnica_delegacion'] ?? '')
                 ->where('TEC1COD', $data['tecnica_codigo'])
                 ->first();
@@ -493,7 +493,7 @@ class OperacionController extends BaseController
 
         // Valida la existencia de la operación de control
         if (!empty($data['operacion_control_codigo'])) {
-            $controlOperation = DB::table('LABOPE')
+            $controlOperation = DB::connection('dynamic')->table('LABOPE')
                 ->where('DEL3COD', $data['operacion_control_delegacion'] ?? '')
                 ->where('OPE1COD', $data['operacion_control_codigo'])
                 ->where(function ($query) use ($data) {
@@ -536,7 +536,7 @@ class OperacionController extends BaseController
         // Comprueba que el código para la nueva operación no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('LABOPE')
+                $existingRecord = DB::connection('dynamic')->table('LABOPE')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('OPE1SER', $data['serie'])
                     ->where('OPE1COD', $data['codigo'])
@@ -564,7 +564,7 @@ class OperacionController extends BaseController
         $delegation = $delegation ?? '';
 
         // Comprueba que no esté referenciada en órdenes
-        $usedInAnotherTable = DB::table('LABOYO')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOYO')
             ->where('OPE3DEL', $delegation)
             ->where('OPE3SER', $key1)
             ->where('OPE3COD', $code)
@@ -574,7 +574,7 @@ class OperacionController extends BaseController
         }
 
         // Comprueba que no esté referenciada en informes
-        $usedInAnotherTable = DB::table('LABIYO')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABIYO')
             ->where('OPE3DEL', $delegation)
             ->where('OPE3SER', $key1)
             ->where('OPE3COD', $code)
@@ -584,7 +584,7 @@ class OperacionController extends BaseController
         }     
 
         // Comprueba que no esté referenciada en líneas de factura
-        $usedInAnotherTable = DB::table('FACLIF')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIF')
             ->where('OPE2DEL', $delegation)
             ->where('OPE2SER', $key1)
             ->where('OPE2COD', $code)
@@ -594,7 +594,7 @@ class OperacionController extends BaseController
         }   
 
         // Comprueba que no esté referenciada en facturas
-        $operation = DB::table('LABOPE')
+        $operation = DB::connection('dynamic')->table('LABOPE')
             ->where('DEL3COD', $delegation)
             ->where('OPE1SER', $key1)
             ->where('OPE1COD', $code)
@@ -606,7 +606,7 @@ class OperacionController extends BaseController
         }     
 
         // Comprueba que no esté referenciada en residuos
-        $usedInAnotherTable = DB::table('LABRED')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABRED')
             ->where('OPE2DEL', $delegation)
             ->where('OPE2SER', $key1)
             ->where('OPE2COD', $code)
@@ -616,7 +616,7 @@ class OperacionController extends BaseController
         }
 
         // Comprueba que el cliente no está vinculado a ningún préstamo
-        $usedInAnotherTable = DB::table('ALMPRE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('ALMPRE')
             ->where('OPE2DEL', $delegation)
             ->where('OPE2SER', $key1)
             ->where('OPE2COD', $code)
@@ -626,7 +626,7 @@ class OperacionController extends BaseController
         }        
         
         // Comprueba que no esté referenciada en cartas de control
-        $usedInAnotherTable = DB::table('LABRCD')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABRCD')
             ->where('OPE2DEL', $delegation)
             ->where('OPE2SER', $key1)
             ->where('OPE2COD', $code)
@@ -636,7 +636,7 @@ class OperacionController extends BaseController
         }  
         
         // Comprueba que no esté referenciada como operación de control
-        $usedInAnotherTable = DB::table('LABOPE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOPE')
             ->where('OPE2DEL', $delegation)
             ->where('OPE2SER', $key1)
             ->where('OPE2COD', $code)
@@ -653,21 +653,21 @@ class OperacionController extends BaseController
         $this->deleteRelatedRecordsService($code, $delegation, $key1);
 
         // Borra valores de autodefinibles
-        DB::table('LABOYA')
+        DB::connection('dynamic')->table('LABOYA')
             ->where('OPE3DEL', $delegation)
             ->where('OPE3SER', $key1)
             ->where('OPE3COD', $code)
             ->delete();       
             
         // Borra notificaciones
-        DB::table('ACCNOT')
+        DB::connection('dynamic')->table('ACCNOT')
             ->where('OPE2DEL', $delegation)
             ->where('OPE2SER', $key1)
             ->where('OPE2COD', $code)
             ->delete(); 
 
         // Documentos a la papelera
-        DB::table('DOCFAT')
+        DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)
             ->where('OPE2SER', $key1)
             ->where('OPE2COD', $code)
@@ -711,7 +711,7 @@ class OperacionController extends BaseController
                 $servicePosition++; // El servicio ocupa una posición
 
                 // Obtiene información en la base de datos del servicio
-                $serviceData = DB::table('LABSER')
+                $serviceData = DB::connection('dynamic')->table('LABSER')
                     ->where('DEL3COD', $service['delegacion'])
                     ->where('SER1COD', $service['codigo'])
                     ->first();
@@ -736,7 +736,7 @@ class OperacionController extends BaseController
                     $totalPrice += $this->calculateAmountWithDiscount($finalPrice, $finalDiscount);
 
                     // Inserta el servicio asociado a la operación
-                    DB::table('LABOYS')->insert([
+                    DB::connection('dynamic')->table('LABOYS')->insert([
                         'OPE3DEL' => $delegation,
                         'OPE3SER' => $key1,
                         'OPE3COD' => $code,
@@ -786,7 +786,7 @@ class OperacionController extends BaseController
                     }                
 
                     // Inserta gastos en LABOYG por cada servicio
-                    $expenses = DB::table('LABSYE')
+                    $expenses = DB::connection('dynamic')->table('LABSYE')
                         ->leftJoin('LABESC', function($join) {
                             $join->on('LABSYE.DEL3ESC', '=', 'LABESC.DEL3COD')
                                 ->on('LABSYE.ESC3COD', '=', 'LABESC.ESC1COD');
@@ -798,7 +798,7 @@ class OperacionController extends BaseController
                         
                         $servicePosition++; // Cada gasto también incrementa la posición
 
-                        DB::table('LABOYG')->insert([
+                        DB::connection('dynamic')->table('LABOYG')->insert([
                             'OPE3DEL' => $delegation,
                             'OPE3SER' => $key1,
                             'OPE3COD' => $code,
@@ -830,7 +830,7 @@ class OperacionController extends BaseController
             foreach ($employees as $employee) {
                 // Divide la clave en delegación y código
                 [$employeeDelegation, $employeeCode] = explode(self::SEPARATOR, $employee);
-                DB::table('LABOYE')->insert([
+                DB::connection('dynamic')->table('LABOYE')->insert([
                     'OPE3DEL' => $delegation,
                     'OPE3SER' => $key1,
                     'OPE3COD' => $code,
@@ -843,7 +843,7 @@ class OperacionController extends BaseController
             foreach ($departments as $department) {
                 // Divide la clave en delegación y código
                 [$departmentDelegation, $departmentCode] = explode(self::SEPARATOR, $department);
-                DB::table('LABOYD')->insert([
+                DB::connection('dynamic')->table('LABOYD')->insert([
                     'OPE3DEL' => $delegation,
                     'OPE3SER' => $key1,
                     'OPE3COD' => $code,
@@ -859,9 +859,9 @@ class OperacionController extends BaseController
         // Campos autodefinibles
         if (isset($data['autodefinibles'])) {
             foreach ($data['autodefinibles'] as $fieldName => $fieldValue) {
-                $fields = DB::table('LABAUT')->where('AUTCNOM', $fieldName)->first();
+                $fields = DB::connection('dynamic')->table('LABAUT')->where('AUTCNOM', $fieldName)->first();
                 if ($fields) {
-                    DB::table('LABOYA')->updateOrInsert(
+                    DB::connection('dynamic')->table('LABOYA')->updateOrInsert(
                         [
                             'OPE3DEL' => $delegation,
                             'OPE3SER' => $key1,
@@ -885,42 +885,42 @@ class OperacionController extends BaseController
      */
     private function deleteRelatedRecordsService ($code, $delegation = null, $key1 = null) {
         // Borra resultados
-        DB::table('LABRES')
+        DB::connection('dynamic')->table('LABRES')
             ->where('OPE3DEL', $delegation)
             ->where('OPE3SER', $key1)
             ->where('OPE3COD', $code)
             ->delete();   
         
         // Borra columnas de resultados
-        DB::table('LABCOR')
+        DB::connection('dynamic')->table('LABCOR')
             ->where('OPE3DEL', $delegation)
             ->where('OPE3SER', $key1)
             ->where('OPE3COD', $code)
             ->delete();        
 
         // Borra servicios de operación
-        DB::table('LABOYS')
+        DB::connection('dynamic')->table('LABOYS')
             ->where('OPE3DEL', $delegation)
             ->where('OPE3SER', $key1)
             ->where('OPE3COD', $code)
             ->delete();        
 
         // Borra empleados de operación
-        DB::table('LABOYE')
+        DB::connection('dynamic')->table('LABOYE')
             ->where('OPE3DEL', $delegation)
             ->where('OPE3SER', $key1)
             ->where('OPE3COD', $code)
             ->delete();   
 
         // Borra departamentos de operación
-        DB::table('LABOYD')
+        DB::connection('dynamic')->table('LABOYD')
             ->where('OPE3DEL', $delegation)
             ->where('OPE3SER', $key1)
             ->where('OPE3COD', $code)
             ->delete();        
 
         // Borra gastos de operación
-        DB::table('LABOYG')
+        DB::connection('dynamic')->table('LABOYG')
             ->where('OPE3DEL', $delegation)
             ->where('OPE3SER', $key1)
             ->where('OPE3COD', $code)
@@ -935,7 +935,7 @@ class OperacionController extends BaseController
      */
     private function getPriceAndDiscountByRate($service, $rateDelegation, $rateCode, $serviceData)
     {
-        $priceAndDiscount = DB::table('LABSYF')
+        $priceAndDiscount = DB::connection('dynamic')->table('LABSYF')
             ->where('SER3DEL', $service['delegacion'])
             ->where('SER3COD', $service['codigo'])          
             ->where('TAR3DEL', $rateDelegation)  
@@ -953,7 +953,7 @@ class OperacionController extends BaseController
      */
     private function getPriceAndDiscountByClient($service, $clientDelegation, $clientCode, $serviceData)
     {
-        $priceAndDiscount = DB::table('LABSYC')
+        $priceAndDiscount = DB::connection('dynamic')->table('LABSYC')
             ->where('SER3DEL', $service['delegacion'])
             ->where('SER3COD', $service['codigo'])          
             ->where('CLI3DEL', $clientDelegation)  
@@ -971,7 +971,7 @@ class OperacionController extends BaseController
      */
     private function getServiceParameters($delegation, $code)
     {
-        return DB::table('LABSYT')
+        return DB::connection('dynamic')->table('LABSYT')
             ->leftJoin('LABTEC', function($join) {
                 $join->on('LABSYT.DEL3TEC', '=', 'LABTEC.DEL3COD')
                     ->on('LABSYT.TEC3COD', '=', 'LABTEC.TEC1COD');

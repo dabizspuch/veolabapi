@@ -112,7 +112,7 @@ class ProductoLoteController extends BaseController
     {    
         // Valida la existencia del producto
         if (!empty($data['producto_codigo'])) {
-            $family = DB::table('ALMPRD')
+            $family = DB::connection('dynamic')->table('ALMPRD')
                 ->where('DEL3COD', $data['producto_delegacion'] ?? '')
                 ->where('PRD1COD', $data['producto_codigo'])
                 ->first(); 
@@ -123,7 +123,7 @@ class ProductoLoteController extends BaseController
 
         // Valida la existencia del proveedor
         if (!empty($data['proveedor_codigo'])) {
-            $family = DB::table('SINPRO')
+            $family = DB::connection('dynamic')->table('SINPRO')
                 ->where('DEL3COD', $data['proveedor_delegacion'] ?? '')
                 ->where('PRO1COD', $data['proveedor_codigo'])
                 ->first(); 
@@ -140,7 +140,7 @@ class ProductoLoteController extends BaseController
         // Comprueba que el código para el nuevo lote no esté en uso
         if ($isCreating) { 
             if (!empty($data['numero_serie_lote'])) {
-                $existingRecord = DB::table('ALMSEL')
+                $existingRecord = DB::connection('dynamic')->table('ALMSEL')
                     ->where('PRD3DEL', $data['producto_delegacion'] ?? '')
                     ->where('PRD3COD', $data['producto_codigo'])
                     ->where('SEL1COD', $data['numero_serie_lote'])
@@ -171,7 +171,7 @@ class ProductoLoteController extends BaseController
 
         if (!$isCreating) {
             // Recuerda valores anteriores
-            $result = DB::table('ALMSEL')
+            $result = DB::connection('dynamic')->table('ALMSEL')
                 ->select('SELCESA', 'SELNCAE')
                 ->where('PRD3DEL', $delegation)
                 ->where('PRD3COD', $key1)
@@ -190,7 +190,7 @@ class ProductoLoteController extends BaseController
         $delegation = $delegation ?? '';
 
         // Comprueba que la serie o lote no está vinculado a ninguna operación
-        $usedInAnotherTable = DB::table('LABOPE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOPE')
             ->where('PRD2DEL', $delegation)
             ->where('PRD2COD', $key1)
             ->where('SEL2COD', $code)
@@ -200,7 +200,7 @@ class ProductoLoteController extends BaseController
         }             
 
         // Comprueba que la serie o lote no está siendo usada como materia prima en otro producto
-        $usedInAnotherTable = DB::table('ALMMAT')
+        $usedInAnotherTable = DB::connection('dynamic')->table('ALMMAT')
             ->where('PRM3DEL', $delegation)
             ->where('PRM3COD', $key1)
             ->where('SEM3COD', $code)
@@ -214,21 +214,21 @@ class ProductoLoteController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra los movimientos relacionados
-        DB::table('ALMMOV')
+        DB::connection('dynamic')->table('ALMMOV')
             ->where('PRD2DEL', $delegation)
             ->where('PRD2COD', $key1)
             ->where('SEL2COD', $code)
             ->delete();
 
         // Borra las materias primas
-        DB::table('ALMMAT')
+        DB::connection('dynamic')->table('ALMMAT')
             ->where('PRD3DEL', $delegation)
             ->where('PRD3COD', $key1)
             ->where('SEL3COD', $code)
             ->delete();            
 
         // Documentos a la papelera
-        DB::table('DOCFAT')
+        DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)
             ->where('PRD2COD', $key1)
             ->where('SEL2COD', $code)
@@ -282,7 +282,7 @@ class ProductoLoteController extends BaseController
         }
 
         // Genera el movimiento        
-        DB::table('ALMMOV')->insert([
+        DB::connection('dynamic')->table('ALMMOV')->insert([
             'DEL3COD' => $delegation,
             'MOV1COD' => $this->generateNewCode($delegation, '', 'ALMMOV'),
             'MOVCTIP' => $movementType,
@@ -308,7 +308,7 @@ class ProductoLoteController extends BaseController
      */
     protected function getNextLotValue($productDelegation, $productCode)
     {
-        $maxLot = DB::table('ALMSEL')
+        $maxLot = DB::connection('dynamic')->table('ALMSEL')
             ->where('PRD3DEL', $productDelegation)
             ->where('PRD3COD', $productCode)        
             ->selectRaw('MAX(CAST(SEL1COD AS UNSIGNED)) as max_numeric')

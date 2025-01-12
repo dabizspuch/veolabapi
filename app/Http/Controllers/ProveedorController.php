@@ -80,7 +80,7 @@ class ProveedorController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -90,7 +90,7 @@ class ProveedorController extends BaseController
 
         // Valida la existencia del tipo de evaluación
         if (!empty($data['tipo_evaluacion_codigo'])) {
-            $evaluationType = DB::table('SINTIE')
+            $evaluationType = DB::connection('dynamic')->table('SINTIE')
                 ->where('DEL3COD', $data['tipo_evaluacion_delegacion'] ?? '')
                 ->where('TIE1COD', $data['tipo_evaluacion_codigo'])
                 ->first(); 
@@ -106,7 +106,7 @@ class ProveedorController extends BaseController
 
         // Comprueba que el nombre de proveedor no esté en uso
         if (!empty($data['nombre'])) {
-            $existingRecord = DB::table('SINPRO')->where('PROCNOM', $data['nombre']);            
+            $existingRecord = DB::connection('dynamic')->table('SINPRO')->where('PROCNOM', $data['nombre']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización el nombre no debe estar repetido pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -124,7 +124,7 @@ class ProveedorController extends BaseController
         // Comprueba que el código para el nuevo proveedor no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('SINPRO')
+                $existingRecord = DB::connection('dynamic')->table('SINPRO')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('PRO1COD', $data['codigo'])
                     ->exists();
@@ -154,19 +154,19 @@ class ProveedorController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra las relaciones del proveedor con productos suministrados
-        DB::table('ALMPYP')
+        DB::connection('dynamic')->table('ALMPYP')
         ->where('PRO3DEL', $delegation)
         ->where('PRO3COD', $code)
         ->delete();
 
         // Borra las relaciones del proveedor con plantillas
-        DB::table('PLAPYP')
+        DB::connection('dynamic')->table('PLAPYP')
         ->where('DEL3PRO', $delegation)
         ->where('PRO3COD', $code)
         ->delete();
 
         // Documentos a la papelera
-        DB::table('DOCFAT')
+        DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)
             ->where('PRO2COD', $code)
             ->update([

@@ -76,7 +76,7 @@ class ProductoController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -86,7 +86,7 @@ class ProductoController extends BaseController
 
         // Valida la existencia de la familia
         if (!empty($data['familia_codigo'])) {
-            $family = DB::table('ALMFAM')
+            $family = DB::connection('dynamic')->table('ALMFAM')
                 ->where('DEL3COD', $data['familia_delegacion'] ?? '')
                 ->where('FAM1COD', $data['familia_codigo'])
                 ->first(); 
@@ -97,7 +97,7 @@ class ProductoController extends BaseController
 
         // Valida la existencia del proveedor
         if (!empty($data['proveedor_codigo'])) {
-            $family = DB::table('SINPRO')
+            $family = DB::connection('dynamic')->table('SINPRO')
                 ->where('DEL3COD', $data['proveedor_delegacion'] ?? '')
                 ->where('PRO1COD', $data['proveedor_codigo'])
                 ->first(); 
@@ -113,7 +113,7 @@ class ProductoController extends BaseController
 
         // Comprueba que la descripción del producto no esté en uso
         if (!empty($data['descripcion'])) {
-            $existingRecord = DB::table('ALMPRD')->where('PRDCDES', $data['descripcion']);            
+            $existingRecord = DB::connection('dynamic')->table('ALMPRD')->where('PRDCDES', $data['descripcion']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización la descripción no debe estar repetida pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -131,7 +131,7 @@ class ProductoController extends BaseController
         // Comprueba que el código para el nuevo producto no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('ALMPRD')
+                $existingRecord = DB::connection('dynamic')->table('ALMPRD')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('PRD1COD', $data['codigo'])
                     ->exists();
@@ -157,7 +157,7 @@ class ProductoController extends BaseController
         $delegation = $delegation ?? '';
 
         // Comprueba que el producto no está usado en series o lotes
-        $usedInAnotherTable = DB::table('ALMSEL')
+        $usedInAnotherTable = DB::connection('dynamic')->table('ALMSEL')
             ->where('PRD3DEL', $delegation)
             ->where('PRD3COD', $code)
             ->exists();
@@ -166,7 +166,7 @@ class ProductoController extends BaseController
         }     
         
         // Comprueba que el producto no está vinculado a alguna técnica
-        $usedInAnotherTable = DB::table('LABTYQ')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABTYQ')
             ->where('PRD3DEL', $delegation)
             ->where('PRD3COD', $code)
             ->exists();
@@ -175,7 +175,7 @@ class ProductoController extends BaseController
         }        
 
         // Comprueba que el producto no está vinculado a alguna técnica
-        $usedInAnotherTable = DB::table('LABTYP')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABTYP')
             ->where('PRD3DEL', $delegation)
             ->where('PRD3COD', $code)
             ->exists();
@@ -187,13 +187,13 @@ class ProductoController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra las relaciones del producto con proveedores
-        DB::table('ALMPYP')
+        DB::connection('dynamic')->table('ALMPYP')
             ->where('PRD3DEL', $delegation)
             ->where('PRD3COD', $code)
             ->delete();
 
         // Documentos a la papelera
-        DB::table('DOCFAT')
+        DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)
             ->where('PRD2COD', $code)
             ->update([

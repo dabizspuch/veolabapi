@@ -1,8 +1,8 @@
 <?php
 
+use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuditoriaArchivadaController;
 use App\Http\Controllers\AuditoriaController;
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CargoController;
 use App\Http\Controllers\CargoTareaController;
@@ -65,8 +65,10 @@ use App\Http\Controllers\TipoOperacionController;
 use App\Http\Controllers\UsuarioController;
 
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
+Route::post('/refresh', [AuthController::class, 'refresh'])->middleware('auth:sanctum');
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', \App\Http\Middleware\SetClientDatabase::class])->group(function () {
 
     // Operaciones
     Route::get('/operaciones', [OperacionController::class, 'index']);
@@ -75,17 +77,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/operaciones/{codigo}/{delegacion?}/{clave1?}', [OperacionController::class, 'update']);
     Route::delete('/operaciones/{codigo}/{delegacion?}/{clave1?}', [OperacionController::class, 'destroy']);
     
-    // Resultados de operaciones (columnas)
-    Route::get('/operaciones-resultados/{codigo}/{delegacion?}/{clave1?}', [OperacionResultadoController::class, 'index']);
-    Route::get('/operaciones-resultados/{codigo}/{delegacion?}/{clave1?}/{clave2}/{clave3?}/{clave4}', [OperacionResultadoController::class, 'show']);
-    Route::put('/operaciones-resultados/{codigo}/{delegacion?}/{clave1?}/{clave2}/{clave3?}/{clave4}', [OperacionResultadoController::class, 'update']);
-
     // Parámetros de operaciones (técnicas)
     Route::get('/operaciones-parametros/{codigo}/{delegacion?}/{clave1?}', [OperacionParametroController::class, 'index']);
     Route::get('/operaciones-parametros/{codigo}/{delegacion?}/{clave1?}/{clave2}/{clave3?}', [OperacionParametroController::class, 'show']);
     Route::post('/operaciones-parametros', [OperacionParametroController::class, 'store']);
     Route::put('/operaciones-parametros/{codigo}/{delegacion?}/{clave1?}/{clave2}/{clave3?}', [OperacionParametroController::class, 'update']);
     Route::delete('/operaciones-parametros/{codigo}/{delegacion?}/{clave1?}/{clave2}/{clave3?}', [OperacionParametroController::class, 'destroy']);
+
+    // Resultados de operaciones (columnas)
+    Route::get('/operaciones-resultados/{codigo}/{delegacion?}/{clave1?}', [OperacionResultadoController::class, 'index']);
+    Route::get('/operaciones-resultados/{codigo}/{delegacion?}/{clave1?}/{clave2}/{clave3?}/{clave4}', [OperacionResultadoController::class, 'show']);
+    Route::put('/operaciones-resultados/{codigo}/{delegacion?}/{clave1?}/{clave2}/{clave3?}/{clave4}', [OperacionResultadoController::class, 'update']);
 
     // Órdenes
     Route::get('/ordenes', [OrdenController::class, 'index']);

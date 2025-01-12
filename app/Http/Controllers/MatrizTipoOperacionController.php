@@ -39,7 +39,7 @@ class MatrizTipoOperacionController extends BaseController
     {  
         // Valida la existencia del parámetro 
         if (!empty($data['tipo_operacion_codigo'])) {
-            $parameter = DB::table('LABTIO')
+            $parameter = DB::connection('dynamic')->table('LABTIO')
                 ->where('DEL3COD', $data['tipo_operacion_delegacion'] ?? '')
                 ->where('TIO1COD', $data['tipo_operacion_codigo'])
                 ->first(); 
@@ -50,7 +50,7 @@ class MatrizTipoOperacionController extends BaseController
 
         // Valida la existencia de la matriz 
         if (!empty($data['matriz_codigo'])) {
-            $matrix = DB::table('LABMAT')
+            $matrix = DB::connection('dynamic')->table('LABMAT')
                 ->where('DEL3COD', $data['matriz_delegacion'] ?? '')
                 ->where('MAT1COD', $data['matriz_codigo'])
                 ->first(); 
@@ -66,7 +66,7 @@ class MatrizTipoOperacionController extends BaseController
 
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
-            $exist = DB::table('LABOYM')
+            $exist = DB::connection('dynamic')->table('LABOYM')
                 ->where('DEL3MAT', $data['matriz_delegacion'] ?? '')
                 ->where('MAT3COD', $data['matriz_codigo'])
                 ->where('DEL3TIO', $data['tipo_operacion_delegacion'] ?? '')

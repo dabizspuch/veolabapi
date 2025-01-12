@@ -58,7 +58,7 @@ class OrdenController extends BaseController
     {  
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -68,7 +68,7 @@ class OrdenController extends BaseController
 
         // Valida la existencia de la técnica
         if (!empty($data['tecnica_codigo'])) {
-            $parameter = DB::table('LABTEC')
+            $parameter = DB::connection('dynamic')->table('LABTEC')
                 ->where('DEL3COD', $data['tecnica_delegacion'] ?? '')
                 ->where('TEC1COD', $data['tecnica_codigo'])
                 ->first();
@@ -79,7 +79,7 @@ class OrdenController extends BaseController
         
         // Valida la existencia del departamento
         if (!empty($data['departamento_codigo'])) {
-            $department = DB::table('GRHDEP')
+            $department = DB::connection('dynamic')->table('GRHDEP')
                 ->where('DEL3COD', $data['departamento_delegacion'] ?? '')
                 ->where('DEP1COD', $data['departamento_codigo'])
                 ->first();
@@ -92,7 +92,7 @@ class OrdenController extends BaseController
         if (!empty($data['operaciones'])) {
             $existOperation = true;
             foreach ($data['operaciones'] as $operation) {
-                $existOperation = DB::table('LABOPE')
+                $existOperation = DB::connection('dynamic')->table('LABOPE')
                     ->where('DEL3COD', $operation['delegacion'])
                     ->where('OPE1SER', $operation['serie'])
                     ->where('OPE1COD', $operation['codigo'])
@@ -110,7 +110,7 @@ class OrdenController extends BaseController
         if (!empty($data['analistas'])) {
             $existAnalista = true;
             foreach ($data['analistas'] as $analyst) {
-                $existAnalista = DB::table('GRHEMP')
+                $existAnalista = DB::connection('dynamic')->table('GRHEMP')
                     ->where('DEL3COD', $analyst['delegacion'])
                     ->where('EMP1COD', $analyst['codigo'])
                     ->where('EMPBANA', 'T')
@@ -133,7 +133,7 @@ class OrdenController extends BaseController
         // Comprueba que el código para la nueva orden no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('LABORD')
+                $existingRecord = DB::connection('dynamic')->table('LABORD')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('ORD1SER', $data['serie'] ?? '')
                     ->where('ORD1COD', $data['codigo'])
@@ -167,21 +167,21 @@ class OrdenController extends BaseController
         $this->renumPositionsInOrder($delegation, $key1, $code);
 
         // Borra la relación con operaciones
-        DB::table('LABOYO')
+        DB::connection('dynamic')->table('LABOYO')
             ->where('ORD3DEL', $delegation)
             ->where('ORD3SER', $key1)
             ->where('ORD3COD', $code)
             ->delete();   
         
         // Borra la lista de empleados
-        DB::table('LABORE')
+        DB::connection('dynamic')->table('LABORE')
             ->where('ORD3DEL', $delegation)
             ->where('ORD3SER', $key1)
             ->where('ORD3COD', $code)
             ->delete();
             
         // Documentos a la papelera
-        DB::table('DOCFAT')
+        DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)
             ->where('ORD2SER', $key1)
             ->where('ORD2COD', $code)
@@ -203,7 +203,7 @@ class OrdenController extends BaseController
                 $this->reassignPositionAfterDeletion($operationMaxPositions, $delegation, $key1, $code);
 
                 // Borra la asociación previa de operaciones
-                DB::table('LABOYO')
+                DB::connection('dynamic')->table('LABOYO')
                     ->where('ORD3DEL', $delegation)
                     ->where('ORD3SER', $key1)
                     ->where('ORD3COD', $code)  
@@ -213,7 +213,7 @@ class OrdenController extends BaseController
             // Crea la nueva asociación de operaciones
             foreach ($data['operaciones'] as $operation) {                                 
                 $position = $operationMaxPositions[$operation['delegacion']][$operation['serie']][$operation['codigo']] ?? 0;                
-                DB::table('LABOYO')->insert([
+                DB::connection('dynamic')->table('LABOYO')->insert([
                     'ORD3DEL' => $delegation,
                     'ORD3SER' => $key1,
                     'ORD3COD' => $code,
@@ -228,7 +228,7 @@ class OrdenController extends BaseController
         // Analistas
         if (isset($data['analistas'])) {
             // Borra la asociación previa de analistas
-            DB::table('LABORE')
+            DB::connection('dynamic')->table('LABORE')
                 ->where('ORD3DEL', $delegation)
                 ->where('ORD3SER', $key1)
                 ->where('ORD3COD', $code)  
@@ -236,7 +236,7 @@ class OrdenController extends BaseController
 
             // Crea la nueva asociación de analistas
             foreach ($data['analistas'] as $analyst) {
-                DB::table('LABORE')->insert([
+                DB::connection('dynamic')->table('LABORE')->insert([
                     'ORD3DEL' => $delegation,
                     'ORD3SER' => $key1,
                     'ORD3COD' => $code,
@@ -261,7 +261,7 @@ class OrdenController extends BaseController
     {
         $result = [];
         foreach ($data['operaciones'] as $operation) {  
-            $maxPos = DB::table('LABOYO')
+            $maxPos = DB::connection('dynamic')->table('LABOYO')
                 ->where('OPE3DEL', $operation['delegacion'])
                 ->where('OPE3SER', $operation['serie'])
                 ->where('OPE3COD', $operation['codigo'])
@@ -291,7 +291,7 @@ class OrdenController extends BaseController
         int $orderCode
     ) {
         // Lee las operaciones de la orden actual
-        $operations = DB::table('LABOYO')
+        $operations = DB::connection('dynamic')->table('LABOYO')
             ->where('ORD3DEL', $orderDelegation)
             ->where('ORD3SER', $orderSeries)
             ->where('ORD3COD', $orderCode)
@@ -304,7 +304,7 @@ class OrdenController extends BaseController
                 if ($operation->OYONPOS == 1) {
                     
                     // Busca el nuevo sustituto que tendrá el 1 como posición
-                    $minPosition = DB::table('LABOYO')
+                    $minPosition = DB::connection('dynamic')->table('LABOYO')
                         ->where('OPE3DEL', $operation->OPE3DEL)
                         ->where('OPE3SER', $operation->OPE3SER)
                         ->where('OPE3COD', $operation->OPE3COD)
@@ -317,7 +317,7 @@ class OrdenController extends BaseController
 
                     // Si lo encuentra lo actualiza con 1 en la base de datos y en la colección
                     if ($minPosition > 1) {
-                        DB::table('LABOYO')
+                        DB::connection('dynamic')->table('LABOYO')
                             ->where('OPE3DEL', $operation->OPE3DEL)
                             ->where('OPE3SER', $operation->OPE3SER)
                             ->where('OPE3COD', $operation->OPE3COD)
@@ -345,14 +345,14 @@ class OrdenController extends BaseController
      */
     private function renumPositionsInOrder(string $orderDelegation, string $orderSeries, int $orderCode)
     {
-        $operations = DB::table('LABOYO')
+        $operations = DB::connection('dynamic')->table('LABOYO')
             ->where('ORD3DEL', $orderDelegation)
             ->where('ORD3SER', $orderSeries)
             ->where('ORD3COD', $orderCode)
             ->get(); 
 
         foreach ($operations as $operation) {
-            $minPosition = DB::table('LABOYO')
+            $minPosition = DB::connection('dynamic')->table('LABOYO')
                 ->where('OPE3DEL', $operation->OPE3DEL)
                 ->where('OPE3SER', $operation->OPE3SER)
                 ->where('OPE3COD', $operation->OPE3COD)
@@ -364,7 +364,7 @@ class OrdenController extends BaseController
                 ->min('OYONPOS');
 
             if ($minPosition > 1) {
-                DB::table('LABOYO')
+                DB::connection('dynamic')->table('LABOYO')
                     ->where('OPE3DEL', $operation->OPE3DEL)
                     ->where('OPE3SER', $operation->OPE3SER)
                     ->where('OPE3COD', $operation->OPE3COD)

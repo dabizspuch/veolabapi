@@ -40,7 +40,7 @@ class OrdenAnalistaController extends BaseController
     {  
         // Valida la existencia del analista 
         if (!empty($data['empleado_codigo'])) {
-            $analyst = DB::table('GRHEMP')
+            $analyst = DB::connection('dynamic')->table('GRHEMP')
                 ->where('DEL3COD', $data['empleado_delegacion'] ?? '')
                 ->where('EMP1COD', $data['empleado_codigo'])
                 ->where('EMPBANA', 'T')
@@ -52,7 +52,7 @@ class OrdenAnalistaController extends BaseController
 
         // Valida la existencia de la órden 
         if (!empty($data['orden_codigo'])) {
-            $order = DB::table('LABORD')
+            $order = DB::connection('dynamic')->table('LABORD')
                 ->where('DEL3COD', $data['orden_delegacion'] ?? '')
                 ->where('ORD1SER', $data['orden_serie'] ?? '')
                 ->where('ORD1COD', $data['orden_codigo'])
@@ -66,7 +66,7 @@ class OrdenAnalistaController extends BaseController
     protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Comprueba que la orden y la operación no estaban ya enlazadas
-        $exist = DB::table('LABORE')
+        $exist = DB::connection('dynamic')->table('LABORE')
             ->where('ORD3DEL', $data['orden_delegacion'] ?? '')
             ->where('ORD3SER', $data['orden_serie'] ?? '')
             ->where('ORD3COD', $data['orden_codigo'])

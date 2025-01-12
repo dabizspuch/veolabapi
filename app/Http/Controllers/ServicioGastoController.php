@@ -39,7 +39,7 @@ class ServicioGastoController extends BaseController
     {  
         // Valida la existencia del servicio 
         if (!empty($data['servicio_codigo'])) {
-            $service = DB::table('LABSER')
+            $service = DB::connection('dynamic')->table('LABSER')
                 ->where('DEL3COD', $data['servicio_delegacion'] ?? '')
                 ->where('SER1COD', $data['servicio_codigo'])
                 ->first(); 
@@ -50,7 +50,7 @@ class ServicioGastoController extends BaseController
 
         // Valida la existencia del gasto 
         if (!empty($data['gasto_codigo'])) {
-            $parameter = DB::table('LABESC')
+            $parameter = DB::connection('dynamic')->table('LABESC')
                 ->where('DEL3COD', $data['gasto_delegacion'] ?? '')
                 ->where('ESC1COD', $data['gasto_codigo'])
                 ->first(); 
@@ -66,7 +66,7 @@ class ServicioGastoController extends BaseController
 
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
-            $exist = DB::table('LABSYE')
+            $exist = DB::connection('dynamic')->table('LABSYE')
                 ->where('DEL3SER', $data['servicio_delegacion'] ?? '')
                 ->where('SER3COD', $data['servicio_codigo'])
                 ->where('DEL3ESC', $data['gasto_delegacion'] ?? '')

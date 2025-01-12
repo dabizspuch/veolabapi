@@ -87,7 +87,7 @@ class EquipoController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -97,7 +97,7 @@ class EquipoController extends BaseController
 
         // Valida la existencia del tipo de equipo
         if (!empty($data['tipo_equipo_codigo'])) {
-            $type = DB::table('LABTEQ')
+            $type = DB::connection('dynamic')->table('LABTEQ')
                 ->where('DEL3COD', $data['tipo_equipo_delegacion'] ?? '')
                 ->where('TEQ1COD', $data['tipo_equipo_codigo'])
                 ->first(); 
@@ -108,7 +108,7 @@ class EquipoController extends BaseController
 
         // Valida la existencia del cliente
         if (!empty($data['cliente_codigo'])) {
-            $client = DB::table('SINCLI')
+            $client = DB::connection('dynamic')->table('SINCLI')
                 ->where('DEL3COD', $data['cliente_delegacion'] ?? '')
                 ->where('CLI1COD', $data['cliente_codigo'])
                 ->first(); 
@@ -124,7 +124,7 @@ class EquipoController extends BaseController
 
         // Comprueba que la descripción del equipo no esté en uso
         if (!empty($data['descripcion'])) {
-            $existingRecord = DB::table('LABEQU')->where('EQUCDES', $data['descripcion']);            
+            $existingRecord = DB::connection('dynamic')->table('LABEQU')->where('EQUCDES', $data['descripcion']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización la descripción no debe estar repetida pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -142,7 +142,7 @@ class EquipoController extends BaseController
         // Comprueba que el código para el nuevo equipo no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('LABEQU')
+                $existingRecord = DB::connection('dynamic')->table('LABEQU')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('EQU1COD', $data['codigo'])
                     ->exists();
@@ -168,7 +168,7 @@ class EquipoController extends BaseController
         $delegation = $delegation ?? '';
 
         // Comprueba que el equipo no está siendo usado en alguna planificación
-        $usedInAnotherTable = DB::table('LABPLO')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABPLO')
             ->where('EQU2DEL', $delegation)
             ->where('EQU2COD', $code)
             ->exists();
@@ -177,7 +177,7 @@ class EquipoController extends BaseController
         }     
         
         // Comprueba que el equipo no está siendo usado en alguna operación
-        $usedInAnotherTable = DB::table('LABOPE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOPE')
             ->where('EQU2DEL', $delegation)
             ->where('EQU2COD', $code)
             ->exists();
@@ -189,7 +189,7 @@ class EquipoController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Documentos a la papelera
-        DB::table('DOCFAT')
+        DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)
             ->where('EQU2COD', $code)
             ->update([

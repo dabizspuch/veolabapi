@@ -48,7 +48,7 @@ class EmpleadoCurriculumController extends BaseController
     {  
         // Valida la existencia del empleado 
         if (!empty($data['empleado_codigo'])) {
-            $employee = DB::table('GRHEMP')
+            $employee = DB::connection('dynamic')->table('GRHEMP')
                 ->where('DEL3COD', $data['empleado_delegacion'] ?? '')
                 ->where('EMP1COD', $data['empleado_codigo'])
                 ->first(); 
@@ -59,7 +59,7 @@ class EmpleadoCurriculumController extends BaseController
         
         // Valida la existencia del cargo 
         if (!empty($data['cargo_codigo'])) {
-            $chargue = DB::table('GRHCAR')
+            $chargue = DB::connection('dynamic')->table('GRHCAR')
                 ->where('DEL3COD', $data['cargo_delegacion'] ?? '')
                 ->where('CAR1COD', $data['cargo_codigo'])
                 ->first(); 
@@ -70,7 +70,7 @@ class EmpleadoCurriculumController extends BaseController
         
         // Valida la existencia del departamento 
         if (!empty($data['departamento_codigo'])) {
-            $department = DB::table('GRHDEP')
+            $department = DB::connection('dynamic')->table('GRHDEP')
                 ->where('DEL3COD', $data['departamento_delegacion'] ?? '')
                 ->where('DEP1COD', $data['departamento_codigo'])
                 ->first(); 
@@ -129,7 +129,7 @@ class EmpleadoCurriculumController extends BaseController
      */
     private function getNextResumeCode($employeeDelegation, $employeeCode)
     {
-        $maxPoint = DB::table('GRHCUR')
+        $maxPoint = DB::connection('dynamic')->table('GRHCUR')
             ->where('EMP3DEL', $employeeDelegation)
             ->where('EMP3COD', $employeeCode) 
             ->max('CUR1COD');    

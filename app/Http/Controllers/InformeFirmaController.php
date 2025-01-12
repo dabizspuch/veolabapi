@@ -58,7 +58,7 @@ class InformeFirmaController extends BaseController
     {  
         // Valida la existencia del informe 
         if (!empty($data['informe_codigo'])) {
-            $report = DB::table('LABINF')
+            $report = DB::connection('dynamic')->table('LABINF')
                 ->where('DEL3COD', $data['informe_delegacion'] ?? '')
                 ->where('INF1SER', $data['informe_serie'] ?? '')
                 ->where('INF1COD', $data['informe_codigo'])
@@ -70,7 +70,7 @@ class InformeFirmaController extends BaseController
 
         // Valida la existencia del tipo de firma 
         if (!empty($data['firma_codigo'])) {
-            $sign = DB::table('LABTIF')
+            $sign = DB::connection('dynamic')->table('LABTIF')
                 ->where('DEL3COD', $data['firma_delegacion'] ?? '')
                 ->where('TIF1COD', $data['firma_codigo'])
                 ->first(); 
@@ -81,7 +81,7 @@ class InformeFirmaController extends BaseController
         
         // Valida la existencia del departamento
         if (isset($data['departamento_codigo']) && $data['departamento_codigo'] !== 0) {
-            $sign = DB::table('GRHDEP')
+            $sign = DB::connection('dynamic')->table('GRHDEP')
                 ->where('DEL3COD', $data['departamento_delegacion'] ?? '')
                 ->where('DEP1COD', $data['departamento_codigo'])
                 ->first(); 
@@ -92,7 +92,7 @@ class InformeFirmaController extends BaseController
         
         // Valida la existencia del usuario 
         if (!empty($data['usuario_codigo'])) {
-            $sign = DB::table('ACCUSU')
+            $sign = DB::connection('dynamic')->table('ACCUSU')
                 ->where('DEL3COD', $data['usuario_delegacion'] ?? '')
                 ->where('USU1COD', $data['usuario_codigo'])
                 ->first(); 
@@ -108,7 +108,7 @@ class InformeFirmaController extends BaseController
 
         // Comprueba que la firma no estaba ya aplicada
         if ($isCreating) { 
-            $exist = DB::table('LABFIR')
+            $exist = DB::connection('dynamic')->table('LABFIR')
                 ->where('INF3DEL', $data['informe_delegacion'] ?? '')
                 ->where('INF3SER', $data['informe_serie'] ?? '')
                 ->where('INF3COD', $data['informe_codigo'])

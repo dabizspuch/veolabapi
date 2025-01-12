@@ -52,7 +52,7 @@ class LoteController extends BaseController
     {  
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -62,7 +62,7 @@ class LoteController extends BaseController
 
         // Valida la existencia del cliente
         if (!empty($data['cliente_codigo'])) {
-            $client = DB::table('SINCLI')
+            $client = DB::connection('dynamic')->table('SINCLI')
                 ->where('DEL3COD', $data['cliente_delegacion'] ?? '')
                 ->where('CLI1COD', $data['cliente_codigo'])
                 ->first();
@@ -75,7 +75,7 @@ class LoteController extends BaseController
         if (!empty($data['analistas'])) {
             $existAnalista = true;
             foreach ($data['analistas'] as $analyst) {
-                $existAnalista = DB::table('GRHEMP')
+                $existAnalista = DB::connection('dynamic')->table('GRHEMP')
                     ->where('DEL3COD', $analyst['delegacion'])
                     ->where('EMP1COD', $analyst['codigo'])
                     ->where('EMPBANA', 'T')
@@ -115,14 +115,14 @@ class LoteController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra los datos de autodefinibles
-        DB::table('LABLYA')
+        DB::connection('dynamic')->table('LABLYA')
             ->where('LOT3DEL', $delegation)
             ->where('LOT3SER', $key1)
             ->where('LOT3COD', $code)
             ->delete();   
         
         // Documentos a la papelera
-        DB::table('DOCFAT')
+        DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)
             ->where('LOT2SER', $key1)
             ->where('LOT2COD', $code)

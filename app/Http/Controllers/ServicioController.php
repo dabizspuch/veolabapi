@@ -74,7 +74,7 @@ class ServicioController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -84,7 +84,7 @@ class ServicioController extends BaseController
 
         // Valida la existencia de la matriz 
         if (!empty($data['matriz_codigo'])) {
-            $matrix = DB::table('LABMAT')
+            $matrix = DB::connection('dynamic')->table('LABMAT')
                 ->where('DEL3COD', $data['matriz_delegacion'] ?? '')
                 ->where('MAT1COD', $data['matriz_codigo'])
                 ->first(); 
@@ -95,7 +95,7 @@ class ServicioController extends BaseController
         
         // Valida la existencia del tipo de operación 
         if (!empty($data['tipo_operacion_codigo'])) {
-            $type = DB::table('LABTIO')
+            $type = DB::connection('dynamic')->table('LABTIO')
                 ->where('DEL3COD', $data['tipo_operacion_delegacion'] ?? '')
                 ->where('TIO1COD', $data['tipo_operacion_codigo'])
                 ->first(); 
@@ -106,7 +106,7 @@ class ServicioController extends BaseController
         
         // Valida la existencia de la normativa
         if (!empty($data['normativa_codigo'])) {
-            $regulation = DB::table('LABNOR')
+            $regulation = DB::connection('dynamic')->table('LABNOR')
                 ->where('DEL3COD', $data['normativa_delegacion'] ?? '')
                 ->where('NOR1COD', $data['normativa_codigo'])
                 ->first(); 
@@ -122,7 +122,7 @@ class ServicioController extends BaseController
 
         // Comprueba que el nombre del servicio no esté en uso
         if (!empty($data['nombre'])) {
-            $existingRecord = DB::table('LABSER')->where('SERCNOM', $data['nombre']);            
+            $existingRecord = DB::connection('dynamic')->table('LABSER')->where('SERCNOM', $data['nombre']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización el nombre no debe estar repetido pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -140,7 +140,7 @@ class ServicioController extends BaseController
         // Comprueba que el código para el nuevo servicio no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('LABSER')
+                $existingRecord = DB::connection('dynamic')->table('LABSER')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('SER1COD', $data['codigo'])
                     ->exists();
@@ -164,7 +164,7 @@ class ServicioController extends BaseController
     protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Servicios vinculados a plantilla
-        $usedInAnotherTable = DB::table('PLAPYS')
+        $usedInAnotherTable = DB::connection('dynamic')->table('PLAPYS')
             ->where('DEL3SER', $delegation)
             ->where('SER3COD', $code)
             ->exists();
@@ -173,7 +173,7 @@ class ServicioController extends BaseController
         }
 
         // Servicios vinculados a planificaciones
-        $usedInAnotherTable = DB::table('LABPYS')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABPYS')
             ->where('SER3DEL', $delegation)
             ->where('SER3COD', $code)
             ->exists();
@@ -182,7 +182,7 @@ class ServicioController extends BaseController
         } 
         
         // Servicios vinculados a planificaciones (técnicas)
-        $usedInAnotherTable = DB::table('LABPYT')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABPYT')
             ->where('SER2DEL', $delegation)
             ->where('SER2COD', $code)
             ->exists();
@@ -191,7 +191,7 @@ class ServicioController extends BaseController
         }            
 
         // Servicios vinculados a planificaciones (gastos)
-        $usedInAnotherTable = DB::table('LABPYG')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABPYG')
             ->where('SER2DEL', $delegation)
             ->where('SER2COD', $code)
             ->exists();
@@ -200,7 +200,7 @@ class ServicioController extends BaseController
         }            
         
         // Servicios vinculados a operaciones
-        $usedInAnotherTable = DB::table('LABOYS')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOYS')
             ->where('SER3DEL', $delegation)
             ->where('SER3COD', $code)
             ->exists();
@@ -209,7 +209,7 @@ class ServicioController extends BaseController
         }  
         
         // Servicios vinculados a resultados
-        $usedInAnotherTable = DB::table('LABRES')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABRES')
             ->where('SER2DEL', $delegation)
             ->where('SER2COD', $code)
             ->exists();
@@ -218,7 +218,7 @@ class ServicioController extends BaseController
         }            
         
         // Servicios vinculados a resultados
-        $usedInAnotherTable = DB::table('LABOYG')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOYG')
             ->where('SER2DEL', $delegation)
             ->where('SER2COD', $code)
             ->exists();
@@ -227,7 +227,7 @@ class ServicioController extends BaseController
         }          
         
         // Servicios vinculados a líneas de factura
-        $usedInAnotherTable = DB::table('FACLIF')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIF')
             ->where('SER2DEL', $delegation)
             ->where('SER2COD', $code)
             ->exists();
@@ -236,7 +236,7 @@ class ServicioController extends BaseController
         }     
         
         // Servicios vinculados a líneas de contrato
-        $usedInAnotherTable = DB::table('FACLIC')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIC')
             ->where('SER2DEL', $delegation)
             ->where('SER2COD', $code)
             ->exists();
@@ -245,7 +245,7 @@ class ServicioController extends BaseController
         }         
 
         // Servicios vinculados a líneas de presupuesto
-        $usedInAnotherTable = DB::table('FACLIP')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIP')
             ->where('SER2DEL', $delegation)
             ->where('SER2COD', $code)
             ->exists();
@@ -257,31 +257,31 @@ class ServicioController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra los precios por cliente
-        DB::table('LABSYC')
+        DB::connection('dynamic')->table('LABSYC')
             ->where('SER3DEL', $delegation)
             ->where('SER3COD', $code)
             ->delete();
 
         // Borra los precios por tarifa
-        DB::table('LABSYF')
+        DB::connection('dynamic')->table('LABSYF')
             ->where('SER3DEL', $delegation)
             ->where('SER3COD', $code)
             ->delete();            
 
         // Borra los gastos asociados al servicio
-        DB::table('LABSYE')
+        DB::connection('dynamic')->table('LABSYE')
             ->where('DEL3SER', $delegation)
             ->where('SER3COD', $code)
             ->delete();
 
         // Borra las técnicas asociadas al servicio
-        DB::table('LABSYT')
+        DB::connection('dynamic')->table('LABSYT')
             ->where('DEL3SER', $delegation)
             ->where('SER3COD', $code)
             ->delete();      
             
         // Borra las asociación con autodefinibles
-        DB::table('LABAYS')
+        DB::connection('dynamic')->table('LABAYS')
             ->where('SER3DEL', $delegation)
             ->where('SER3COD', $code)
             ->delete();             

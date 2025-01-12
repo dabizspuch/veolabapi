@@ -36,7 +36,7 @@ class DepartamentoController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -51,7 +51,7 @@ class DepartamentoController extends BaseController
 
         // Comprueba que el nombre del departamento no esté en uso
         if (!empty($data['nombre'])) {
-            $existingRecord = DB::table('GRHDEP')->where('DEPCNOM', $data['nombre']);            
+            $existingRecord = DB::connection('dynamic')->table('GRHDEP')->where('DEPCNOM', $data['nombre']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización el nombre no debe estar repetido pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -69,7 +69,7 @@ class DepartamentoController extends BaseController
         // Comprueba que el código para el nuevo departamento no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('GRHDEP')
+                $existingRecord = DB::connection('dynamic')->table('GRHDEP')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('DEP1COD', $data['codigo'])
                     ->exists();
@@ -93,7 +93,7 @@ class DepartamentoController extends BaseController
     protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Comprueba que el departamento no está vinculado a ningún cargo
-        $usedInAnotherTable = DB::table('GRHCAR')
+        $usedInAnotherTable = DB::connection('dynamic')->table('GRHCAR')
             ->where('DEP2DEL', $delegation)
             ->where('DEP2COD', $code)
             ->exists();
@@ -102,7 +102,7 @@ class DepartamentoController extends BaseController
         }  
         
         // Comprueba que el departamento no está vinculado a ningún currículum 
-        $usedInAnotherTable = DB::table('GRHCUR')
+        $usedInAnotherTable = DB::connection('dynamic')->table('GRHCUR')
             ->where('DEP2DEL', $delegation)
             ->where('DEP2COD', $code)
             ->exists();
@@ -111,7 +111,7 @@ class DepartamentoController extends BaseController
         }      
         
         // Comprueba que el departamento no está vinculado a ninguna orden 
-        $usedInAnotherTable = DB::table('LABORD')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABORD')
             ->where('DEP2DEL', $delegation)
             ->where('DEP2COD', $code)
             ->exists();
@@ -120,7 +120,7 @@ class DepartamentoController extends BaseController
         }         
 
         // Comprueba que el departamento no está vinculado a ninguna sección 
-        $usedInAnotherTable = DB::table('LABSEC')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABSEC')
             ->where('DEP2DEL', $delegation)
             ->where('DEP2COD', $code)
             ->exists();

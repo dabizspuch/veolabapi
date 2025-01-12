@@ -102,7 +102,10 @@ abstract class BaseController extends Controller
      */    
     public function index(Request $request, $code = null, $delegation = null, $key1 = null)
     {
-        $query = DB::table($this->table);     
+        if ($this->delegationField) $delegation = trim($delegation) ?? '';
+        if ($this->key1Field) $key1 = trim($key1) ?? '';
+                
+        $query = DB::connection('dynamic')->table($this->table);     
 
         // Filtro por codigo y delegación
         if (!empty($code)) { 
@@ -116,8 +119,8 @@ abstract class BaseController extends Controller
         }
 
         // Filtro por baja (si aplica)
-        if ($request->has('es_baja')) {
-            $inactive = $request->input('es_baja');
+        if ($request->has('is_deleted')) {
+            $inactive = $request->input('is_deleted');
 
             if (!is_null($inactive) && $inactive !== '') {
                 if ($inactive === 'F') {
@@ -170,13 +173,13 @@ abstract class BaseController extends Controller
      */    
     public function show($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
-        if ($this->delegationField) $delegation = $delegation ?? '';
-        if ($this->key1Field) $key1 = $key1 ?? '';
-        if ($this->key2Field) $key2 = $key2 ?? '';
-        if ($this->key3Field) $key3 = $key3 ?? '';
-        if ($this->key4Field) $key4 = $key4 ?? '';
+        if ($this->delegationField) $delegation = trim($delegation) ?? '';
+        if ($this->key1Field) $key1 = trim($key1) ?? '';
+        if ($this->key2Field) $key2 = trim($key2) ?? '';
+        if ($this->key3Field) $key3 = trim($key3) ?? '';
+        if ($this->key4Field) $key4 = trim($key4) ?? '';
 
-        $record = DB::table($this->table)
+        $record = DB::connection('dynamic')->table($this->table)
             ->where($this->delegationField, $delegation)
             ->where($this->codeField, $code)
             ->where($this->key1Field, $key1)
@@ -237,14 +240,14 @@ abstract class BaseController extends Controller
         }
         try {
             // Iniciar la transacción
-            DB::beginTransaction();
+            DB::connection('dynamic')->beginTransaction();
 
             if (!$this->skipInsert) { 
                 // Convertir los datos a formato de base de datos
                 $dbData = $this->mapToDatabaseFields($validatedData);
                 
                 // Insertar el registro en la base de datos
-                DB::table($this->table)->insert($dbData);            
+                DB::connection('dynamic')->table($this->table)->insert($dbData);            
             }
             
             // Realizar actualizaciones adicionales    
@@ -255,7 +258,7 @@ abstract class BaseController extends Controller
                 $validatedData[$fieldSeriesName] ?? ''); 
 
             // Confirmar la transacción
-            DB::commit();
+            DB::connection('dynamic')->commit();
 
             $response = [
                 'message' => 'Registro creado correctamente'
@@ -279,7 +282,7 @@ abstract class BaseController extends Controller
 
         } catch (\Exception $e) {
             // Si ocurre un error, deshacer la transacción
-            DB::rollBack();
+            DB::connection('dynamic')->rollBack();
 
             return response()->json(['error' => 'Ocurrió un error al crear el registro', 'detalle' => $e->getMessage()], 500);
         }
@@ -299,13 +302,13 @@ abstract class BaseController extends Controller
      */    
     public function update(Request $request, $code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {     
-        if ($this->delegationField) $delegation = $delegation ?? '';
-        if ($this->key1Field) $key1 = $key1 ?? '';
-        if ($this->key2Field) $key2 = $key2 ?? '';
-        if ($this->key3Field) $key3 = $key3 ?? '';
-        if ($this->key4Field) $key4 = $key4 ?? '';        
+        if ($this->delegationField) $delegation = trim($delegation) ?? '';
+        if ($this->key1Field) $key1 = trim($key1) ?? '';
+        if ($this->key2Field) $key2 = trim($key2) ?? '';
+        if ($this->key3Field) $key3 = trim($key3) ?? '';
+        if ($this->key4Field) $key4 = trim($key4) ?? '';        
 
-        $record = DB::table($this->table)
+        $record = DB::connection('dynamic')->table($this->table)
             ->where($this->delegationField, $delegation)
             ->where($this->codeField, $code)
             ->where($this->key1Field, $key1)
@@ -320,7 +323,7 @@ abstract class BaseController extends Controller
         
         try {
             // Iniciar la transacción
-            DB::beginTransaction();
+            DB::connection('dynamic')->beginTransaction();
 
             // Convierte request de forma no predeterminada para evitar conversiones de cadenas vacías a null
             $data = json_decode($request->getContent(), true);
@@ -339,7 +342,7 @@ abstract class BaseController extends Controller
 
             // Actualizar el registro en la base de datos
             if ($datosBD) {
-                DB::table($this->table)
+                DB::connection('dynamic')->table($this->table)
                     ->where($this->delegationField, $delegation)
                     ->where($this->codeField, $code)
                     ->where($this->key1Field, $key1)
@@ -353,12 +356,12 @@ abstract class BaseController extends Controller
             $validatedData = $this->updateAdditionalData($validatedData, $code, $delegation, $key1, $key2, $key3, $key4);            
             
             // Confirmar la transacción
-            DB::commit();
+            DB::connection('dynamic')->commit();
 
             return response()->json(['message' => 'Registro actualizado correctamente',], 200);
         } catch (\Exception $e) {
             // Si ocurre un error, deshacer la transacción
-            DB::rollBack();
+            DB::connection('dynamic')->rollBack();
 
             return response()->json(['error' => 'Ocurrió un error al actualizar el registro', 'detalle' => $e->getMessage()], 500);
         }
@@ -377,13 +380,13 @@ abstract class BaseController extends Controller
      */    
     public function destroy($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
-        if ($this->delegationField) $delegation = $delegation ?? '';
-        if ($this->key1Field) $key1 = $key1 ?? '';
-        if ($this->key2Field) $key2 = $key2 ?? '';
-        if ($this->key3Field) $key3 = $key3 ?? '';
-        if ($this->key4Field) $key4 = $key4 ?? '';     
+        if ($this->delegationField) $delegation = trim($delegation) ?? '';
+        if ($this->key1Field) $key1 = trim($key1) ?? '';
+        if ($this->key2Field) $key2 = trim($key2) ?? '';
+        if ($this->key3Field) $key3 = trim($key3) ?? '';
+        if ($this->key4Field) $key4 = trim($key4) ?? '';     
                 
-        $record = DB::table($this->table)
+        $record = DB::connection('dynamic')->table($this->table)
             ->where($this->delegationField, $delegation)
             ->where($this->codeField, $code)
             ->where($this->key1Field, $key1)
@@ -397,13 +400,13 @@ abstract class BaseController extends Controller
         }
         try {
             // Iniciar la transacción
-            DB::beginTransaction();
+            DB::connection('dynamic')->beginTransaction();
 
             // Comprueba que no está referenciado
             $this->validateBeforeDelete($code, $delegation, $key1, $key2, $key3, $key4);
 
             // Eliminar el registro de la base de datos
-            DB::table($this->table)
+            DB::connection('dynamic')->table($this->table)
                 ->where($this->delegationField, $delegation)
                 ->where($this->codeField, $code)
                 ->where($this->key1Field, $key1)
@@ -416,12 +419,12 @@ abstract class BaseController extends Controller
             $this->deleteRelatedRecords($code, $delegation, $key1, $key2, $key3, $key4);
 
             // Confirmar la transacción
-            DB::commit();
+            DB::connection('dynamic')->commit();
 
             return response()->json(['message' => 'Registro eliminado correctamente'], 200);
         } catch (\Exception $e) {
             // Si ocurre un error, deshacer la transacción
-            DB::rollBack();
+            DB::connection('dynamic')->rollBack();
 
             return response()->json(['error' => 'Ocurrió un error al eliminar el registro', 'detalle' => $e->getMessage()], 500);
         }

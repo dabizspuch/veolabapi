@@ -23,7 +23,7 @@ trait OperationInventoryTools
     public function validateOperation(string $delegation, string $serie, int $code)
     {
         if (!is_null($code)) {
-            $isValidated = DB::table('LABIYO')
+            $isValidated = DB::connection('dynamic')->table('LABIYO')
                 ->leftJoin('LABINF', function ($join) {
                     $join->on('LABIYO.INF3DEL', '=', 'LABINF.DEL3COD')
                          ->on('LABIYO.INF3SER', '=', 'LABINF.INF1SER')
@@ -130,7 +130,7 @@ trait OperationInventoryTools
         }
         
         // Inserta el parámetro en la tabla LABRES
-        DB::table('LABRES')->insertOrIgnore([
+        DB::connection('dynamic')->table('LABRES')->insertOrIgnore([
             'OPE3DEL' => $operationDelegation,
             'OPE3SER' => $operationSeries,
             'OPE3COD' => $operationCode,
@@ -167,7 +167,7 @@ trait OperationInventoryTools
         ]);
 
         // Recorre las columnas predefinidas para la técnica
-        $columns = DB::table('LABCOT')
+        $columns = DB::connection('dynamic')->table('LABCOT')
             ->where('TEC3DEL', $parameter->DEL3COD)
             ->where('TEC3COD', $parameter->TEC1COD)
             ->get();
@@ -179,7 +179,7 @@ trait OperationInventoryTools
             $defaultValue = $isDefaultValue ? $column->COTCPRE : '';
             
             // Inserta la columna en LABCOR
-            DB::table('LABCOR')->insertOrIgnore([
+            DB::connection('dynamic')->table('LABCOR')->insertOrIgnore([
                 'OPE3DEL' => $operationDelegation,
                 'OPE3SER' => $operationSeries,
                 'OPE3COD' => $operationCode,
@@ -242,7 +242,7 @@ trait OperationInventoryTools
         string $parameterCode = null        
     ) {
         // Cancela existencias consumos
-        $consumptions = DB::table('ALMMOV')
+        $consumptions = DB::connection('dynamic')->table('ALMMOV')
         ->where('OPE2DEL', $operationDelegation)
         ->where('OPE2SER', $operationSerie)
         ->where('OPE2COD', $operationCode)
@@ -254,25 +254,25 @@ trait OperationInventoryTools
 
         foreach ($consumptions as $consumption) {                   
             // Actualiza existencias en la serie/lote sumando la cantidad anulada                 
-            DB::table('ALMSEL')
+            DB::connection('dynamic')->table('ALMSEL')
                 ->where('PRD3DEL', $consumption->PRD2DEL)
                 ->where('PRD3COD', $consumption->PRD2COD)
                 ->where('SEL1COD', $consumption->SEL2COD)
                 ->update([
-                    'SELNCAE' => DB::raw('SELNCAE + ' . $consumption->MOVNCAN),
-                    'SELNUNE' => DB::raw('CASE WHEN SELNCAU != 0 THEN FLOOR((SELNCAE + ' . $consumption->MOVNCAN . ') / SELNCAU) ELSE 0 END')
+                    'SELNCAE' => DB::connection('dynamic')->raw('SELNCAE + ' . $consumption->MOVNCAN),
+                    'SELNUNE' => DB::connection('dynamic')->raw('CASE WHEN SELNCAU != 0 THEN FLOOR((SELNCAE + ' . $consumption->MOVNCAN . ') / SELNCAU) ELSE 0 END')
                 ]);
             
             // Recalcula las existencias del producto
-            $result = DB::table('ALMSEL')
-                ->select(DB::raw('SUM(SELNUNE) as suma_unidades, SUM(SELNCAE) as suma_cantidad'))
+            $result = DB::connection('dynamic')->table('ALMSEL')
+                ->select(DB::connection('dynamic')->raw('SUM(SELNUNE) as suma_unidades, SUM(SELNCAE) as suma_cantidad'))
                 ->where('PRD3DEL', $consumption->PRD2DEL)
                 ->where('PRD3COD', $consumption->PRD2COD)
                 ->where('SELCESA', '<>', 'B')  
                 ->first();
             
             if ($result) {
-                DB::table('ALMPRD')
+                DB::connection('dynamic')->table('ALMPRD')
                     ->where('DEL3COD', $consumption->PRD2DEL)
                     ->where('PRD1COD', $consumption->PRD2COD)
                     ->update([
@@ -283,7 +283,7 @@ trait OperationInventoryTools
         }        
 
         // Borra consumos
-        DB::table('ALMMOV')
+        DB::connection('dynamic')->table('ALMMOV')
             ->where('OPE2DEL', $operationDelegation)
             ->where('OPE2SER', $operationSerie)
             ->where('OPE2COD', $operationCode)
@@ -313,14 +313,14 @@ trait OperationInventoryTools
         string $parameterCode,
         array &$products
     ) {
-        $consumptions = DB::table('LABTYP')
+        $consumptions = DB::connection('dynamic')->table('LABTYP')
             ->where('TEC3DEL', $parameterDelegation)
             ->where('TEC3COD', $parameterCode)
             ->get();
         
         foreach ($consumptions as $consumption) {
             $lotNumber = $this->getDefaultLot ($consumption->PRD3COD, $consumption->PRD3DEL);
-            DB::table('ALMMOV')->insert([
+            DB::connection('dynamic')->table('ALMMOV')->insert([
                 'DEL3COD' => $operationDelegation,
                 'MOV1COD' => $this->generateNewCode($operationDelegation, '', 'ALMMOV', false),
                 'MOVCTIP' => 'O', // Consumo
@@ -363,12 +363,12 @@ trait OperationInventoryTools
         string $parameterDelegation, 
         string $parameterCode,                
     ) {
-        $equipmentUses = DB::table('LABTYQ')
+        $equipmentUses = DB::connection('dynamic')->table('LABTYQ')
             ->where('TEC3DEL', $parameterDelegation)
             ->where('TEC3COD', $parameterCode)
             ->get();                                                   
         foreach ($equipmentUses as $equipmentUse) {
-            DB::table('ALMMOV')->insert([
+            DB::connection('dynamic')->table('ALMMOV')->insert([
                 'DEL3COD' => $operationDelegation,
                 'MOV1COD' => $this->generateNewCode($operationDelegation, '', 'ALMMOV', false),
                 'MOVCTIP' => 'U', // Uso
@@ -403,7 +403,7 @@ trait OperationInventoryTools
     
     private function getLot(string $productCode, string $productDelegation, array $stateValues, bool $checkCantidad)
     {
-        return DB::table('ALMSEL')
+        return DB::connection('dynamic')->table('ALMSEL')
             ->select('SEL1COD')
             ->where('PRD3DEL', $productDelegation)
             ->where('PRD3COD', $productCode)
@@ -417,16 +417,16 @@ trait OperationInventoryTools
                 }
             })
             ->where(function ($query) {
-                $query->where('SELDCAD', '>', DB::raw('CURRENT_DATE'))->orWhereNull('SELDCAD');
+                $query->where('SELDCAD', '>', DB::connection('dynamic')->raw('CURRENT_DATE'))->orWhereNull('SELDCAD');
             })
             ->where(function ($query) {
-                $query->where('SELDCAL', '>', DB::raw('CURRENT_DATE'))->orWhereNull('SELDCAL');
+                $query->where('SELDCAL', '>', DB::connection('dynamic')->raw('CURRENT_DATE'))->orWhereNull('SELDCAL');
             })
             ->where(function ($query) {
-                $query->where('SELDMAN', '>', DB::raw('CURRENT_DATE'))->orWhereNull('SELDMAN');
+                $query->where('SELDMAN', '>', DB::connection('dynamic')->raw('CURRENT_DATE'))->orWhereNull('SELDMAN');
             })
             ->where(function ($query) {
-                $query->where('SELDVER', '>', DB::raw('CURRENT_DATE'))->orWhereNull('SELDVER');
+                $query->where('SELDVER', '>', DB::connection('dynamic')->raw('CURRENT_DATE'))->orWhereNull('SELDVER');
             })
             ->when($checkCantidad, function ($query) {
                 $query->where('SELNCAE', '>', 0);
@@ -449,14 +449,14 @@ trait OperationInventoryTools
     public function updateStockLot(string $productCode, string $productDelegation, string $lot, float $quantity)
     {
         // Incrementa las existencias acumulando
-        DB::table('ALMSEL')
+        DB::connection('dynamic')->table('ALMSEL')
             ->where('PRD3DEL', $productDelegation)
             ->where('PRD3COD', $productCode)
             ->where('SEL1COD', $lot)
             ->decrement('SELNCAE', $quantity);
 
         // Obtiene la nueva cantidad de existencias acumulada
-        $newValues = DB::table('ALMSEL')
+        $newValues = DB::connection('dynamic')->table('ALMSEL')
             ->where('PRD3DEL', $productDelegation)
             ->where('PRD3COD', $productCode)
             ->where('SEL1COD', $lot) 
@@ -464,7 +464,7 @@ trait OperationInventoryTools
             ->first();
             
         // Calcula las existencias por unidad        
-        DB::table('ALMSEL')
+        DB::connection('dynamic')->table('ALMSEL')
             ->where('PRD3DEL', $productDelegation)
             ->where('PRD3COD', $productCode)
             ->where('SEL1COD', $lot)
@@ -504,14 +504,14 @@ trait OperationInventoryTools
         foreach ($products as $product) {
             [$productDelegation, $productCode] = explode(self::SEPARATOR, $product);
 
-            $total = DB::table('ALMSEL')
+            $total = DB::connection('dynamic')->table('ALMSEL')
                 ->selectRaw('SUM(SELNUNE) as units, SUM(SELNCAE) as quantity')
                 ->where('PRD3DEL', $productDelegation)
                 ->where('PRD3COD', $productCode)
                 ->where('SELCESA', '<>', 'B')
                 ->first();
 
-            DB::table('ALMPRD')
+            DB::connection('dynamic')->table('ALMPRD')
                 ->where('DEL3COD', $productDelegation)
                 ->where('PRD1COD', $productCode)
                 ->update([
@@ -538,16 +538,16 @@ trait OperationInventoryTools
         string $movementType
     ) {
         // Actualiza las existencias en el lote
-        DB::table('ALMSEL')
+        DB::connection('dynamic')->table('ALMSEL')
             ->where('PRD3DEL', $productDelegation)
             ->where('PRD3COD', $productCode)
             ->where('SEL1COD', $lotNumber)
             ->update([
-                'SELNCAE' => DB::raw('SELNCAE + ' . $amount),
+                'SELNCAE' => DB::connection('dynamic')->raw('SELNCAE + ' . $amount),
             ]);
 
         // Obtiene el valor de existencias actualizado
-        $currentRow = DB::table('ALMSEL')
+        $currentRow = DB::connection('dynamic')->table('ALMSEL')
             ->where('PRD3DEL', $productDelegation)
             ->where('PRD3COD', $productCode)
             ->where('SEL1COD', $lotNumber)
@@ -557,7 +557,7 @@ trait OperationInventoryTools
         $updatedUnits = $this->calculateUnitsFromQuantity($currentRow->SELNCAU ?? 0, $currentRow->SELNCAE ?? 0);            
 
         // Actualiza las unidades en la base de datos
-        DB::table('ALMSEL')
+        DB::connection('dynamic')->table('ALMSEL')
             ->where('PRD3DEL', $productDelegation)
             ->where('PRD3COD', $productCode)
             ->where('SEL1COD', $lotNumber)
@@ -569,7 +569,7 @@ trait OperationInventoryTools
         $this->recalculateAffectedProductStock(["{$productDelegation}" . self::SEPARATOR . "{$productCode}"]); 
 
         // Genera el movimiento
-        DB::table('ALMMOV')->insert([
+        DB::connection('dynamic')->table('ALMMOV')->insert([
             'DEL3COD' => $productDelegation,
             'MOV1COD' => $this->generateNewCode($productDelegation, '', 'ALMMOV'),
             'MOVCTIP' => $movementType,
@@ -589,7 +589,7 @@ trait OperationInventoryTools
      */
     private function getParameterAnalyst(stdClass $parameter)
     {
-        $data = DB::table('LABTYE')
+        $data = DB::connection('dynamic')->table('LABTYE')
             ->where('TEC3DEL' ,$parameter->DEL3COD)
             ->where('TEC3COD', $parameter->TEC1COD)
             ->orderBy('TYENPOS', 'asc')
@@ -609,7 +609,7 @@ trait OperationInventoryTools
      */
     private function getDepartment(stdClass $parameter)
     {
-        $data = DB::table('LABSEC')
+        $data = DB::connection('dynamic')->table('LABSEC')
             ->where('DEL3COD', $parameter->SEC2DEL)
             ->where('SEC1COD', $parameter->SEC2COD)
             ->first();
@@ -630,7 +630,7 @@ trait OperationInventoryTools
      */
     public function getConfiguration()
     {
-        $configuration = DB::table('LABCON')
+        $configuration = DB::connection('dynamic')->table('LABCON')
             ->where('CON1COD', 1)
             ->first();
 
@@ -652,7 +652,7 @@ trait OperationInventoryTools
      */
     public function getDefaultMark(string $delegation)
     {
-        $marks = DB::table('LABMAR')
+        $marks = DB::connection('dynamic')->table('LABMAR')
             ->where('DEL3COD', $delegation)
             ->where('MAR1COD', -1)
             ->first();
@@ -679,7 +679,7 @@ trait OperationInventoryTools
             return [$data['tarifa_codigo'], $data['tarifa_delegacion']];
         }
     
-        $operationData = DB::table('LABOPE')
+        $operationData = DB::connection('dynamic')->table('LABOPE')
             ->where('DEL3COD', $delegation)
             ->where('OPE1SER', $series)
             ->where('OPE1COD', $code)
@@ -707,7 +707,7 @@ trait OperationInventoryTools
             return [$data['cliente_codigo'], $data['cliente_delegacion']];
         }
     
-        $operationData = DB::table('LABOPE')
+        $operationData = DB::connection('dynamic')->table('LABOPE')
             ->where('DEL3COD', $delegation)
             ->where('OPE1SER', $series)
             ->where('OPE1COD', $code)
@@ -728,7 +728,7 @@ trait OperationInventoryTools
      */     
     private function getParameterRegulation(stdClass $parameter, stdClass $service) 
     {
-        $data = DB::table('LABTYN')
+        $data = DB::connection('dynamic')->table('LABTYN')
             ->where('TEC3DEL', $parameter->DEL3COD)
             ->where('TEC3COD', $parameter->TEC1COD)
             ->where('NOR3DEL', $service->NOR2DEL)
@@ -751,7 +751,7 @@ trait OperationInventoryTools
      */
     public function getParameterPriceAndDiscountByRate(stdClass $parameter, string $rateDelegation, int $rateCode)
     {
-        $priceAndDiscount = DB::table('LABTYF')
+        $priceAndDiscount = DB::connection('dynamic')->table('LABTYF')
             ->where('TEC3DEL', $parameter->DEL3COD)
             ->where('TEC3COD', $parameter->TEC1COD)          
             ->where('TAR3DEL', $rateDelegation)  
@@ -774,7 +774,7 @@ trait OperationInventoryTools
      */
     public function getParameterPriceAndDiscountByClient(stdClass $parameter, string $clientDelegation, string $clientCode)
     {
-        $priceAndDiscount = DB::table('LABTYC')
+        $priceAndDiscount = DB::connection('dynamic')->table('LABTYC')
             ->where('TEC3DEL', $parameter->DEL3COD)
             ->where('TEC3COD', $parameter->TEC1COD)          
             ->where('CLI3DEL', $clientDelegation)  
@@ -796,7 +796,7 @@ trait OperationInventoryTools
      */
     public function getParameterOrderNumberInService(stdClass $parameter, stdClass $service) 
     {
-        $orderNumber = DB::table('LABSYT')
+        $orderNumber = DB::connection('dynamic')->table('LABSYT')
             ->where('DEL3SER', $service->DEL3COD)
             ->where('SER3COD', $service->SER1COD)
             ->where('DEL3TEC', $parameter->DEL3COD)

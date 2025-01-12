@@ -49,7 +49,7 @@ class EmpleadoFormacionController extends BaseController
     {  
         // Valida la existencia del empleado 
         if (!empty($data['empleado_codigo'])) {
-            $employee = DB::table('GRHEMP')
+            $employee = DB::connection('dynamic')->table('GRHEMP')
                 ->where('DEL3COD', $data['empleado_delegacion'] ?? '')
                 ->where('EMP1COD', $data['empleado_codigo'])
                 ->first(); 
@@ -108,7 +108,7 @@ class EmpleadoFormacionController extends BaseController
      */
     private function getNextTrainingCode($employeeDelegation, $employeeCode)
     {
-        $maxPoint = DB::table('GRHFOR')
+        $maxPoint = DB::connection('dynamic')->table('GRHFOR')
             ->where('EMP3DEL', $employeeDelegation)
             ->where('EMP3COD', $employeeCode) 
             ->max('FOR1COD');    

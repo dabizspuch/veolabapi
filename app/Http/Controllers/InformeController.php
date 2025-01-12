@@ -74,7 +74,7 @@ class InformeController extends BaseController
     {  
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -84,7 +84,7 @@ class InformeController extends BaseController
 
         // Valida la existencia del usuario
         if (!empty($data['usuario_codigo'])) {
-            $user = DB::table('ACCUSU')
+            $user = DB::connection('dynamic')->table('ACCUSU')
                 ->where('DEL3COD', $data['usuario_delegacion'] ?? '')
                 ->where('USU1COD', $data['usuario_codigo'])
                 ->first();
@@ -95,7 +95,7 @@ class InformeController extends BaseController
 
         // Valida la existencia de la forma de envío
         if (!empty($data['forma_envio_codigo'])) {
-            $form = DB::table('LABFDE')
+            $form = DB::connection('dynamic')->table('LABFDE')
                 ->where('DEL3COD', $data['forma_envio_delegacion'] ?? '')
                 ->where('FDE1COD', $data['forma_envio_codigo'])
                 ->first();
@@ -106,7 +106,7 @@ class InformeController extends BaseController
 
         // Valida la existencia de la normativa
         if (!empty($data['normativa_codigo'])) {
-            $regulation = DB::table('LABNOR')
+            $regulation = DB::connection('dynamic')->table('LABNOR')
                 ->where('DEL3COD', $data['normativa_delegacion'] ?? '')
                 ->where('NOR1COD', $data['normativa_codigo'])
                 ->first();
@@ -117,7 +117,7 @@ class InformeController extends BaseController
         
         // Valida la existencia del tipo de firma
         if (!empty($data['firma_codigo'])) {
-            $sign = DB::table('LABTIF')
+            $sign = DB::connection('dynamic')->table('LABTIF')
                 ->where('DEL3COD', $data['firma_delegacion'] ?? '')
                 ->where('TIF1COD', $data['firma_codigo'])
                 ->first();
@@ -130,7 +130,7 @@ class InformeController extends BaseController
         if (!empty($data['operaciones'])) {
             $existOperation = true;
             foreach ($data['operaciones'] as $operation) {
-                $existOperation = DB::table('LABOPE')
+                $existOperation = DB::connection('dynamic')->table('LABOPE')
                     ->where('DEL3COD', $operation['delegacion'])
                     ->where('OPE1SER', $operation['serie'])
                     ->where('OPE1COD', $operation['codigo'])
@@ -153,7 +153,7 @@ class InformeController extends BaseController
         // Comprueba que el código para el nuevo informe no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('LABINF')
+                $existingRecord = DB::connection('dynamic')->table('LABINF')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('INF1SER', $data['serie'] ?? '')
                     ->where('INF1COD', $data['codigo'])
@@ -179,7 +179,7 @@ class InformeController extends BaseController
     protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // No se permite borrar informes validados
-        $status = DB::table('LABINF')
+        $status = DB::connection('dynamic')->table('LABINF')
             ->select('INFCVAL')
             ->where('DEL3COD', $delegation)
             ->where('INF1SER', $key1)
@@ -194,7 +194,7 @@ class InformeController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {      
         // Actualiza fecha de informe en operaciones relacionadas
-        DB::table('LABOPE')
+        DB::connection('dynamic')->table('LABOPE')
         ->join('LABIYO', function ($join) {
             $join->on('LABOPE.DEL3COD', '=', 'LABIYO.OPE3DEL')
                  ->on('LABOPE.OPE1SER', '=', 'LABIYO.OPE3SER')
@@ -210,21 +210,21 @@ class InformeController extends BaseController
         ->update(['LABOPE.OPEDINF' => null]);    
 
         // Borra el vínculo con operaciones
-        DB::table('LABIYO')
+        DB::connection('dynamic')->table('LABIYO')
             ->where('INF3DEL', $delegation)
             ->where('INF3SER', $key1)
             ->where('INF3COD', $code)
             ->delete();
         
         // Borra las firmas
-        DB::table('LABFIR')
+        DB::connection('dynamic')->table('LABFIR')
             ->where('INF3DEL', $delegation)
             ->where('INF3SER', $key1)
             ->where('INF3COD', $code)
             ->delete();
 
         // Documentos a la papelera
-        DB::table('DOCFAT')
+        DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)
             ->where('INF2SER', $key1)
             ->where('INF2COD', $code)
@@ -241,7 +241,7 @@ class InformeController extends BaseController
             
             if (!request()->isMethod('post')) {     
                 // Borra la asociación previa de operaciones
-                DB::table('LABIYO')
+                DB::connection('dynamic')->table('LABIYO')
                     ->where('INF3DEL', $delegation)
                     ->where('INF3SER', $key1)
                     ->where('INF3COD', $code)  
@@ -250,7 +250,7 @@ class InformeController extends BaseController
             
             // Crea la nueva asociación de operaciones
             foreach ($data['operaciones'] as $operation) {                                 
-                DB::table('LABIYO')->insert([
+                DB::connection('dynamic')->table('LABIYO')->insert([
                     'INF3DEL' => $delegation,
                     'INF3SER' => $key1,
                     'INF3COD' => $code,
@@ -263,7 +263,7 @@ class InformeController extends BaseController
         }
 
         // Obtiene datos del informe de la base de datos
-        $report = DB::table('LABINF')
+        $report = DB::connection('dynamic')->table('LABINF')
             ->where('DEL3COD', $delegation)
             ->where('INF1SER', $key1)
             ->where('INF1COD', $code)
@@ -277,14 +277,14 @@ class InformeController extends BaseController
 
         if ($final) {
             // Se actualizan los estados de las operaciones
-            $operations = DB::table('LABIYO')
+            $operations = DB::connection('dynamic')->table('LABIYO')
                 ->where('INF3DEL', $delegation)
                 ->where('INF3SER', $key1)
                 ->where('INF3COD', $code)
                 ->get();
                 
             foreach ($operations as $operation) {                
-                $query = DB::table('LABOPE')
+                $query = DB::connection('dynamic')->table('LABOPE')
                     ->where('DEL3COD', $operation->OPE3DEL)
                     ->where('OPE1SER', $operation->OPE3SER)
                     ->where('OPE1COD', $operation->OPE3COD);
@@ -295,7 +295,7 @@ class InformeController extends BaseController
                 ];
 
                 if ($sendingDate) {
-                    $updateData['OPENEST'] = DB::raw('CASE WHEN OPENEST < 6 THEN 6 ELSE OPENEST END');
+                    $updateData['OPENEST'] = DB::connection('dynamic')->raw('CASE WHEN OPENEST < 6 THEN 6 ELSE OPENEST END');
                 } else {
                     switch ($status) {
                         case 'P': // Pendiente
@@ -305,7 +305,7 @@ class InformeController extends BaseController
                         case 'V': // Validado
                             $updateData = array_merge($updateData, [
                                 'OPEDVAL' => $validationDate,
-                                'OPENEST' => DB::raw('CASE WHEN (OPENEST < 5 OR OPENEST = 6) THEN 5 ELSE OPENEST END'),
+                                'OPENEST' => DB::connection('dynamic')->raw('CASE WHEN (OPENEST < 5 OR OPENEST = 6) THEN 5 ELSE OPENEST END'),
                             ]);  
                             break;
 

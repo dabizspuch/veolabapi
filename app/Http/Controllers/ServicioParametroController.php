@@ -41,7 +41,7 @@ class ServicioParametroController extends BaseController
     {  
         // Valida la existencia del servicio 
         if (!empty($data['servicio_codigo'])) {
-            $service = DB::table('LABSER')
+            $service = DB::connection('dynamic')->table('LABSER')
                 ->where('DEL3COD', $data['servicio_delegacion'] ?? '')
                 ->where('SER1COD', $data['servicio_codigo'])
                 ->first(); 
@@ -52,7 +52,7 @@ class ServicioParametroController extends BaseController
 
         // Valida la existencia del parámetro 
         if (!empty($data['parametro_codigo'])) {
-            $parameter = DB::table('LABTEC')
+            $parameter = DB::connection('dynamic')->table('LABTEC')
                 ->where('DEL3COD', $data['parametro_delegacion'] ?? '')
                 ->where('TEC1COD', $data['parametro_codigo'])
                 ->first(); 
@@ -68,7 +68,7 @@ class ServicioParametroController extends BaseController
 
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
-            $exist = DB::table('LABSYT')
+            $exist = DB::connection('dynamic')->table('LABSYT')
                 ->where('DEL3SER', $data['servicio_delegacion'] ?? '')
                 ->where('SER3COD', $data['servicio_codigo'])
                 ->where('DEL3TEC', $data['parametro_delegacion'] ?? '')

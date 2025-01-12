@@ -68,7 +68,7 @@ class UsuarioController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -78,7 +78,7 @@ class UsuarioController extends BaseController
 
         // Valida la existencia del perfil 
         if (!empty($data['perfil_codigo'])) {
-            $profile = DB::table('ACCPER')
+            $profile = DB::connection('dynamic')->table('ACCPER')
                 ->where('DEL3COD', $data['perfil_delegacion'] ?? '')
                 ->where('PER1COD', $data['perfil_codigo'])
                 ->first(); 
@@ -89,7 +89,7 @@ class UsuarioController extends BaseController
         
         // Valida la existencia del empleado 
         if (!empty($data['empleado_codigo'])) {
-            $employee = DB::table('GRHEMP')
+            $employee = DB::connection('dynamic')->table('GRHEMP')
                 ->where('DEL3COD', $data['empleado_delegacion'] ?? '')
                 ->where('EMP1COD', $data['empleado_codigo'])
                 ->first(); 
@@ -100,7 +100,7 @@ class UsuarioController extends BaseController
         
         // Valida la existencia del cliente 
         if (!empty($data['cliente_codigo'])) {
-            $client = DB::table('SINCLI')
+            $client = DB::connection('dynamic')->table('SINCLI')
                 ->where('DEL3COD', $data['cliente_delegacion'] ?? '')
                 ->where('CLI1COD', $data['cliente_codigo'])
                 ->first(); 
@@ -116,7 +116,7 @@ class UsuarioController extends BaseController
 
         // Comprueba que el nombre del usuario no esté en uso
         if (!empty($data['nombre'])) {
-            $existingRecord = DB::table('ACCUSU')->where('USUCNOM', $data['nombre']);            
+            $existingRecord = DB::connection('dynamic')->table('ACCUSU')->where('USUCNOM', $data['nombre']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización el nombre no debe estar repetido pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -134,7 +134,7 @@ class UsuarioController extends BaseController
         // Comprueba que el código para el nuevo usuario no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('ACCUSU')
+                $existingRecord = DB::connection('dynamic')->table('ACCUSU')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('USU1COD', $data['codigo'])
                     ->exists();
@@ -158,7 +158,7 @@ class UsuarioController extends BaseController
     protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Comprueba que el usuario no está vinculado a ninguna versión de documento
-        $usedInAnotherTable = DB::table('DOCVER')
+        $usedInAnotherTable = DB::connection('dynamic')->table('DOCVER')
             ->where('USU2DEL', $delegation)
             ->where('USU2COD', $code)
             ->exists();
@@ -167,7 +167,7 @@ class UsuarioController extends BaseController
         }  
         
         // Comprueba que el usuario no está vinculado a ningún movimiento de almacén
-        $usedInAnotherTable = DB::table('ALMMOV')
+        $usedInAnotherTable = DB::connection('dynamic')->table('ALMMOV')
             ->where('USU2DEL', $delegation)
             ->where('USU2COD', $code)
             ->exists();
@@ -176,7 +176,7 @@ class UsuarioController extends BaseController
         }  
         
         // Comprueba que el usuario no está vinculado a algún informe
-        $usedInAnotherTable = DB::table('LABINF')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABINF')
             ->where('USU2DEL', $delegation)
             ->where('USU2COD', $code)
             ->exists();
@@ -185,7 +185,7 @@ class UsuarioController extends BaseController
         }    
         
         // Comprueba que el usuario no está vinculado a alguna firma
-        $usedInAnotherTable = DB::table('LABFIR')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABFIR')
             ->where('USU2DEL', $delegation)
             ->where('USU2COD', $code)
             ->exists();
@@ -197,55 +197,55 @@ class UsuarioController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra la configuración de ventanas
-        DB::table('ACCUYV')
+        DB::connection('dynamic')->table('ACCUYV')
             ->where('DEL3COD', $delegation)
             ->where('USU3COD', $code)
             ->delete();
 
         // Borra las sesiones
-        DB::table('ACCSES')
+        DB::connection('dynamic')->table('ACCSES')
             ->where('DEL3COD', $delegation)
             ->where('USU2COD', $code)
             ->delete();
 
         // Borra los avisos
-        DB::table('ACCAVI')
+        DB::connection('dynamic')->table('ACCAVI')
             ->where('USU2DEL', $delegation)
             ->where('USU2COD', $code)
             ->delete();     
         
         // Borra las notificaciones
-        DB::table('ACCNOT')
+        DB::connection('dynamic')->table('ACCNOT')
             ->where('USU2DEL', $delegation)
             ->where('USU2COD', $code)
             ->delete();   
         
         // Borra la firma digitalizada
-        DB::table('ACCFIR')
+        DB::connection('dynamic')->table('ACCFIR')
             ->where('DEL3COD', $delegation)
             ->where('USU3COD', $code)
             ->delete();      
         
         // Borra la agenda del usuario
-        DB::table('AGEAGE')
+        DB::connection('dynamic')->table('AGEAGE')
             ->where('USU3DEL', $delegation)
             ->where('USU3COD', $code)
             ->delete();  
             
         // Borra los eventos de agenda
-        DB::table('AGEFEC')
+        DB::connection('dynamic')->table('AGEFEC')
             ->where('USU3DEL', $delegation)
             ->where('USU3COD', $code)
             ->delete();
             
         // Borra la lista de asistentes de los eventos de agenda borrados
-        DB::table('AGEASI')
+        DB::connection('dynamic')->table('AGEASI')
             ->where('USU3DEL', $delegation)
             ->where('USU3COD', $code)
             ->delete();
 
         // Borra el usuario como asistente de otros eventos
-        DB::table('AGEASI')
+        DB::connection('dynamic')->table('AGEASI')
             ->where('USA3DEL', $delegation)
             ->where('USA3COD', $code)
             ->delete();                        

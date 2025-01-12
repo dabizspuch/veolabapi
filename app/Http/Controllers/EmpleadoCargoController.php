@@ -41,7 +41,7 @@ class EmpleadoCargoController extends BaseController
     {  
         // Valida la existencia del empleado 
         if (!empty($data['empleado_codigo'])) {
-            $employee = DB::table('GRHEMP')
+            $employee = DB::connection('dynamic')->table('GRHEMP')
                 ->where('DEL3COD', $data['empleado_delegacion'] ?? '')
                 ->where('EMP1COD', $data['empleado_codigo'])
                 ->first(); 
@@ -52,7 +52,7 @@ class EmpleadoCargoController extends BaseController
 
         // Valida la existencia del cargo 
         if (!empty($data['cargo_codigo'])) {
-            $chargue = DB::table('GRHCAR')
+            $chargue = DB::connection('dynamic')->table('GRHCAR')
                 ->where('DEL3COD', $data['cargo_delegacion'] ?? '')
                 ->where('CAR1COD', $data['cargo_codigo'])
                 ->first(); 
@@ -68,7 +68,7 @@ class EmpleadoCargoController extends BaseController
 
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
-            $exist = DB::table('GRHEYC')
+            $exist = DB::connection('dynamic')->table('GRHEYC')
                 ->where('EMP3DEL', $data['empleado_delegacion'] ?? '')
                 ->where('EMP3COD', $data['empleado_codigo'])
                 ->where('CAR3DEL', $data['cargo_delegacion'] ?? '')

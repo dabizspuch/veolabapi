@@ -43,7 +43,7 @@ class ParametroPrecioClienteController extends BaseController
     {  
         // Valida la existencia del parametro 
         if (!empty($data['parametro_codigo'])) {
-            $parameter = DB::table('LABTEC')
+            $parameter = DB::connection('dynamic')->table('LABTEC')
                 ->where('DEL3COD', $data['parametro_delegacion'] ?? '')
                 ->where('TEC1COD', $data['parametro_codigo'])
                 ->first(); 
@@ -54,7 +54,7 @@ class ParametroPrecioClienteController extends BaseController
 
         // Valida la existencia del cliente 
         if (!empty($data['cliente_codigo'])) {
-            $parameter = DB::table('SINCLI')
+            $parameter = DB::connection('dynamic')->table('SINCLI')
                 ->where('DEL3COD', $data['cliente_delegacion'] ?? '')
                 ->where('CLI1COD', $data['cliente_codigo'])
                 ->first(); 
@@ -70,7 +70,7 @@ class ParametroPrecioClienteController extends BaseController
 
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
-            $exist = DB::table('LABTYC')
+            $exist = DB::connection('dynamic')->table('LABTYC')
                 ->where('TEC3DEL', $data['parametro_delegacion'] ?? '')
                 ->where('TEC3COD', $data['parametro_codigo'])
                 ->where('CLI3DEL', $data['cliente_delegacion'] ?? '')

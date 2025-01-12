@@ -41,7 +41,7 @@ class ParametroEmpleadoController extends BaseController
     {  
         // Valida la existencia del parámetro 
         if (!empty($data['parametro_codigo'])) {
-            $parameter = DB::table('LABTEC')
+            $parameter = DB::connection('dynamic')->table('LABTEC')
                 ->where('DEL3COD', $data['parametro_delegacion'] ?? '')
                 ->where('TEC1COD', $data['parametro_codigo'])
                 ->first(); 
@@ -52,7 +52,7 @@ class ParametroEmpleadoController extends BaseController
         
         // Valida la existencia del empleado 
         if (!empty($data['empleado_codigo'])) {
-            $employee = DB::table('GRHEMP')
+            $employee = DB::connection('dynamic')->table('GRHEMP')
                 ->where('DEL3COD', $data['empleado_delegacion'] ?? '')
                 ->where('EMP1COD', $data['empleado_codigo'])
                 ->first(); 
@@ -70,7 +70,7 @@ class ParametroEmpleadoController extends BaseController
 
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
-            $exist = DB::table('LABTYE')
+            $exist = DB::connection('dynamic')->table('LABTYE')
                 ->where('TEC3DEL', $data['parametro_delegacion'] ?? '')
                 ->where('TEC3COD', $data['parametro_codigo'])
                 ->where('EMP3DEL', $data['empleado_delegacion'] ?? '')

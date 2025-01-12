@@ -76,7 +76,7 @@ class DelegacionController extends BaseController
 
         // Comprueba que el nombre de delegación no esté en uso
         if (!empty($data['nombre'])) {
-            $existingRecord = DB::table('ACCDEL')->where('DELCNOM', $data['nombre']);            
+            $existingRecord = DB::connection('dynamic')->table('ACCDEL')->where('DELCNOM', $data['nombre']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización el nombre no debe estar repetido pero excluyendo el registro actual
                 $existingRecord = $existingRecord->where('DEL1COD', '!=', $code);                                      
@@ -90,7 +90,7 @@ class DelegacionController extends BaseController
         // Comprueba que el código para la nueva delegación no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('ACCDEL')
+                $existingRecord = DB::connection('dynamic')->table('ACCDEL')
                     ->where('DEL1COD', $data['codigo'])
                     ->exists();
                 if ($existingRecord) {
@@ -158,7 +158,7 @@ class DelegacionController extends BaseController
         ];
         
         foreach ($tables as $table => $reference) {
-            if (DB::table($table)->where('DEL3COD', $code)->exists()) {
+            if (DB::connection('dynamic')->table($table)->where('DEL3COD', $code)->exists()) {
                 throw new \Exception("La delegación no puede ser eliminada porque está siendo referenciada en $reference");
             }
         }         
@@ -167,22 +167,22 @@ class DelegacionController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra las claves técnicas de la delegación
-        DB::table('ACCCLT')
+        DB::connection('dynamic')->table('ACCCLT')
             ->where('DEL3COD', $code)
             ->delete();
 
         // Borra los avisos de la delegación
-        DB::table('ACCAVI')
+        DB::connection('dynamic')->table('ACCAVI')
             ->where('DEL3COD', $code)
             ->delete();
 
         // Borra las notificaciones de la delegación
-        DB::table('ACCNOT')
+        DB::connection('dynamic')->table('ACCNOT')
             ->where('DEL3COD', $code)
             ->delete();
 
         // Borra los mensajes de la delegación
-        DB::table('MENMEN')
+        DB::connection('dynamic')->table('MENMEN')
             ->where('DEL3COD', $code)
             ->delete();            
 

@@ -39,7 +39,7 @@ class CargoTareaController extends BaseController
     {  
         // Valida la existencia del cargo 
         if (!empty($data['cargo_codigo'])) {
-            $employee = DB::table('GRHCAR')
+            $employee = DB::connection('dynamic')->table('GRHCAR')
                 ->where('DEL3COD', $data['cargo_delegacion'] ?? '')
                 ->where('CAR1COD', $data['cargo_codigo'])
                 ->first(); 
@@ -98,7 +98,7 @@ class CargoTareaController extends BaseController
      */
     private function getNextTaskCode($chargeDelegation, $chargeCode)
     {
-        $maxPoint = DB::table('GRHTAR')
+        $maxPoint = DB::connection('dynamic')->table('GRHTAR')
             ->where('CAR3DEL', $chargeDelegation)
             ->where('CAR3COD', $chargeCode) 
             ->max('TAR1COD');    

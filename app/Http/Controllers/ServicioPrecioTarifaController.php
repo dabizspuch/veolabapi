@@ -43,7 +43,7 @@ class ServicioPrecioTarifaController extends BaseController
     {  
         // Valida la existencia del servicio 
         if (!empty($data['servicio_codigo'])) {
-            $service = DB::table('LABSER')
+            $service = DB::connection('dynamic')->table('LABSER')
                 ->where('DEL3COD', $data['servicio_delegacion'] ?? '')
                 ->where('SER1COD', $data['servicio_codigo'])
                 ->first(); 
@@ -54,7 +54,7 @@ class ServicioPrecioTarifaController extends BaseController
 
         // Valida la existencia de la tarifa 
         if (!empty($data['tarifa_codigo'])) {
-            $parameter = DB::table('LABTAR')
+            $parameter = DB::connection('dynamic')->table('LABTAR')
                 ->where('DEL3COD', $data['tarifa_delegacion'] ?? '')
                 ->where('TAR1COD', $data['tarifa_codigo'])
                 ->first(); 
@@ -70,7 +70,7 @@ class ServicioPrecioTarifaController extends BaseController
 
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
-            $exist = DB::table('LABSYF')
+            $exist = DB::connection('dynamic')->table('LABSYF')
                 ->where('SER3DEL', $data['servicio_delegacion'] ?? '')
                 ->where('SER3COD', $data['servicio_codigo'])
                 ->where('TAR3DEL', $data['tarifa_delegacion'] ?? '')

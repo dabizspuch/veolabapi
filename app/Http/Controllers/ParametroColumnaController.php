@@ -65,7 +65,7 @@ class ParametroColumnaController extends BaseController
     {  
         // Valida la existencia del parámetro 
         if (!empty($data['parametro_codigo'])) {
-            $employee = DB::table('LABTEC')
+            $employee = DB::connection('dynamic')->table('LABTEC')
                 ->where('DEL3COD', $data['parametro_delegacion'] ?? '')
                 ->where('TEC1COD', $data['parametro_codigo'])
                 ->first(); 
@@ -124,7 +124,7 @@ class ParametroColumnaController extends BaseController
      */
     private function getNextColumnCode($parameterDelegation, $parameterCode)
     {
-        $maxPoint = DB::table('LABCOT')
+        $maxPoint = DB::connection('dynamic')->table('LABCOT')
             ->where('TEC3DEL', $parameterDelegation)
             ->where('TEC3COD', $parameterCode) 
             ->max('COT1COD');    

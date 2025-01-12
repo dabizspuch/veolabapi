@@ -54,7 +54,7 @@ class CargoController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -64,7 +64,7 @@ class CargoController extends BaseController
 
         // Valida la existencia del departamento 
         if (!empty($data['departamento_codigo'])) {
-            $employee = DB::table('GRHDEP')
+            $employee = DB::connection('dynamic')->table('GRHDEP')
                 ->where('DEL3COD', $data['departamento_delegacion'] ?? '')
                 ->where('DEP1COD', $data['departamento_codigo'])
                 ->first(); 
@@ -75,7 +75,7 @@ class CargoController extends BaseController
         
         // Valida la existencia del cargo superior 
         if (!empty($data['cargo_superior_codigo'])) {
-            $employee = DB::table('GRHCAR')
+            $employee = DB::connection('dynamic')->table('GRHCAR')
                 ->where('DEL3COD', $data['cargo_superior_delegacion'] ?? '')
                 ->where('CAR1COD', $data['cargo_superior_codigo'])
                 ->first(); 
@@ -91,7 +91,7 @@ class CargoController extends BaseController
 
         // Comprueba que el nombre del cargo no esté en uso
         if (!empty($data['nombre'])) {
-            $existingRecord = DB::table('GRHCAR')->where('CARCNOM', $data['nombre']);            
+            $existingRecord = DB::connection('dynamic')->table('GRHCAR')->where('CARCNOM', $data['nombre']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización el nombre no debe estar repetido pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -109,7 +109,7 @@ class CargoController extends BaseController
         // Comprueba que el código para el nuevo cargo no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('GRHCAR')
+                $existingRecord = DB::connection('dynamic')->table('GRHCAR')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('CAR1COD', $data['codigo'])
                     ->exists();
@@ -133,7 +133,7 @@ class CargoController extends BaseController
     protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Comprueba que el cargo no está vinculado a ningún empleado
-        $usedInAnotherTable = DB::table('GRHEYC')
+        $usedInAnotherTable = DB::connection('dynamic')->table('GRHEYC')
             ->where('CAR3DEL', $delegation)
             ->where('CAR3COD', $code)
             ->exists();
@@ -142,7 +142,7 @@ class CargoController extends BaseController
         }  
         
         // Comprueba que el cargo no está vinculado a otro cargo 
-        $usedInAnotherTable = DB::table('GRHCAR')
+        $usedInAnotherTable = DB::connection('dynamic')->table('GRHCAR')
             ->where('CAR2DEL', $delegation)
             ->where('CAR2COD', $code)
             ->exists();
@@ -151,7 +151,7 @@ class CargoController extends BaseController
         }      
         
         // Comprueba que el cargo no está vinculado a ningún currículum 
-        $usedInAnotherTable = DB::table('GRHCUR')
+        $usedInAnotherTable = DB::connection('dynamic')->table('GRHCUR')
             ->where('CAR2DEL', $delegation)
             ->where('CAR2COD', $code)
             ->exists();
@@ -163,7 +163,7 @@ class CargoController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra las taras del cargo
-        DB::table('GRHTAR')
+        DB::connection('dynamic')->table('GRHTAR')
         ->where('CAR3DEL', $delegation)
         ->where('CAR3COD', $code)
         ->delete();

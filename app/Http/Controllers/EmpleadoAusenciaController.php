@@ -43,7 +43,7 @@ class EmpleadoAusenciaController extends BaseController
     {  
         // Valida la existencia del empleado 
         if (!empty($data['empleado_codigo'])) {
-            $employee = DB::table('GRHEMP')
+            $employee = DB::connection('dynamic')->table('GRHEMP')
                 ->where('DEL3COD', $data['empleado_delegacion'] ?? '')
                 ->where('EMP1COD', $data['empleado_codigo'])
                 ->first(); 
@@ -102,7 +102,7 @@ class EmpleadoAusenciaController extends BaseController
      */
     private function getNextAbsenceCode($employeeDelegation, $employeeCode)
     {
-        $maxPoint = DB::table('GRHAUS')
+        $maxPoint = DB::connection('dynamic')->table('GRHAUS')
             ->where('EMP3DEL', $employeeDelegation)
             ->where('EMP3COD', $employeeCode) 
             ->max('AUS1COD');    

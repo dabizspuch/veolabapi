@@ -21,10 +21,10 @@ trait CodeGenerator
     {
         try {
             // Iniciar la transacción
-            if ($lock) DB::beginTransaction();
+            if ($lock) DB::connection('dynamic')->beginTransaction();
 
             // Realizar un bloqueo pesimista para evitar colisiones
-            $key = DB::table('ACCCLT')
+            $key = DB::connection('dynamic')->table('ACCCLT')
                 ->where('DEL3COD', $delegation)
                 ->where('CLTCTAB', $table)
                 ->where('CLTCSER', $series);
@@ -33,7 +33,7 @@ trait CodeGenerator
 
             if (!$key) {
                 // Si no existe el registro de clave, debe crearlo con un contador inicial de 1
-                DB::table('ACCCLT')->insert([
+                DB::connection('dynamic')->table('ACCCLT')->insert([
                     'DEL3COD' => $delegation,
                     'CLTCTAB' => $table,
                     'CLTCSER' => $series,
@@ -45,21 +45,21 @@ trait CodeGenerator
                 $newValue = $key->CLTNVAL + 1;
 
                 // Actualizar el contador en la tabla ACCCLT
-                DB::table('ACCCLT')
+                DB::connection('dynamic')->table('ACCCLT')
                     ->where('DEL3COD', $delegation)
                     ->where('CLTCTAB', $table)
                     ->where('CLTCSER', $series)
                     ->update(['CLTNVAL' => $newValue]);
             }
             // Confirmar la transacción
-            if ($lock) DB::commit();
+            if ($lock) DB::connection('dynamic')->commit();
 
             // Devolver el nuevo código
             return $newValue;
 
         } catch (\Exception $e) {        
             // Si ocurre un error, deshacer la transacción
-            if ($lock) DB::rollBack();
+            if ($lock) DB::connection('dynamic')->rollBack();
 
             throw new \Exception("Error generando nuevo código: " . $e->getMessage());
         }

@@ -36,7 +36,7 @@ class TipoEvaluacionController extends BaseController
     {  
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -52,7 +52,7 @@ class TipoEvaluacionController extends BaseController
         // Comprueba que la descripción de tipo de cliente no esté en uso
         if (!empty($data['descripcion'])) {
             
-            $existingRecord = DB::table('SINTIE')->where('TIECDES', $data['descripcion']);                            
+            $existingRecord = DB::connection('dynamic')->table('SINTIE')->where('TIECDES', $data['descripcion']);                            
             
             if (!$isCreating) {
                 // Si se trata de una actualización la descripción no debe estar repetida pero excluyendo el registro actual
@@ -73,7 +73,7 @@ class TipoEvaluacionController extends BaseController
         // Comprueba que el código para el nuevo tipo de cliente no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('SINTIE')
+                $existingRecord = DB::connection('dynamic')->table('SINTIE')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('TIE1COD', $data['codigo'])
                     ->exists();
@@ -99,7 +99,7 @@ class TipoEvaluacionController extends BaseController
         $delegation = $delegation ?? '';
 
         // Comprueba que no esté referenciado en proveedores
-        $usedInAnotherTable = DB::table('SINPRO')
+        $usedInAnotherTable = DB::connection('dynamic')->table('SINPRO')
             ->where('TIE2DEL', $delegation)
             ->where('TIE2COD', $code)
             ->exists();

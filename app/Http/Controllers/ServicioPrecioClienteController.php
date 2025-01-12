@@ -43,7 +43,7 @@ class ServicioPrecioClienteController extends BaseController
     {  
         // Valida la existencia del servicio 
         if (!empty($data['servicio_codigo'])) {
-            $service = DB::table('LABSER')
+            $service = DB::connection('dynamic')->table('LABSER')
                 ->where('DEL3COD', $data['servicio_delegacion'] ?? '')
                 ->where('SER1COD', $data['servicio_codigo'])
                 ->first(); 
@@ -54,7 +54,7 @@ class ServicioPrecioClienteController extends BaseController
 
         // Valida la existencia del cliente 
         if (!empty($data['cliente_codigo'])) {
-            $parameter = DB::table('SINCLI')
+            $parameter = DB::connection('dynamic')->table('SINCLI')
                 ->where('DEL3COD', $data['cliente_delegacion'] ?? '')
                 ->where('CLI1COD', $data['cliente_codigo'])
                 ->first(); 
@@ -70,7 +70,7 @@ class ServicioPrecioClienteController extends BaseController
 
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
-            $exist = DB::table('LABSYC')
+            $exist = DB::connection('dynamic')->table('LABSYC')
                 ->where('SER3DEL', $data['servicio_delegacion'] ?? '')
                 ->where('SER3COD', $data['servicio_codigo'])
                 ->where('CLI3DEL', $data['cliente_delegacion'] ?? '')

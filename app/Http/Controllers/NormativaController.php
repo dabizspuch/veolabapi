@@ -44,7 +44,7 @@ class NormativaController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -60,7 +60,7 @@ class NormativaController extends BaseController
         // Comprueba que el código para la nueva normativa no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('LABNOR')
+                $existingRecord = DB::connection('dynamic')->table('LABNOR')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('NOR1COD', $data['codigo'])
                     ->exists();
@@ -84,7 +84,7 @@ class NormativaController extends BaseController
     protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Informes
-        $usedInAnotherTable = DB::table('LABINF')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABINF')
             ->where('NOR2DEL', $delegation)
             ->where('NOR2COD', $code)
             ->exists();
@@ -93,7 +93,7 @@ class NormativaController extends BaseController
         }
 
         // Servicios
-        $usedInAnotherTable = DB::table('LABSER')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABSER')
             ->where('NOR2DEL', $delegation)
             ->where('NOR2COD', $code)
             ->exists();
@@ -102,7 +102,7 @@ class NormativaController extends BaseController
         }
 
         // Valores de normativa por parámetro
-        $usedInAnotherTable = DB::table('LABTYN')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABTYN')
             ->where('NOR3DEL', $delegation)
             ->where('NOR3COD', $code)
             ->exists();

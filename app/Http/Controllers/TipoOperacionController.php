@@ -42,7 +42,7 @@ class TipoOperacionController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -57,7 +57,7 @@ class TipoOperacionController extends BaseController
 
         // Comprueba que el nombre del tipo de operación no esté en uso
         if (!empty($data['nombre'])) {
-            $existingRecord = DB::table('LABTIO')->where('TIOCNOM', $data['nombre']);            
+            $existingRecord = DB::connection('dynamic')->table('LABTIO')->where('TIOCNOM', $data['nombre']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización el nombre no debe estar repetido pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -75,7 +75,7 @@ class TipoOperacionController extends BaseController
         // Comprueba que el código para el nuevo tipo de operación no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('LABTIO')
+                $existingRecord = DB::connection('dynamic')->table('LABTIO')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('TIO1COD', $data['codigo'])
                     ->exists();
@@ -99,7 +99,7 @@ class TipoOperacionController extends BaseController
     protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Comprueba que no se trata de un tipo de operación predeterminado
-        $result = DB::table('LABTIO')
+        $result = DB::connection('dynamic')->table('LABTIO')
             ->where('DEL3COD', $delegation)
             ->where('TIO1COD', $code)
             ->first();
@@ -108,7 +108,7 @@ class TipoOperacionController extends BaseController
         }
 
         // Operaciones
-        $usedInAnotherTable = DB::table('LABOPE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOPE')
             ->where('TIO2DEL', $delegation)
             ->where('TIO2COD', $code)
             ->exists();
@@ -117,7 +117,7 @@ class TipoOperacionController extends BaseController
         }
 
         // Planificaciones
-        $usedInAnotherTable = DB::table('LABPLO')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABPLO')
             ->where('TIO2DEL', $delegation)
             ->where('TIO2COD', $code)
             ->exists();
@@ -126,7 +126,7 @@ class TipoOperacionController extends BaseController
         }
 
         // Servicios
-        $usedInAnotherTable = DB::table('LABSER')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABSER')
             ->where('TIO2DEL', $delegation)
             ->where('TIO2COD', $code)
             ->exists();
@@ -139,7 +139,7 @@ class TipoOperacionController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {            
         // Borra vínculos con tipos de operaciones
-        DB::table('LABOYM')
+        DB::connection('dynamic')->table('LABOYM')
             ->where('DEL3TIO', $delegation)
             ->where('TIO3COD', $code)
             ->delete();             

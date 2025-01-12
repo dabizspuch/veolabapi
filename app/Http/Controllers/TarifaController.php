@@ -38,7 +38,7 @@ class TarifaController extends BaseController
     {  
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -53,7 +53,7 @@ class TarifaController extends BaseController
 
         // Comprueba que el nombre de la tarifa no esté en uso
         if (!empty($data['descripcion'])) {            
-            $existingRecord = DB::table('LABTAR')->where('TARCDES', $data['descripcion']);
+            $existingRecord = DB::connection('dynamic')->table('LABTAR')->where('TARCDES', $data['descripcion']);
             if (!$isCreating) {
                 // Si se trata de una actualización la descripción no debe estar repetida pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -71,7 +71,7 @@ class TarifaController extends BaseController
         // Comprueba que el código para la nueva tarifa no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('LABTAR')
+                $existingRecord = DB::connection('dynamic')->table('LABTAR')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('TAR1COD', $data['codigo'])
                     ->exists();
@@ -97,7 +97,7 @@ class TarifaController extends BaseController
         $delegation = $delegation ?? '';
 
         // Comprueba que no esté referenciada en clientes
-        $usedInAnotherTable = DB::table('SINCLI')
+        $usedInAnotherTable = DB::connection('dynamic')->table('SINCLI')
             ->where('TAR2DEL', $delegation)
             ->where('TAR2COD', $code)
             ->exists();
@@ -106,7 +106,7 @@ class TarifaController extends BaseController
         }
 
         // Comprueba que no esté referenciada en operaciones
-        $usedInAnotherTable = DB::table('LABOPE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOPE')
             ->where('TAR2DEL', $delegation)
             ->where('TAR2COD', $code)
             ->exists();
@@ -115,7 +115,7 @@ class TarifaController extends BaseController
         }        
 
         // Comprueba que no esté referenciada en planificaciones
-        $usedInAnotherTable = DB::table('LABPLO')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABPLO')
             ->where('TAR2DEL', $delegation)
             ->where('TAR2COD', $code)
             ->exists();
@@ -124,7 +124,7 @@ class TarifaController extends BaseController
         }  
 
         // Comprueba que no esté referenciada en presupuestos
-        $usedInAnotherTable = DB::table('FACPRE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACPRE')
             ->where('TAR2DEL', $delegation)
             ->where('TAR2COD', $code)
             ->exists();
@@ -133,7 +133,7 @@ class TarifaController extends BaseController
         }
 
         // Comprueba que no esté referenciada en contratos
-        $usedInAnotherTable = DB::table('FACCON')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACCON')
             ->where('TAR2DEL', $delegation)
             ->where('TAR2COD', $code)
             ->exists();
@@ -145,13 +145,13 @@ class TarifaController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra precios por tarifa en servicios
-        DB::table('LABSYF')
+        DB::connection('dynamic')->table('LABSYF')
         ->where('TAR3DEL', $delegation)
         ->where('TAR3COD', $code)
         ->delete();        
 
         // Borra precios por tarifa en técnicas
-        DB::table('LABTYF')
+        DB::connection('dynamic')->table('LABTYF')
         ->where('TAR3DEL', $delegation)
         ->where('TAR3COD', $code)
         ->delete();

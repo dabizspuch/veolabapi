@@ -37,7 +37,7 @@ class FamiliaController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -47,7 +47,7 @@ class FamiliaController extends BaseController
 
         // Valida la existencia de la familia padre
         if (!empty($data['familia_padre_codigo'])) {
-            $family = DB::table('ALMFAM')
+            $family = DB::connection('dynamic')->table('ALMFAM')
                 ->where('DEL3COD', $data['familia_padre_delegacion'] ?? '')
                 ->where('FAM1COD', $data['familia_padre_codigo'])
                 ->first(); 
@@ -63,7 +63,7 @@ class FamiliaController extends BaseController
 
         // Comprueba que la descripción de la familia no esté en uso
         if (!empty($data['descripcion'])) {
-            $existingRecord = DB::table('ALMFAM')->where('FAMCDES', $data['descripcion']);            
+            $existingRecord = DB::connection('dynamic')->table('ALMFAM')->where('FAMCDES', $data['descripcion']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización la descripción no debe estar repetida pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -81,7 +81,7 @@ class FamiliaController extends BaseController
         // Comprueba que el código para la nueva familia no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('ALMFAM')
+                $existingRecord = DB::connection('dynamic')->table('ALMFAM')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('FAM1COD', $data['codigo'])
                     ->exists();
@@ -107,7 +107,7 @@ class FamiliaController extends BaseController
         $delegation = $delegation ?? '';
 
         // Comprueba que la familia no tenga hijos
-        $usedInAnotherTable = DB::table('ALMFAM')
+        $usedInAnotherTable = DB::connection('dynamic')->table('ALMFAM')
             ->where('FAM2DEL', $delegation)
             ->where('FAM2COD', $code)
             ->exists();
@@ -116,7 +116,7 @@ class FamiliaController extends BaseController
         }     
         
         // Comprueba que la familia no está vinculada a algún producto
-        $usedInAnotherTable = DB::table('ALMPRD')
+        $usedInAnotherTable = DB::connection('dynamic')->table('ALMPRD')
             ->where('FAM2DEL', $delegation)
             ->where('FAM2COD', $code)
             ->exists();

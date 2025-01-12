@@ -44,7 +44,7 @@ class ProveedorProductoController extends BaseController
     {  
         // Valida la existencia del proveedor 
         if (!empty($data['proveedor_codigo'])) {
-            $analyst = DB::table('SINPRO')
+            $analyst = DB::connection('dynamic')->table('SINPRO')
                 ->where('DEL3COD', $data['proveedor_delegacion'] ?? '')
                 ->where('PRO1COD', $data['proveedor_codigo'])
                 ->first(); 
@@ -55,7 +55,7 @@ class ProveedorProductoController extends BaseController
 
         // Valida la existencia del producto 
         if (!empty($data['producto_codigo'])) {
-            $order = DB::table('ALMPRD')
+            $order = DB::connection('dynamic')->table('ALMPRD')
                 ->where('DEL3COD', $data['producto_delegacion'] ?? '')
                 ->where('PRD1COD', $data['producto_codigo'])
                 ->first(); 
@@ -71,7 +71,7 @@ class ProveedorProductoController extends BaseController
 
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
-            $exist = DB::table('ALMPYP')
+            $exist = DB::connection('dynamic')->table('ALMPYP')
                 ->where('PRO3DEL', $data['proveedor_delegacion'] ?? '')
                 ->where('PRO3COD', $data['proveedor_codigo'])
                 ->where('PRD3DEL', $data['producto_delegacion'] ?? '')

@@ -105,7 +105,7 @@ class OperacionParametroController extends BaseController
     {  
         // Valida la existencia de la operación 
         if (!empty($data['operacion_codigo'])) {
-            $exist = DB::table('LABOPE')
+            $exist = DB::connection('dynamic')->table('LABOPE')
                 ->where('DEL3COD', $data['operacion_delegacion'])
                 ->where('OPE1SER', $data['operacion_serie'])
                 ->where('OPE1COD', $data['operacion_codigo'])
@@ -117,7 +117,7 @@ class OperacionParametroController extends BaseController
 
         // Valida la existencia del parámetro 
         if (!empty($data['parametro_codigo'])) {
-            $exist = DB::table('LABTEC')
+            $exist = DB::connection('dynamic')->table('LABTEC')
                 ->where('DEL3COD', $data['parametro_delegacion'])
                 ->where('TEC1COD', $data['parametro_codigo'])
                 ->first(); 
@@ -128,7 +128,7 @@ class OperacionParametroController extends BaseController
 
         // Valida la existencia de la sección 
         if (!empty($data['seccion_codigo'])) {
-            $exist = DB::table('LABSEC')
+            $exist = DB::connection('dynamic')->table('LABSEC')
                 ->where('DEL3COD', $data['seccion_delegacion'])
                 ->where('SEC1COD', $data['seccion_codigo'])
                 ->first(); 
@@ -139,7 +139,7 @@ class OperacionParametroController extends BaseController
         
         // Valida la existencia del analista 
         if (!empty($data['analista_codigo'])) {
-            $exist = DB::table('GRHEMP')
+            $exist = DB::connection('dynamic')->table('GRHEMP')
                 ->where('DEL3COD', $data['analista_delegacion'])
                 ->where('EMP1COD', $data['analista_codigo'])
                 ->where('EMPBANA', 'T')
@@ -151,7 +151,7 @@ class OperacionParametroController extends BaseController
 
         // Valida la existencia del servicio 
         if (!empty($data['servicio_codigo'])) {
-            $exist = DB::table('LABSER')
+            $exist = DB::connection('dynamic')->table('LABSER')
                 ->where('DEL3COD', $data['servicio_delegacion'])
                 ->where('SER1COD', $data['servicio_codigo'])
                 ->first(); 
@@ -194,7 +194,7 @@ class OperacionParametroController extends BaseController
 
             // Se comprueba que el servicio indicado ya esté asociado a la operación
             if ($data['servicio_codigo']) {
-                $serviceExists = DB::table('LABOYS')
+                $serviceExists = DB::connection('dynamic')->table('LABOYS')
                     ->where('OPE3DEL', $data['operacion_delegacion'])
                     ->where('OPE3SER', $data['operacion_serie'])
                     ->where('OPE3COD', $data['operacion_codigo'])
@@ -208,7 +208,7 @@ class OperacionParametroController extends BaseController
             }
 
             // Se comprueba que el parámetro no exista en la operación
-            $paramExist = DB::table('LABRES')
+            $paramExist = DB::connection('dynamic')->table('LABRES')
                 ->where('OPE3DEL', $data['operacion_delegacion'])
                 ->where('OPE3SER', $data['operacion_serie'])
                 ->where('OPE3COD', $data['operacion_codigo'])
@@ -243,13 +243,13 @@ class OperacionParametroController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Reconstruye LABOYD
-        DB::table('LABOYD')
+        DB::connection('dynamic')->table('LABOYD')
             ->where('OPE3DEL', $delegation)
             ->where('OPE3SER', $key1)
             ->where('OPE3COD', $code)
             ->delete();
 
-        $departments = DB::table('LABRES')
+        $departments = DB::connection('dynamic')->table('LABRES')
             ->join('LABSEC', function($join) {
                 $join->on('LABRES.SEC2DEL', '=', 'LABSEC.DEL3COD')
                     ->on('LABRES.SEC2COD', '=', 'LABSEC.SEC1COD');
@@ -276,11 +276,11 @@ class OperacionParametroController extends BaseController
         })->toArray();
         
         if (!empty($rowsToInsert)) {
-            DB::table('LABOYD')->insert($rowsToInsert);
+            DB::connection('dynamic')->table('LABOYD')->insert($rowsToInsert);
         }
 
         // Borrado de LABCOR
-        DB::table('LABCOR')
+        DB::connection('dynamic')->table('LABCOR')
             ->where('OPE3DEL', $delegation)
             ->where('OPE3SER', $key1)
             ->where('OPE3COD', $code)
@@ -289,7 +289,7 @@ class OperacionParametroController extends BaseController
             ->delete();            
 
         // Actualizar lista de técnicas en OPECTEC
-        $parameterList = DB::table('LABRES')
+        $parameterList = DB::connection('dynamic')->table('LABRES')
             ->leftJoin('LABTEC', function($join) {
                 $join->on('LABRES.TEC3DEL', '=', 'LABTEC.DEL3COD')
                     ->on('LABRES.TEC3COD', '=', 'LABTEC.TEC1COD');
@@ -304,7 +304,7 @@ class OperacionParametroController extends BaseController
             })
             ->implode(';');
             
-        DB::table('LABOPE')
+        DB::connection('dynamic')->table('LABOPE')
             ->where('DEL3COD', $delegation)
             ->where('OPE1SER', $key1)
             ->where('OPE1COD', $code)
@@ -346,19 +346,19 @@ class OperacionParametroController extends BaseController
             }  
 
             // Obtiene información en la base de datos del parámetro
-            $parameter = DB::table('LABTEC')
+            $parameter = DB::connection('dynamic')->table('LABTEC')
                 ->where('DEL3COD', $data['parametro_delegacion'])
                 ->where('TEC1COD', $data['parametro_codigo'])
                 ->first();
 
                 // Obtiene información en la base de datos del servicio
-            $service = DB::table('LABSER')
+            $service = DB::connection('dynamic')->table('LABSER')
                 ->where('DEL3COD', $data['servicio_delegacion'])
                 ->where('SER1COD', $data['servicio_codigo'])
                 ->first();
 
             // Obtiene la posición del servicio
-            $servicePosition = DB::table('LABOYS')
+            $servicePosition = DB::connection('dynamic')->table('LABOYS')
                 ->where('OPE3DEL', $delegation)
                 ->where('OPE3SER', $key1)
                 ->where('OPE3COD', $code)
@@ -368,7 +368,7 @@ class OperacionParametroController extends BaseController
                 ->first();
                 
             // Obtiene la última posición en la que irá el nuevo parámetro
-            $parameterPosition = DB::table('LABRES')
+            $parameterPosition = DB::connection('dynamic')->table('LABRES')
                 ->where('OPE3DEL', $delegation)
                 ->where('OPE3SER', $key1)
                 ->where('OPE3COD', $code)
@@ -397,12 +397,12 @@ class OperacionParametroController extends BaseController
             );
 
             // Actualizar la lista de parámetros en el campo de operaciones
-            DB::table('LABOPE')
+            DB::connection('dynamic')->table('LABOPE')
                 ->where('DEL3COD', $delegation)
                 ->where('OPE1SER', $key1)
                 ->where('OPE1COD', $code)
                 ->update([
-                    'OPECTEC' => DB::raw("IF(OPECTEC = '', '$parameter->TECCNOM', CONCAT(OPECTEC, ';', '$parameter->TECCNOM'))")
+                    'OPECTEC' => DB::connection('dynamic')->raw("IF(OPECTEC = '', '$parameter->TECCNOM', CONCAT(OPECTEC, ';', '$parameter->TECCNOM'))")
                 ]);
 
         } else {                
@@ -411,14 +411,14 @@ class OperacionParametroController extends BaseController
             if (!empty($data['seccion_codigo'])) {  // Sólo se permite modificar la sección
 
                 // Borra los departamentos de la operación para ser regenerados      
-                DB::table('LABOYD')
+                DB::connection('dynamic')->table('LABOYD')
                     ->where('OPE3DEL', $delegation)
                     ->where('OPE3SER', $key1)
                     ->where('OPE3COD', $code)
                     ->delete();
 
                 // Lee la seccion de los parámetros
-                $parameters = DB::table('LABRES')
+                $parameters = DB::connection('dynamic')->table('LABRES')
                     ->join('LABSEC', function($join) {
                         $join->on('LABRES.SEC2DEL', '=', 'LABSEC.DEL3COD')
                             ->on('LABRES.SEC2COD', '=', 'LABSEC.SEC1COD');
@@ -430,7 +430,7 @@ class OperacionParametroController extends BaseController
                     ->get();
 
                 // Obtiene el departamento de la sección modificada
-                $section = DB::table('LABSEC')
+                $section = DB::connection('dynamic')->table('LABSEC')
                     ->where('DEL3COD', $data['seccion_delegacion'])
                     ->where('SEC1COD', $data['seccion_codigo'])
                     ->first();
@@ -467,7 +467,7 @@ class OperacionParametroController extends BaseController
                 });
 
                 // Inserta en LABOYD
-                DB::table('LABOYD')->insert($rowsToInsert->toArray());            
+                DB::connection('dynamic')->table('LABOYD')->insert($rowsToInsert->toArray());            
             }
         }
 

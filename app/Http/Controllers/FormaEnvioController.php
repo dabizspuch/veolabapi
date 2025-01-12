@@ -38,7 +38,7 @@ class FormaEnvioController extends BaseController
     {  
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -54,7 +54,7 @@ class FormaEnvioController extends BaseController
         // Comprueba que el nombre de la forma de envío no esté en uso
         if (!empty($data['descripcion'])) {
             
-            $existingRecord = DB::table('LABFDE')->where('FDECDES', $data['descripcion']);
+            $existingRecord = DB::connection('dynamic')->table('LABFDE')->where('FDECDES', $data['descripcion']);
             
             if (!$isCreating) { 
                 // Si se trata de una actualización la descripción no debe estar repetida pero excluyendo el registro actual
@@ -75,7 +75,7 @@ class FormaEnvioController extends BaseController
         // Comprueba que el código para la nueva forma de envío no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('LABFDE')
+                $existingRecord = DB::connection('dynamic')->table('LABFDE')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('FDE1COD', $data['codigo'])
                     ->exists();
@@ -101,7 +101,7 @@ class FormaEnvioController extends BaseController
         $delegation = $delegation ?? '';
 
         // Comprueba que no esté referenciada en clientes
-        $usedInAnotherTable = DB::table('SINCLI')
+        $usedInAnotherTable = DB::connection('dynamic')->table('SINCLI')
             ->where('FDE2DEL', $delegation)
             ->where('FDE2COD', $code)
             ->exists();
@@ -110,7 +110,7 @@ class FormaEnvioController extends BaseController
         }
 
         // Comprueba que no esté referenciada en informes
-        $usedInAnotherTable = DB::table('LABINF')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABINF')
             ->where('FDE2DEL', $delegation)
             ->where('FDE2COD', $code)
             ->exists();

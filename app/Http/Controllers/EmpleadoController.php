@@ -75,7 +75,7 @@ class EmpleadoController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -90,7 +90,7 @@ class EmpleadoController extends BaseController
 
         // Comprueba que el nombre de empleado no esté en uso
         if (!empty($data['nombre'])) {
-            $existingRecord = DB::table('GRHEMP')->where('EMPCNOM', $data['nombre']);            
+            $existingRecord = DB::connection('dynamic')->table('GRHEMP')->where('EMPCNOM', $data['nombre']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización el nombre no debe estar repetido pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -108,7 +108,7 @@ class EmpleadoController extends BaseController
         // Comprueba que el código para el nuevo empleado no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('GRHEMP')
+                $existingRecord = DB::connection('dynamic')->table('GRHEMP')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('EMP1COD', $data['codigo'])
                     ->exists();
@@ -134,7 +134,7 @@ class EmpleadoController extends BaseController
         $delegation = $delegation ?? '';
 
         // Comprueba que el empleado no esté asociado a operaciones como analista (LABOYE)
-        $usedInAnotherTable = DB::table('LABOYE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOYE')
             ->where('EMP3DEL', $delegation)
             ->where('EMP3COD', $code)
             ->exists();
@@ -143,7 +143,7 @@ class EmpleadoController extends BaseController
         } 
 
         // Comprueba que el empleado no esté asociado a operaciones como analista (LABRES)
-        $usedInAnotherTable = DB::table('LABRES')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABRES')
             ->where('EMP2DEL', $delegation)
             ->where('EMP2COD', $code)
             ->exists();
@@ -152,7 +152,7 @@ class EmpleadoController extends BaseController
         }         
 
         // Comprueba que el empleado no esté asociado a órdenes 
-        $usedInAnotherTable = DB::table('LABORE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABORE')
             ->where('EMP3DEL', $delegation)
             ->where('EMP3COD', $code)
             ->exists();
@@ -161,7 +161,7 @@ class EmpleadoController extends BaseController
         } 
 
         // Comprueba que el empleado no esté asocido a parámetros de planificación
-        $usedInAnotherTable = DB::table('LABPYT')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABPYT')
             ->where('EMP2DEL', $delegation)
             ->where('EMP2COD', $code)
             ->exists();
@@ -170,7 +170,7 @@ class EmpleadoController extends BaseController
         }           
         
         // Comprueba que el empleado no esté asocido a operaciones como recolector
-        $usedInAnotherTable = DB::table('LABOPE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOPE')
             ->where('EMP2DEL', $delegation)
             ->where('EMP2COD', $code)
             ->exists();
@@ -179,7 +179,7 @@ class EmpleadoController extends BaseController
         }
         
         // Comprueba que el empleado no esté asocido a planificaciones como recolector
-        $usedInAnotherTable = DB::table('LABPLO')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABPLO')
             ->where('EMP2DEL', $delegation)
             ->where('EMP2COD', $code)
             ->exists();
@@ -188,7 +188,7 @@ class EmpleadoController extends BaseController
         }
 
         // Comprueba que el empleado no esté asocido a parámetros
-        $usedInAnotherTable = DB::table('LABTYE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABTYE')
             ->where('EMP3DEL', $delegation)
             ->where('EMP3COD', $code)
             ->exists();
@@ -197,7 +197,7 @@ class EmpleadoController extends BaseController
         }     
         
         // Comprueba que el empleado no esté asocido a usuarios
-        $usedInAnotherTable = DB::table('ACCUSU')
+        $usedInAnotherTable = DB::connection('dynamic')->table('ACCUSU')
             ->where('EMP2DEL', $delegation)
             ->where('EMP2COD', $code)
             ->exists();
@@ -206,7 +206,7 @@ class EmpleadoController extends BaseController
         }    
         
         // Comprueba que el empleado no esté asocido a algún presupuesto
-        $usedInAnotherTable = DB::table('FACPRE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('FACPRE')
             ->where('EMP2DEL', $delegation)
             ->where('EMP2COD', $code)
             ->exists();
@@ -215,7 +215,7 @@ class EmpleadoController extends BaseController
         }          
 
         // Comprueba que el empleado no esté definido como alumno 
-        $usedInAnotherTable = DB::table('GRHALU')
+        $usedInAnotherTable = DB::connection('dynamic')->table('GRHALU')
             ->where(function ($query) use ($delegation, $code) {
                 $query->where('EMP2DEL', $delegation)
                     ->where('EMP2COD', $code);
@@ -230,7 +230,7 @@ class EmpleadoController extends BaseController
         }          
         
         // Comprueba que el empleado no esté asocido a algún residuo
-        $usedInAnotherTable = DB::table('LABRED')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABRED')
             ->where('EMP2DEL', $delegation)
             ->where('EMP2COD', $code)
             ->exists();
@@ -239,7 +239,7 @@ class EmpleadoController extends BaseController
         }    
         
         // Comprueba que el empleado no esté definido como profesor en algún curso
-        $usedInAnotherTable = DB::table('GRHPRO')
+        $usedInAnotherTable = DB::connection('dynamic')->table('GRHPRO')
             ->where('EMP3DEL', $delegation)
             ->where('EMP3COD', $code)
             ->exists();
@@ -251,37 +251,37 @@ class EmpleadoController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra las relaciones con los cargos
-        DB::table('GRHEYC')
+        DB::connection('dynamic')->table('GRHEYC')
             ->where('EMP3DEL', $delegation)
             ->where('EMP3COD', $code)
             ->delete();
 
         // Borra las asuencias
-        DB::table('GRHAUS')
+        DB::connection('dynamic')->table('GRHAUS')
             ->where('EMP3DEL', $delegation)
             ->where('EMP3COD', $code)
             ->delete();
 
         // Borra el currículum
-        DB::table('GRHCUR')
+        DB::connection('dynamic')->table('GRHCUR')
             ->where('EMP3DEL', $delegation)
             ->where('EMP3COD', $code)
             ->delete();
 
         // Borra la formación 
-        DB::table('GRHFOR')
+        DB::connection('dynamic')->table('GRHFOR')
             ->where('EMP3DEL', $delegation)
             ->where('EMP3COD', $code)
             ->delete();    
 
         // Borra el vínculo con clientes 
-        DB::table('GRHCLI')
+        DB::connection('dynamic')->table('GRHCLI')
             ->where('EMP3DEL', $delegation)
             ->where('EMP3COD', $code)
             ->delete();             
 
         // Documentos a la papelera
-        DB::table('DOCFAT')
+        DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)
             ->where('EMP2COD', $code)
             ->update([

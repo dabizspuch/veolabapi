@@ -36,7 +36,7 @@ class MatrizController extends BaseController
     {    
         // Valida la existencia de la delegación 
         if (!empty($data['delegacion'])) {
-            $delegation = DB::table('ACCDEL')
+            $delegation = DB::connection('dynamic')->table('ACCDEL')
                 ->where('DEL1COD', $data['delegacion'])
                 ->first(); 
             if (!$delegation) {
@@ -51,7 +51,7 @@ class MatrizController extends BaseController
 
         // Comprueba que la descripcón de la sección no esté en uso
         if (!empty($data['descripcion'])) {
-            $existingRecord = DB::table('LABMAT')->where('MATCDES', $data['descripcion']);            
+            $existingRecord = DB::connection('dynamic')->table('LABMAT')->where('MATCDES', $data['descripcion']);            
             if (!$isCreating) { 
                 // Si se trata de una actualización la descripicón no debe estar repetido pero excluyendo el registro actual
                 $delegation = $delegation ?? '';
@@ -69,7 +69,7 @@ class MatrizController extends BaseController
         // Comprueba que el código para la nueva sección no esté en uso
         if ($isCreating) { 
             if (!empty($data['codigo'])) {
-                $existingRecord = DB::table('LABMAT')
+                $existingRecord = DB::connection('dynamic')->table('LABMAT')
                     ->where('DEL3COD', $data['delegacion'] ?? '')
                     ->where('MAT1COD', $data['codigo'])
                     ->exists();
@@ -93,7 +93,7 @@ class MatrizController extends BaseController
     protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Operaciones
-        $usedInAnotherTable = DB::table('LABOPE')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABOPE')
             ->where('MAT2DEL', $delegation)
             ->where('MAT2COD', $code)
             ->exists();
@@ -102,7 +102,7 @@ class MatrizController extends BaseController
         }
 
         // Planificaciones
-        $usedInAnotherTable = DB::table('LABPLO')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABPLO')
             ->where('MAT2DEL', $delegation)
             ->where('MAT2COD', $code)
             ->exists();
@@ -111,7 +111,7 @@ class MatrizController extends BaseController
         }
 
         // Servicios
-        $usedInAnotherTable = DB::table('LABSER')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABSER')
             ->where('MAT2DEL', $delegation)
             ->where('MAT2COD', $code)
             ->exists();
@@ -120,7 +120,7 @@ class MatrizController extends BaseController
         }
 
         // Cartas de control
-        $usedInAnotherTable = DB::table('LABCDC')
+        $usedInAnotherTable = DB::connection('dynamic')->table('LABCDC')
             ->where('MAT2DEL', $delegation)
             ->where('MAT2COD', $code)
             ->exists();
@@ -133,13 +133,13 @@ class MatrizController extends BaseController
     protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
     {
         // Borra vínculos con técnicas
-        DB::table('LABTYM')
+        DB::connection('dynamic')->table('LABTYM')
             ->where('DEL3MAT', $delegation)
             ->where('MAT3COD', $code)
             ->delete();    
             
         // Borra vínculos con tipos de operaciones
-        DB::table('LABOYM')
+        DB::connection('dynamic')->table('LABOYM')
             ->where('DEL3MAT', $delegation)
             ->where('MAT3COD', $code)
             ->delete();             

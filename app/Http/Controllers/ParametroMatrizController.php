@@ -39,7 +39,7 @@ class ParametroMatrizController extends BaseController
     {  
         // Valida la existencia del parámetro 
         if (!empty($data['parametro_codigo'])) {
-            $parameter = DB::table('LABTEC')
+            $parameter = DB::connection('dynamic')->table('LABTEC')
                 ->where('DEL3COD', $data['parametro_delegacion'] ?? '')
                 ->where('TEC1COD', $data['parametro_codigo'])
                 ->first(); 
@@ -50,7 +50,7 @@ class ParametroMatrizController extends BaseController
 
         // Valida la existencia de la matriz 
         if (!empty($data['matriz_codigo'])) {
-            $matrix = DB::table('LABMAT')
+            $matrix = DB::connection('dynamic')->table('LABMAT')
                 ->where('DEL3COD', $data['matriz_delegacion'] ?? '')
                 ->where('MAT1COD', $data['matriz_codigo'])
                 ->first(); 
@@ -66,7 +66,7 @@ class ParametroMatrizController extends BaseController
 
         if ($isCreating) {
             // Comprueba que no estaban ya enlazados
-            $exist = DB::table('LABTYM')
+            $exist = DB::connection('dynamic')->table('LABTYM')
                 ->where('DEL3TEC', $data['parametro_delegacion'] ?? '')
                 ->where('TEC3COD', $data['parametro_codigo'])
                 ->where('DEL3MAT', $data['matriz_delegacion'] ?? '')
