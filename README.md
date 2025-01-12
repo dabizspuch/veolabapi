@@ -64,14 +64,27 @@ The Veolab API REST allows external systems to integrate with the Veolab LIMS pl
 
 ### Configuration
 
-Update the `.env` file to include the necessary database settings:
+1. **Set up the `.env` file**  
+   The `.env` file contains essential configuration values for your application. Follow these steps to configure it:
 
-- `DB_CONNECTION`
-- `DB_HOST`
-- `DB_PORT`
-- `DB_DATABASE`
-- `DB_USERNAME`
-- `DB_PASSWORD`
+   - Locate the `.env.example` file in the project root.
+   - Create a new `.env` file by copying the example file:
+     ```bash
+     cp .env.example .env
+     ```
+   - Open the `.env` file in a text editor and update the following values:
+
+     - **Database Configuration**: Set the database username and password:
+       ```dotenv
+       DB_USERNAME=your_database_user
+       DB_PASSWORD=your_database_password
+       ```
+
+2. **Clear and cache the configuration**  
+   After updating the `.env` file, run the following commands to clear and cache the configuration:
+   ```bash
+   php artisan config:clear
+   php artisan config:cache
 
 ## Authentication
 
