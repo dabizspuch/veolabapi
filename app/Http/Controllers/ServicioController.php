@@ -51,7 +51,7 @@ class ServicioController extends BaseController
             'observaciones'             => 'nullable|string',
             'objetivo'                  => 'nullable|string',
             'numero_envases'            => 'nullable|numeric',
-            'cantidad'                  => 'nullable|string|max:20',
+            'cantidad'                  => 'nullable|string|max:50',
             'precio'                    => 'nullable|numeric',
             'descuento'                 => 'nullable|string|max:15',
             'tiempo_prueba'             => 'nullable|integer',

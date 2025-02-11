@@ -151,7 +151,7 @@ class OperacionController extends BaseController
             'es_facturable'                 => 'nullable|string|in:T,F|max:1',
             'estado_igeo'                   => 'nullable|string|max:1',
             'identificador_igeo'            => 'nullable|integer',
-            'cantidad'                      => 'nullable|string|max:20',
+            'cantidad'                      => 'nullable|string|max:50',
             'unidad'                        => 'nullable|string|max:15',
             'tipo_desglose'                 => 'nullable|string|in:S,T,N,O|max:1',
             'lote'                          => 'nullable|string|max:70',

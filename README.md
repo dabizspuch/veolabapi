@@ -13,6 +13,9 @@ Veolab API REST is a set of endpoints designed to interact with Veolab, a Labora
 - [Endpoints](#endpoints)
   - [General Information](#general-information)
   - [Endpoint Reference](#endpoint-reference)
+- [Deployment](#deployment)
+  - [Web Server Configuration](#web-server-configuration)
+  - [Optimization](#optimization)
 - [Examples](#examples)
   - [Basic Usage](#basic-usage)
   - [Code Examples](#code-examples)
@@ -32,6 +35,7 @@ The Veolab API REST allows external systems to integrate with the Veolab LIMS pl
 
 ### Requirements
 
+- Veolab `^2.0.132`
 - PHP `^8.0`
 - A web server (e.g., Apache or Nginx)
 - MySQL database
@@ -57,10 +61,7 @@ The Veolab API REST allows external systems to integrate with the Veolab LIMS pl
    ```bash
    php artisan migrate
    ```
-6. Start the local development server:
-   ```bash
-   php artisan serve
-   ```
+6. Configure your web server to serve the application (see [Deployment](#deployment) for details).
 
 ### Configuration
 
@@ -85,6 +86,7 @@ The Veolab API REST allows external systems to integrate with the Veolab LIMS pl
    ```bash
    php artisan config:clear
    php artisan config:cache
+   ```
 
 ## Authentication
 
@@ -104,7 +106,7 @@ The API uses token-based authentication. Clients must authenticate to access pro
 - **Response:**
   ```json
   {
-    "token": "your_token_here",
+    "token": "your_token_here"
   }
   ```
 
@@ -146,16 +148,66 @@ To log in and test the authentication, you need at least one user in the databas
            ]);
        }
    }
-  ```
+   ```
 3. Run the seeder command to populate the database:
    ```bash
    php artisan db:seed
    ```
-  
+
   This will create a user with the following credentials:
 
   - **Email:** `veolab@example.com`
   - **Password:** `your_password`
+
+## Deployment
+
+### Web Server Configuration
+
+#### Apache
+
+Create a virtual host configuration for your Laravel application. Replace `/path/to/api` with the actual path to your Laravel application:
+
+```apache
+<VirtualHost *:80>
+    ServerName your_server_ip_or_domain
+
+    DocumentRoot /path/to/api/public
+
+    <Directory /path/to/api/public>
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog ${APACHE_LOG_DIR}/laravel_error.log
+    CustomLog ${APACHE_LOG_DIR}/laravel_access.log combined
+</VirtualHost>
+```
+
+Enable the site and restart Apache:
+
+```bash
+sudo a2ensite laravel.conf
+sudo a2enmod rewrite
+sudo systemctl restart apache2
+```
+
+### Optimization
+
+For production environments, optimize your application by running these commands:
+
+```bash
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+php artisan event:cache
+```
+
+Ensure the `storage` and `bootstrap/cache` directories are writable:
+
+```bash
+sudo chown -R www-data:www-data /path/to/api
+sudo chmod -R 775 /path/to/api/storage /path/to/api/bootstrap/cache
+```
 
 ## Endpoints
 

@@ -68,7 +68,7 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
 Route::post('/refresh', [AuthController::class, 'refresh'])->middleware('auth:sanctum');
 
-Route::middleware(['auth:sanctum', \App\Http\Middleware\SetClientDatabase::class])->group(function () {
+Route::middleware(['auth:sanctum', \app\Http\Middleware\SetClientDatabase::class])->group(function () {
 
     // Operaciones
     Route::get('/operaciones', [OperacionController::class, 'index']);

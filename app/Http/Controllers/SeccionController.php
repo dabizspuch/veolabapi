@@ -18,6 +18,7 @@ class SeccionController extends BaseController
         'descripcion'                   => 'SECCDES',
         'icono'                         => 'SECNICO',
         'posicion'                      => 'SECNORD',
+        'tipo'                          => 'SECCTIP',
         'es_baja'                       => 'SECBBAJ',
         'departamento_delegacion'       => 'DEP2DEL',
         'departamento_codigo'           => 'DEP2COD',
@@ -32,7 +33,8 @@ class SeccionController extends BaseController
             'descripcion'               => 'nullable|string|max:100',
             'icono'                     => 'nullable|integer',
             'posicion'                  => 'nullable|integer',
-            'es_baja'                   => 'nullable|string|int:T,F|max:1',
+            'tipo'                      => 'nullable|string|in:M,F|max:1',
+            'es_baja'                   => 'nullable|string|in:T,F|max:1',
             'departamento_delegacion'   => 'nullable|string|max:10',
             'departamento_codigo'       => 'nullable|integer',
         ];
