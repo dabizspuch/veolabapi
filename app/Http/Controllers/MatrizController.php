@@ -26,7 +26,7 @@ class MatrizController extends BaseController
             'delegacion'                => 'nullable|string|max:10',
             'codigo'                    => 'nullable|integer',
             'descripcion'               => 'nullable|string|max:255',
-            'es_baja'                   => 'nullable|string|int:T,F|max:1',
+            'es_baja'                   => 'nullable|string|in:T,F|max:1',
         ];
 
         return $rules;

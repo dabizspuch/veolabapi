@@ -501,7 +501,7 @@ Each field has specific rules to ensure the integrity of the data sent. Below ar
 - `es_facturable`: `nullable|string|in:T,F|max:1`
 - `estado_igeo`: `nullable|string|max:1`
 - `identificador_igeo`: `nullable|integer`
-- `cantidad`: `nullable|string|max:20`
+- `cantidad`: `nullable|string|max:50`
 - `unidad`: `nullable|string|max:15`
 - `tipo_desglose`: `nullable|string|in:S,T,N,O|max:1`
 - `lote`: `nullable|string|max:70`
@@ -6418,7 +6418,7 @@ The following validation rules apply when creating or updating services:
 - `observaciones`: `nullable|string`
 - `objetivo`: `nullable|string`
 - `numero_envases`: `nullable|numeric`
-- `cantidad`: `nullable|string|max:20`
+- `cantidad`: `nullable|string|max:50`
 - `precio`: `nullable|numeric`
 - `descuento`: `nullable|string|max:15`
 - `tiempo_prueba`: `nullable|integer`
@@ -8600,16 +8600,17 @@ The Sections API provides endpoints for managing sections within the system, all
 ##### Available Fields for Sections
 The following fields are supported for the Sections API:
 
-| **Field**                 | **Type**   | **Description**                                                     |
-|---------------------------|------------|---------------------------------------------------------------------|
-| `delegacion`              | `string`   | Delegation code associated with the section.                        |
-| `codigo`                  | `integer`  | Unique identifier for the section.                                  |
-| `descripcion`             | `string`   | Description or name of the section.                                 |
-| `icono`                   | `integer`  | Icon associated with the section.                                   |
-| `posicion`                | `integer`  | Position of the section in the hierarchy.                           |
-| `es_baja`                 | `string`   | Indicates if the section is inactive (`T` for true, `F` for false). |
-| `departamento_delegacion` | `string`   | Delegation code for the department associated with the section.     |
-| `departamento_codigo`     | `integer`  | Code for the department associated with the section.                |
+| **Field**                 | **Type**   | **Description**                                                              |
+|---------------------------|------------|------------------------------------------------------------------------------|
+| `delegacion`              | `string`   | Delegation code associated with the section.                                 |
+| `codigo`                  | `integer`  | Unique identifier for the section.                                           |
+| `descripcion`             | `string`   | Description or name of the section.                                          |
+| `icono`                   | `integer`  | Icon associated with the section.                                            |
+| `posicion`                | `integer`  | Position of the section in the hierarchy.                                    |
+| `tipo`                    | `string`   | Section type per control chart (`T` microbiological, `F` physiochemical).    |
+| `es_baja`                 | `string`   | Indicates if the section is inactive (`T` for true, `F` for false).          |
+| `departamento_delegacion` | `string`   | Delegation code for the department associated with the section.              |
+| `departamento_codigo`     | `integer`  | Code for the department associated with the section.                         |
 
 ##### Validation Rules for Sections
 The following validation rules apply when creating or updating sections:
@@ -8619,7 +8620,8 @@ The following validation rules apply when creating or updating sections:
 - `descripcion`: `nullable|string|max:100`
 - `icono`: `nullable|integer`
 - `posicion`: `nullable|integer`
-- `es_baja`: `nullable|string|int:T,F|max:1`
+- `tipo`: `nullable|string|in:M,F|max:1`
+- `es_baja`: `nullable|string|in:T,F|max:1`
 - `departamento_delegacion`: `nullable|string|max:10`
 - `departamento_codigo`: `nullable|integer`
 
@@ -8735,7 +8737,7 @@ The following validation rules apply when creating or updating matrices:
 - `delegacion`: `nullable|string|max:10`
 - `codigo`: `nullable|integer`
 - `descripcion`: `nullable|string|max:255`
-- `es_baja`: `nullable|string|int:T,F|max:1`
+- `es_baja`: `nullable|string|in:T,F|max:1`
 
 #### Matrix Operation Types
 
