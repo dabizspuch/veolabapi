@@ -35,7 +35,7 @@ The Veolab API REST allows external systems to integrate with the Veolab LIMS pl
 
 ### Requirements
 
-- Veolab `^2.0.132`
+- Veolab `^2.0.133`
 - PHP `^8.0`
 - A web server (e.g., Apache or Nginx)
 - MySQL database
