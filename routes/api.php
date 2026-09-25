@@ -482,6 +482,59 @@ Route::middleware(['auth:sanctum', \App\Http\Middleware\SetClientDatabase::class
     Route::get('/tipos-equipos/{codigo}/{delegacion?}', [TipoEquipoController::class, 'show']);
     Route::post('/tipos-equipos', [TipoEquipoController::class, 'store']);
     Route::put('/tipos-equipos/{codigo}/{delegacion?}', [TipoEquipoController::class, 'update']);
-    Route::delete('/tipos-equipos/{codigo}/{delegacion?}', [TipoEquipoController::class, 'destroy']);     
+    Route::delete('/tipos-equipos/{codigo}/{delegacion?}', [TipoEquipoController::class, 'destroy']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| API v2
+|--------------------------------------------------------------------------
+| Rediseño con claves nombradas en query string. Un único endpoint de
+| colección por entidad (GET lista o registro único según la clave),
+| POST crea, PUT/DELETE actúan sobre la clave completa en query string.
+| Ver docs/v2/CONVENCIONES.md.
+*/
+Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientDatabase::class])->group(function () {
+
+    $ns = 'App\\Http\\Controllers\\V2\\';
+
+    // Recurso CRUD estándar: claves en query string (GET lista o registro único,
+    // POST crea, PUT/DELETE actúan sobre la clave completa).
+    $resource = function (string $slug, string $controller) use ($ns) {
+        Route::get($slug, [$ns.$controller, 'index']);
+        Route::post($slug, [$ns.$controller, 'store']);
+        Route::put($slug, [$ns.$controller, 'update']);
+        Route::delete($slug, [$ns.$controller, 'destroy']);
+    };
+
+    // --- Tablas sencillas (2 claves, salvo delegaciones/auditorías que son de 1) ---
+    $resource('/clientes', 'ClienteController');
+    $resource('/tipos-cliente', 'TipoClienteController');
+    $resource('/tipos-evaluacion', 'TipoEvaluacionController');
+    $resource('/tipos-operacion', 'TipoOperacionController');
+    $resource('/tipos-equipos', 'TipoEquipoController');
+    $resource('/formas-envio', 'FormaEnvioController');
+    $resource('/secciones', 'SeccionController');
+    $resource('/familias', 'FamiliaController');
+    $resource('/normativas', 'NormativaController');
+    $resource('/matrices', 'MatrizController');
+    $resource('/cargos', 'CargoController');
+    $resource('/departamentos', 'DepartamentoController');
+    $resource('/delegaciones', 'DelegacionController');
+    $resource('/perfiles', 'PerfilController');
+    $resource('/gastos', 'GastosController');
+    $resource('/cursos', 'CursoController');
+    $resource('/equipos', 'EquipoController');
+    $resource('/usuarios', 'UsuarioController');
+    $resource('/tarifas', 'TarifaController');
+    $resource('/parametros', 'ParametroController');
+    $resource('/empleados', 'EmpleadoController');
+    $resource('/productos', 'ProductoController');
+    $resource('/proveedores', 'ProveedorController');
+    $resource('/servicios', 'ServicioController');
+
+    // Auditoría: solo lectura.
+    Route::get('/auditorias', [$ns.'AuditoriaController', 'index']);
+    Route::get('/auditorias-archivadas', [$ns.'AuditoriaArchivadaController', 'index']);
 });
 

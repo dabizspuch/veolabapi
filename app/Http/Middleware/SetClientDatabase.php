@@ -15,15 +15,16 @@ class SetClientDatabase
             // Usar el nombre del usuario como nombre de la base de datos
             $databaseName = $user->name;
 
-            // Configurar conexión dinámica
+            // Configurar conexión dinámica a partir de la conexión 'mysql' base,
+            // sobrescribiendo solo el nombre de la BD. Se usa config() (no env())
+            // para que funcione también con la configuración cacheada en producción
+            // (php artisan config:cache); con env() los valores volverían a los por
+            // defecto y la conexión apuntaría a credenciales incorrectas.
             config([
-                'database.connections.dynamic' => [
-                    'driver' => env('DB_CONNECTION', 'mysql'),
-                    'host' => env('DB_HOST', '127.0.0.1'),
-                    'database' => $databaseName,
-                    'username' => env('DB_USERNAME', 'root'),
-                    'password' => env('DB_PASSWORD', ''),
-                ],
+                'database.connections.dynamic' => array_merge(
+                    config('database.connections.mysql'),
+                    ['database' => $databaseName]
+                ),
             ]);
 
             // Reconectar con la nueva configuración
