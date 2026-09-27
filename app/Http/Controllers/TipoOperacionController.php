@@ -2,30 +2,34 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\BusinessRuleException;
 use Illuminate\Support\Facades\DB;
 
 class TipoOperacionController extends BaseController
 {
-    protected $table = 'LABTIO';
-    protected $delegationField = 'DEL3COD';
-    protected $codeField = 'TIO1COD';    
-    protected $inactiveField = 'TIOBBAJ';
-    protected $searchFields = ['TIOCNOM'];
-    
-    protected $mapping = [
-        'delegacion'                    => 'DEL3COD',
-        'codigo'                        => 'TIO1COD',
-        'nombre'                        => 'TIOCNOM',
-        'es_predeterminado'             => 'TIOBPRE',
-        'es_gestionable_equipos'        => 'TIOBGDE',
-        'es_gestionable_parametros'     => 'TIOBGDT',        
-        'es_baja'                       => 'TIOBBAJ',
+    protected string $table = 'LABTIO';
+    protected array $keys = [
+        'delegacion' => 'DEL3COD',
+        'codigo'     => 'TIO1COD',
+    ];
+    protected ?string $inactiveField = 'TIOBBAJ';
+    protected array $searchFields = ['TIOCNOM'];
+
+    protected bool $generatesCode = true;
+
+    protected array $mapping = [
+        'delegacion'                => 'DEL3COD',
+        'codigo'                    => 'TIO1COD',
+        'nombre'                    => 'TIOCNOM',
+        'es_predeterminado'         => 'TIOBPRE',
+        'es_gestionable_equipos'    => 'TIOBGDE',
+        'es_gestionable_parametros' => 'TIOBGDT',
+        'es_baja'                   => 'TIOBBAJ',
     ];
 
-    protected function rules()
+    protected function rules(): array
     {
-        // Reglas generales
-        $rules = [
+        return [
             'delegacion'                => 'nullable|string|max:10',
             'codigo'                    => 'nullable|integer',
             'nombre'                    => 'nullable|string|max:50',
@@ -34,120 +38,80 @@ class TipoOperacionController extends BaseController
             'es_gestionable_parametros' => 'nullable|string|in:T,F|max:1',
             'es_baja'                   => 'nullable|string|in:T,F|max:1',
         ];
-
-        return $rules;
     }
 
-    protected function validateRelationships(array $data)
-    {    
-        // Valida la existencia de la delegación 
-        if (!empty($data['delegacion'])) {
-            $delegation = DB::connection('dynamic')->table('ACCDEL')
-                ->where('DEL1COD', $data['delegacion'])
-                ->first(); 
-            if (!$delegation) {
-                throw new \Exception("La delegación no existe");
+    protected function validateRelationships(array $data): void
+    {
+        if (! empty($data['delegacion'])) {
+            $exists = DB::connection('dynamic')->table('ACCDEL')
+                ->where('DEL1COD', $data['delegacion'])->exists();
+            if (! $exists) {
+                throw new BusinessRuleException('La delegación no existe');
             }
         }
     }
 
-    protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
+    protected function validateAdditionalCriteria(array $data, array $keys = []): array
     {
-        $isCreating = request()->isMethod('post');
+        $isCreating = empty($keys);
+        $code = $keys['codigo'] ?? null;
+        $delegation = $keys['delegacion'] ?? '';
 
-        // Comprueba que el nombre del tipo de operación no esté en uso
-        if (!empty($data['nombre'])) {
-            $existingRecord = DB::connection('dynamic')->table('LABTIO')->where('TIOCNOM', $data['nombre']);            
-            if (!$isCreating) { 
-                // Si se trata de una actualización el nombre no debe estar repetido pero excluyendo el registro actual
-                $delegation = $delegation ?? '';
-                $existingRecord = $existingRecord->where(function ($query) use ($code, $delegation) {
-                    $query->where('TIO1COD', '!=', $code)
-                        ->orWhere('DEL3COD', '!=', $delegation);
-                });                          
+        if (! empty($data['nombre'])) {
+            $query = DB::connection('dynamic')->table('LABTIO')->where('TIOCNOM', $data['nombre']);
+            if (! $isCreating) {
+                $query->where(function ($q) use ($code, $delegation) {
+                    $q->where('TIO1COD', '!=', $code)->orWhere('DEL3COD', '!=', $delegation);
+                });
             }
-            $existingRecord = $existingRecord->first();
-            if ($existingRecord) {
-                throw new \Exception("El nombre del tipo de operación ya está en uso");
+            if ($query->exists()) {
+                throw new BusinessRuleException('El nombre del tipo de operación ya está en uso');
             }
         }
 
-        // Comprueba que el código para el nuevo tipo de operación no esté en uso
-        if ($isCreating) { 
-            if (!empty($data['codigo'])) {
-                $existingRecord = DB::connection('dynamic')->table('LABTIO')
-                    ->where('DEL3COD', $data['delegacion'] ?? '')
-                    ->where('TIO1COD', $data['codigo'])
-                    ->exists();
-                if ($existingRecord) {
-                    throw new \Exception("El código del tipo de operación ya está en uso");
-                }
+        if ($isCreating && ! empty($data['codigo'])) {
+            $exists = DB::connection('dynamic')->table('LABTIO')
+                ->where('DEL3COD', $data['delegacion'] ?? '')
+                ->where('TIO1COD', $data['codigo'])->exists();
+            if ($exists) {
+                throw new BusinessRuleException('El código del tipo de operación ya está en uso');
             }
         }
 
-        // Excluir campos clave de los datos a actualizar porque no serán editables
-        if (!$isCreating) { 
-            unset( 
-                $data['delegacion'], 
-                $data['codigo'] 
-            );
-        } 
-                
-        return $data;        
-    }
-        
-    protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
-    {
-        // Comprueba que no se trata de un tipo de operación predeterminado
-        $result = DB::connection('dynamic')->table('LABTIO')
-            ->where('DEL3COD', $delegation)
-            ->where('TIO1COD', $code)
-            ->first();
-        if ($result->TIOBPRE == 'T') {
-            throw new \Exception("El tipo de operación no puede ser eliminado porque es predeterminado del sistema");
-        }
-
-        // Operaciones
-        $usedInAnotherTable = DB::connection('dynamic')->table('LABOPE')
-            ->where('TIO2DEL', $delegation)
-            ->where('TIO2COD', $code)
-            ->exists();
-        if ($usedInAnotherTable) {
-            throw new \Exception("El tipo de operación no puede ser eliminado porque está siendo referenciado en alguna operación");
-        }
-
-        // Planificaciones
-        $usedInAnotherTable = DB::connection('dynamic')->table('LABPLO')
-            ->where('TIO2DEL', $delegation)
-            ->where('TIO2COD', $code)
-            ->exists();
-        if ($usedInAnotherTable) {
-            throw new \Exception("El tipo de operación no puede ser eliminado porque está siendo referenciado en alguna planificación");
-        }
-
-        // Servicios
-        $usedInAnotherTable = DB::connection('dynamic')->table('LABSER')
-            ->where('TIO2DEL', $delegation)
-            ->where('TIO2COD', $code)
-            ->exists();
-        if ($usedInAnotherTable) {
-            throw new \Exception("El tipo de operación no puede ser eliminado porque está siendo referenciado en algún servicio");
-        }
-        
-    }    
-
-    protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
-    {            
-        // Borra vínculos con tipos de operaciones
-        DB::connection('dynamic')->table('LABOYM')
-            ->where('DEL3TIO', $delegation)
-            ->where('TIO3COD', $code)
-            ->delete();             
-    }    
-
-    protected function updateAdditionalData (array $data, $code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
-    {
         return $data;
-    }    
+    }
 
+    protected function validateBeforeDelete(array $keys): void
+    {
+        $delegation = $keys['delegacion'] ?? '';
+        $code = $keys['codigo'] ?? null;
+
+        $record = DB::connection('dynamic')->table('LABTIO')
+            ->where('DEL3COD', $delegation)->where('TIO1COD', $code)->first();
+        if ($record && $record->TIOBPRE === 'T') {
+            throw new BusinessRuleException('El tipo de operación no puede ser eliminado porque es predeterminado del sistema');
+        }
+
+        $references = [
+            ['LABOPE', 'está siendo referenciado en alguna operación'],
+            ['LABPLO', 'está siendo referenciado en alguna planificación'],
+            ['LABSER', 'está siendo referenciado en algún servicio'],
+        ];
+        foreach ($references as [$table, $reason]) {
+            $used = DB::connection('dynamic')->table($table)
+                ->where('TIO2DEL', $delegation)->where('TIO2COD', $code)->exists();
+            if ($used) {
+                throw new BusinessRuleException("El tipo de operación no puede ser eliminado porque {$reason}");
+            }
+        }
+    }
+
+    protected function deleteRelatedRecords(array $keys): void
+    {
+        $delegation = $keys['delegacion'] ?? '';
+        $code = $keys['codigo'] ?? null;
+
+        DB::connection('dynamic')->table('LABOYM')
+            ->where('DEL3TIO', $delegation)->where('TIO3COD', $code)->delete();
+    }
 }

@@ -2,432 +2,497 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\BusinessRuleException;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use App\Traits\CodeGenerator;
+use Illuminate\Validation\ValidationException;
 
+/**
+ * Controlador base de la API v2 de Veolab.
+ *
+ * Convenciones (ver docs/v2/CONVENCIONES.md):
+ *  - Direccionamiento por claves NOMBRADAS en query string (no posicional).
+ *  - Un único endpoint de colección: filtrar por clave completa devuelve 1 registro,
+ *    clave parcial/ausente devuelve un listado. La respuesta es SIEMPRE {data, meta}.
+ *  - Filtrado por cualquier campo mapeado (whitelist = $mapping) con operadores.
+ *  - Orden configurable con desempate determinista por la clave primaria.
+ *  - Paginación offset con envoltorio {data, meta} y tope de 'limit'.
+ *  - Errores: 422 para validación y reglas de negocio; nunca se filtra el detalle interno.
+ */
 abstract class BaseController extends Controller
 {
-    use CodeGenerator;
-    
-    protected $table;               // Nombre de la tabla que se está gestionando
-    protected $mapping = [];        // Mapeo de los campos del API a los campos de la base de datos
-    protected $delegationField;     // Campo de delegación en la tabla de base de datos
-    protected $codeField;           // Campo de código en la tabla de base de datos
-    protected $key1Field;           // Campo de clave1 (serie o delegacion de segundo item relacionado)
-    protected $key2Field;           // Campo de clave2 (codigo auxiliar)
-    protected $key3Field;           // Campo de clave3 (codigo auxiliar)
-    protected $key4Field;           // Campo de clave4 (codigo auxiliar)
-    protected $inactiveField;       // Campo que indica si el registro está dado de baja
-    protected $searchFields;        // Campos que se usarán para realizar búsquedas de texto
-    protected $skipInsert = false;  // Indica si debe saltarse la inserción 
-    protected $skipNewCode = false; // Indica si debe saltarse la generación del nuevo código
+    /** Nombre de la tabla gestionada. */
+    protected string $table;
 
-    // Definir las reglas de validación de los datos (abstracto)
-    abstract protected function rules();
+    /** Clave primaria como mapa ORDENADO: parámetro API => columna BD. */
+    protected array $keys = [];
 
-    // Definir las validaciones de relaciones (abstracto)
-    abstract protected function validateRelationships(array $data);
-    
-    // Definir las validaciones adicionales como nombre único, estado, etc. (abstracto)
-    abstract protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null);
+    /** Todos los campos: parámetro API => columna BD (incluye las claves). */
+    protected array $mapping = [];
 
-    // Definir las validaciones de relaciones (abstracto)
-    abstract protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null);
+    /** Columnas usadas para la búsqueda de texto libre (?search=). */
+    protected array $searchFields = [];
 
-    // Borrar registros de tablas relacionadas (abstracto)
-    abstract protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null);
+    /** Columna que marca baja/anulación, para el atajo ?is_deleted= (opcional). */
+    protected ?string $inactiveField = null;
 
-    // Realizar actualizaciones adicionales si procede (abstracto)
-    abstract protected function updateAdditionalData (array $data, $code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null);
+    /** Generación automática de código en la creación (entidades propias). */
+    protected bool $generatesCode = false;
+    protected string $codeKey = 'codigo';
+    protected ?string $delegationKey = 'delegacion';
+    protected ?string $seriesKey = null;
+
+    /** Paginación. */
+    protected int $defaultPerPage = 25;
+    protected int $maxPerPage = 100;
+
+    /** Operadores de comparación admitidos como sufijo campo[op]=valor. */
+    private const OPERATORS = ['gte' => '>=', 'lte' => '<=', 'gt' => '>', 'lt' => '<', 'ne' => '!='];
+
+    /** Parámetros reservados que no son filtros de campo. */
+    private const RESERVED = ['page', 'limit', 'sort', 'order', 'after', 'search', 'is_deleted'];
+
+    // ------------------------------------------------------------------
+    // Hooks extensibles (no-op por defecto; los sobreescribe cada entidad)
+    // ------------------------------------------------------------------
+
+    protected function rules(): array
+    {
+        return [];
+    }
+
+    /** Valida existencia de referencias. Lanza BusinessRuleException si falla. */
+    protected function validateRelationships(array $data): void {}
+
+    /** Validaciones adicionales (unicidad, etc.). $keys vacío = creación. */
+    protected function validateAdditionalCriteria(array $data, array $keys = []): array
+    {
+        return $data;
+    }
+
+    /** Comprueba que el registro no está referenciado antes de borrarlo. */
+    protected function validateBeforeDelete(array $keys): void {}
+
+    /** Borra registros relacionados tras eliminar el principal. */
+    protected function deleteRelatedRecords(array $keys): void {}
+
+    /** Actualizaciones adicionales tras crear/actualizar. */
+    protected function updateAdditionalData(array $data, array $keys): array
+    {
+        return $data;
+    }
+
+    // ------------------------------------------------------------------
+    // Endpoints
+    // ------------------------------------------------------------------
 
     /**
-     * Convierte los campos del API a los campos correspondientes de la base de datos.
-     * 
-     * @param array $data - Datos recibidos del API
-     * @return array - Datos convertidos a formato de base de datos
+     * Listado (o registro único si se da la clave completa).
+     * Respuesta: { "data": [...], "meta": { total, page, per_page, last_page } }.
      */
-    private function mapToDatabaseFields(array $data)
+    public function index(Request $request)
     {
-        $dbData = [];
-        foreach ($this->mapping as $jsonField => $dbField) {
-            if (array_key_exists($jsonField, $data)) {
-                $dbData[$dbField] = $data[$jsonField];
+        $query = DB::connection('dynamic')->table($this->table);
+
+        $this->applyFilters($request, $query);
+        $this->applyIsDeleted($request, $query);
+        $this->applySearch($request, $query);
+        $this->applyOrder($request, $query);
+
+        $perPage = min(max((int) $request->query('limit', (string) $this->defaultPerPage), 1), $this->maxPerPage);
+        $page = max((int) $request->query('page', '1'), 1);
+
+        $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+
+        $data = collect($paginator->items())->map(fn ($row) => $this->fromDb((array) $row))->all();
+
+        return response()->json([
+            'data' => $data,
+            'meta' => [
+                'total'     => $paginator->total(),
+                'page'      => $paginator->currentPage(),
+                'per_page'  => $paginator->perPage(),
+                'last_page' => $paginator->lastPage(),
+            ],
+        ]);
+    }
+
+    /** Crea un registro. Genera el código si procede (dentro de la transacción). */
+    public function store(Request $request)
+    {
+        try {
+            DB::connection('dynamic')->beginTransaction();
+
+            $data = json_decode($request->getContent(), true) ?? [];
+            $validated = $this->validateData($data);
+            $this->validateRelationships($validated);
+            $validated = $this->validateAdditionalCriteria($validated, []);
+
+            if ($this->generatesCode) {
+                // Evitar claves nulas: la delegación/serie ausentes se insertan como ''.
+                if ($this->delegationKey) {
+                    $validated[$this->delegationKey] = $validated[$this->delegationKey] ?? '';
+                }
+                if ($this->seriesKey) {
+                    $validated[$this->seriesKey] = $validated[$this->seriesKey] ?? '';
+                }
+
+                if (empty($validated[$this->codeKey])) {
+                    $validated[$this->codeKey] = $this->generateCode(
+                        $this->delegationKey ? (string) $validated[$this->delegationKey] : '',
+                        $this->seriesKey ? (string) $validated[$this->seriesKey] : ''
+                    );
+                }
+            }
+
+            DB::connection('dynamic')->table($this->table)->insert($this->toDb($validated));
+
+            $this->updateAdditionalData($validated, $this->keyParamsFromData($validated));
+
+            DB::connection('dynamic')->commit();
+
+            return response()->json([
+                'message' => 'Registro creado correctamente',
+                'data'    => $this->keyParamsFromData($validated),
+            ], 201);
+        } catch (ValidationException $e) {
+            DB::connection('dynamic')->rollBack();
+
+            return response()->json(['message' => 'Datos no válidos', 'errors' => $e->errors()], 422);
+        } catch (BusinessRuleException $e) {
+            DB::connection('dynamic')->rollBack();
+
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            DB::connection('dynamic')->rollBack();
+            Log::error("v2 store {$this->table}: ".$e->getMessage());
+
+            return response()->json(['message' => 'Error al crear el registro'], 500);
+        }
+    }
+
+    /** Actualiza el registro identificado por la clave completa (query string). */
+    public function update(Request $request)
+    {
+        $keyCols = $this->fullKeyColumns($request);
+
+        if (! $this->keyQuery($keyCols)->exists()) {
+            return response()->json(['message' => 'Registro no encontrado'], 404);
+        }
+
+        try {
+            DB::connection('dynamic')->beginTransaction();
+
+            $data = json_decode($request->getContent(), true) ?? [];
+            $validated = $this->validateData($data);
+            $this->validateRelationships($validated);
+            $validated = $this->validateAdditionalCriteria($validated, $this->keyParamsFromRequest($request));
+
+            // Las claves no son editables.
+            foreach (array_keys($this->keys) as $param) {
+                unset($validated[$param]);
+            }
+
+            $dbData = $this->toDb($validated);
+            if ($dbData) {
+                $this->keyQuery($keyCols)->update($dbData);
+            }
+
+            $this->updateAdditionalData($validated, $this->keyParamsFromRequest($request));
+
+            DB::connection('dynamic')->commit();
+
+            return response()->json(['message' => 'Registro actualizado correctamente']);
+        } catch (ValidationException $e) {
+            DB::connection('dynamic')->rollBack();
+
+            return response()->json(['message' => 'Datos no válidos', 'errors' => $e->errors()], 422);
+        } catch (BusinessRuleException $e) {
+            DB::connection('dynamic')->rollBack();
+
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            DB::connection('dynamic')->rollBack();
+            Log::error("v2 update {$this->table}: ".$e->getMessage());
+
+            return response()->json(['message' => 'Error al actualizar el registro'], 500);
+        }
+    }
+
+    /** Elimina el registro identificado por la clave completa (query string). */
+    public function destroy(Request $request)
+    {
+        $keyCols = $this->fullKeyColumns($request);
+
+        if (! $this->keyQuery($keyCols)->exists()) {
+            return response()->json(['message' => 'Registro no encontrado'], 404);
+        }
+
+        try {
+            DB::connection('dynamic')->beginTransaction();
+
+            $this->validateBeforeDelete($this->keyParamsFromRequest($request));
+            $this->keyQuery($keyCols)->delete();
+            $this->deleteRelatedRecords($this->keyParamsFromRequest($request));
+
+            DB::connection('dynamic')->commit();
+
+            return response()->json(['message' => 'Registro eliminado correctamente']);
+        } catch (BusinessRuleException $e) {
+            DB::connection('dynamic')->rollBack();
+
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            DB::connection('dynamic')->rollBack();
+            Log::error("v2 destroy {$this->table}: ".$e->getMessage());
+
+            return response()->json(['message' => 'Error al eliminar el registro'], 500);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Filtrado / orden / paginación
+    // ------------------------------------------------------------------
+
+    /** Aplica filtros por cualquier campo mapeado (incluidas las claves). */
+    private function applyFilters(Request $request, $query): void
+    {
+        foreach ($request->query() as $param => $value) {
+            if (in_array($param, self::RESERVED, true) || ! isset($this->mapping[$param])) {
+                continue;
+            }
+
+            $column = $this->mapping[$param];
+
+            if (is_array($value)) {
+                foreach ($value as $op => $operand) {
+                    $this->applyOperator($query, $column, (string) $op, $operand);
+                }
+            } elseif (is_string($value) && str_contains($value, ',')) {
+                $query->whereIn($column, $this->splitList($value));
+            } else {
+                $query->where($column, '=', $value);
             }
         }
-        return $dbData;
     }
 
-    /**
-     * Convierte los campos de la base de datos a los campos naturales del API.
-     * 
-     * @param array $data - Datos obtenidos de la base de datos
-     * @return array - Datos convertidos a formato del API
-     */
-    private function mapFromDatabaseFields(array $data)
+    private function applyOperator($query, string $column, string $op, $operand): void
     {
-        return array_reduce(array_keys($this->mapping), function ($carry, $key) use ($data) {
-            $carry[$key] = $data[$this->mapping[$key]] ?? null;
-            return $carry;
-        }, []);
+        switch ($op) {
+            case 'like':
+                $query->where($column, 'like', '%'.$operand.'%');
+                break;
+            case 'in':
+                $query->whereIn($column, is_array($operand) ? $operand : $this->splitList((string) $operand));
+                break;
+            case 'null':
+                filter_var($operand, FILTER_VALIDATE_BOOLEAN)
+                    ? $query->whereNull($column)
+                    : $query->whereNotNull($column);
+                break;
+            default:
+                if (isset(self::OPERATORS[$op])) {
+                    $query->where($column, self::OPERATORS[$op], $operand);
+                }
+        }
     }
 
-    /**
-     * Valida los datos de la solicitud según las reglas definidas en el controlador.
-     * 
-     * @param array $data - Datos de la solicitud decodificados manualmente
-     * @return array - Datos validados
-     */
-    private function validateData(array $data)
+    /** Atajo de compatibilidad ?is_deleted= sobre la columna de baja. */
+    private function applyIsDeleted(Request $request, $query): void
     {
-        // Valida el array $data usando las reglas definidas en el método rules()
-        $validator = Validator::make($data, $this->rules());
-
-        // Si la validación falla, lanzará una excepción automáticamente
-        if ($validator->fails()) {
-            throw new \Illuminate\Validation\ValidationException($validator);
+        if (! $this->inactiveField || ! $request->has('is_deleted')) {
+            return;
         }
 
-        // Retorna los datos validados
+        $value = $request->query('is_deleted');
+        if ($value === '' || is_null($value)) {
+            return;
+        }
+
+        if ($value === 'F') {
+            $query->where(function ($q) {
+                $q->where($this->inactiveField, 'F')->orWhereNull($this->inactiveField);
+            });
+        } else {
+            $query->where($this->inactiveField, $value);
+        }
+    }
+
+    private function applySearch(Request $request, $query): void
+    {
+        if (! $request->has('search') || empty($this->searchFields)) {
+            return;
+        }
+
+        $term = $request->query('search');
+        $query->where(function ($q) use ($term) {
+            foreach ($this->searchFields as $field) {
+                $q->orWhere($field, 'like', '%'.$term.'%');
+            }
+        });
+    }
+
+    /**
+     * Orden configurable (?sort=-campo,campo2 ó ?sort=campo&order=desc).
+     * SIEMPRE añade la clave primaria completa como desempate para que la
+     * paginación sea determinista.
+     */
+    private function applyOrder(Request $request, $query): void
+    {
+        $applied = [];
+        $defaultDir = strtolower((string) $request->query('order', 'asc')) === 'desc' ? 'desc' : 'asc';
+
+        if ($sort = $request->query('sort')) {
+            foreach (explode(',', (string) $sort) as $field) {
+                $field = trim($field);
+                $dir = $defaultDir;
+                if (str_starts_with($field, '-')) {
+                    $dir = 'desc';
+                    $field = substr($field, 1);
+                }
+                if (! isset($this->mapping[$field])) {
+                    continue;
+                }
+                $column = $this->mapping[$field];
+                $query->orderBy($column, $dir);
+                $applied[] = $column;
+            }
+        }
+
+        foreach ($this->keys as $column) {
+            if (! in_array($column, $applied, true)) {
+                $query->orderBy($column, 'asc');
+                $applied[] = $column;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Claves / mapeo / utilidades
+    // ------------------------------------------------------------------
+
+    /** Devuelve [columna => valor] exigiendo que estén TODAS las claves. */
+    private function fullKeyColumns(Request $request): array
+    {
+        $columns = [];
+        foreach ($this->keys as $param => $column) {
+            if (! $request->has($param)) {
+                throw new HttpResponseException(
+                    response()->json(['message' => "Falta la clave '{$param}'"], 400)
+                );
+            }
+            $columns[$column] = $request->query($param);
+        }
+
+        return $columns;
+    }
+
+    private function keyQuery(array $keyColumns)
+    {
+        $query = DB::connection('dynamic')->table($this->table);
+        foreach ($keyColumns as $column => $value) {
+            $query->where($column, $value);
+        }
+
+        return $query;
+    }
+
+    private function keyParamsFromRequest(Request $request): array
+    {
+        $out = [];
+        foreach ($this->keys as $param => $column) {
+            $out[$param] = $request->query($param);
+        }
+
+        return $out;
+    }
+
+    private function keyParamsFromData(array $data): array
+    {
+        $out = [];
+        foreach (array_keys($this->keys) as $param) {
+            if (array_key_exists($param, $data)) {
+                $out[$param] = $data[$param];
+            }
+        }
+
+        return $out;
+    }
+
+    private function toDb(array $data): array
+    {
+        $out = [];
+        foreach ($this->mapping as $param => $column) {
+            if (array_key_exists($param, $data)) {
+                $out[$column] = $data[$param];
+            }
+        }
+
+        return $out;
+    }
+
+    private function fromDb(array $row): array
+    {
+        $out = [];
+        foreach ($this->mapping as $param => $column) {
+            $out[$param] = $row[$column] ?? null;
+        }
+
+        return $out;
+    }
+
+    private function splitList(string $value): array
+    {
+        return array_map('trim', explode(',', $value));
+    }
+
+    private function validateData(array $data): array
+    {
+        $validator = Validator::make($data, $this->rules());
+        if ($validator->fails()) {
+            throw new ValidationException($validator);
+        }
+
         return $validator->validated();
     }
 
     /**
-     * Obtiene una lista paginada de registros.
-     * Aplica filtros de búsqueda y de baja (si corresponde).
-     * 
-     * @param Request $request - Solicitud HTTP con los parámetros de búsqueda y paginación
-     * @return \Illuminate\Http\JsonResponse - Respuesta JSON con los registros
-     */    
-    public function index(Request $request, $code = null, $delegation = null, $key1 = null)
-    {
-        if ($this->delegationField) $delegation = trim($delegation) ?? '';
-        if ($this->key1Field) $key1 = trim($key1) ?? '';
-                
-        $query = DB::connection('dynamic')->table($this->table);     
-
-        // Filtro por codigo y delegación
-        if (!empty($code)) { 
-            $query->where($this->codeField, '=', $code)
-                  ->where($this->delegationField, '=', $delegation ?? '');
-        }
-
-        // Filtro por serie (no se utilizá en index otras claves de tablas relacionadas)
-        if (!empty($key1)) {
-            $query->where($this->key1Field, '=', $key1 ?? '');
-        }
-
-        // Filtro por baja (si aplica)
-        if ($request->has('is_deleted')) {
-            $inactive = $request->input('is_deleted');
-
-            if (!is_null($inactive) && $inactive !== '') {
-                if ($inactive === 'F') {
-                    $query->where(function($subQuery) {
-                        $subQuery->where($this->inactiveField, '=', 'F')
-                                ->orWhereNull($this->inactiveField);
-                    });
-                } else {
-                    $query->where($this->inactiveField, '=', $inactive);
-                }
-            }
-        }
-
-        // Búsqueda de texto
-        if ($request->has('search')) {
-            $searchTerm = $request->input('search');
-            $query->where(function ($subQuery) use ($searchTerm) {
-                foreach ($this->searchFields as $field) {
-                    $subQuery->orWhere($field, 'like', "%{$searchTerm}%");
-                }
-            });
-        }
-
-        // Paginación
-        $perPage = $request->input('limit', 10); // Default to 10
-        $currentPage = $request->input('page', 1); // Default to 1
-        $offset = ($currentPage - 1) * $perPage;
-
-        // Obtener los registros con paginación
-        $data = $query->offset($offset)->limit($perPage)->get();
-
-        // Mapeo de los campos de base de datos a campos del API
-        $mappedData = $data->map(function ($data) {
-            return $this->mapFromDatabaseFields((array)$data);
-        });
-
-        return response()->json($mappedData);
-    }
-
-    /**
-     * Muestra un registro específico basado en su código, delegación y serie u otras claves.
-     * 
-     * @param string $code - Código del registro
-     * @param string|null $delegation - Delegación (si aplica)
-     * @param string|null $key1 - Serie o delegación de segundo item (si aplica)
-     * @param string|null $key2 - Código de segundo item (si aplica)
-     * @param string|null $key3 - Código auxiliar (si aplica)
-     * @param string|null $key4 - Código auxiliar (si aplica)     * 
-     * @return \Illuminate\Http\JsonResponse - Respuesta JSON con el registro o un error 404
-     */    
-    public function show($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
-    {
-        if ($this->delegationField) $delegation = trim($delegation) ?? '';
-        if ($this->key1Field) $key1 = trim($key1) ?? '';
-        if ($this->key2Field) $key2 = trim($key2) ?? '';
-        if ($this->key3Field) $key3 = trim($key3) ?? '';
-        if ($this->key4Field) $key4 = trim($key4) ?? '';
-
-        $record = DB::connection('dynamic')->table($this->table)
-            ->where($this->delegationField, $delegation)
-            ->where($this->codeField, $code)
-            ->where($this->key1Field, $key1)
-            ->where($this->key2Field, $key2)
-            ->where($this->key3Field, $key3)
-            ->where($this->key4Field, $key4)
-            ->first();
-
-        if (!$record) {
-            return response()->json(['error' => 'Registro no encontrado en ' . $this->table], 404);
-        }
-        return response()->json($this->mapFromDatabaseFields((array)$record), 200);
-    } 
-
-    /**
-     * Crea un nuevo registro en la base de datos.
-     * Valida los datos y genera un código si es necesario.
-     * 
-     * @param Request $request - Solicitud HTTP con los datos del nuevo registro
-     * @return \Illuminate\Http\JsonResponse - Respuesta JSON con el mensaje de éxito o error
+     * Genera el siguiente código para (delegación, serie, tabla).
+     * DEBE llamarse dentro de una transacción abierta: usa lockForUpdate
+     * sobre ACCCLT para evitar colisiones (corrige la race condition de la v1,
+     * donde el bloqueo se liberaba antes del INSERT).
      */
-    public function store(Request $request)
+    protected function generateCode(string $delegation, string $series): int
     {
-        try {
-            // Convierte request de forma no predeterminada para evitar conversiones de cadenas vacías a null
-            $data = json_decode($request->getContent(), true);
-
-            // Validar los datos del request
-            $validatedData = $this->validateData($data);
-
-            // Validar las relaciones y referencias
-            $this->validateRelationships($validatedData);
-
-            // Validar el nombre o descripción
-            $validatedData = $this->validateAdditionalCriteria($validatedData);
-
-            $fieldCodeName = array_search($this->codeField, $this->mapping);
-            $fieldDelegationName = array_search($this->delegationField, $this->mapping);
-            $fieldSeriesName = array_search($this->key1Field, $this->mapping);
-
-            if (!$this->skipNewCode) { 
-                // Evitar campos nulos
-                $validatedData[$fieldDelegationName] = $validatedData[$fieldDelegationName] ?? '';
-                $validatedData[$fieldSeriesName] = $validatedData[$fieldSeriesName] ?? '';
-
-                // Si no hay código, generar uno nuevo
-                if (empty($validatedData[$fieldCodeName])) {
-                    $validatedData[$fieldCodeName] = $this->generateNewCode(
-                        $validatedData[$fieldDelegationName],   // Delegación
-                        $validatedData[$fieldSeriesName],       // Serie (si aplica)                    
-                        $this->table,                           // Nombre de la tabla
-                        true                                    // Bloqueo pesismista
-                    ); 
-                }
-            }
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Ocurrió un error en la validación', 'detalle' => $e->getMessage()], 500);
-        }
-        try {
-            // Iniciar la transacción
-            DB::connection('dynamic')->beginTransaction();
-
-            if (!$this->skipInsert) { 
-                // Convertir los datos a formato de base de datos
-                $dbData = $this->mapToDatabaseFields($validatedData);
-                
-                // Insertar el registro en la base de datos
-                DB::connection('dynamic')->table($this->table)->insert($dbData);            
-            }
-            
-            // Realizar actualizaciones adicionales    
-            $validatedData = $this->updateAdditionalData(
-                $validatedData, 
-                $validatedData[$fieldCodeName] ?? 0, 
-                $validatedData[$fieldDelegationName] ?? '', 
-                $validatedData[$fieldSeriesName] ?? ''); 
-
-            // Confirmar la transacción
-            DB::connection('dynamic')->commit();
-
-            $response = [
-                'message' => 'Registro creado correctamente'
-            ];
-            
-            if (!$this->skipNewCode) {
-                $response['data'] = [];
-                
-                if (!empty($validatedData[$fieldCodeName])) {
-                    $response['data'][$fieldCodeName] = $validatedData[$fieldCodeName];
-                }
-                if (!empty($validatedData[$fieldDelegationName])) {
-                    $response['data'][$fieldDelegationName] = $validatedData[$fieldDelegationName];
-                }
-                if (!empty($validatedData[$fieldSeriesName])) {
-                    $response['data'][$fieldSeriesName] = $validatedData[$fieldSeriesName];
-                }
-            }
-            
-            return response()->json($response, 201);            
-
-        } catch (\Exception $e) {
-            // Si ocurre un error, deshacer la transacción
-            DB::connection('dynamic')->rollBack();
-
-            return response()->json(['error' => 'Ocurrió un error al crear el registro', 'detalle' => $e->getMessage()], 500);
-        }
-    }
-
-    /**
-     * Actualiza un registro existente en la base de datos.
-     * 
-     * @param Request $request - Solicitud HTTP con los datos actualizados
-     * @param string $code - Código del registro a actualizar
-     * @param string|null $delegation - Delegación (si aplica)
-     * @param string|null $key1 - Serie o delegacion de segundo item (si aplica)
-     * @param string|null $key2 - Código de segundo item (si aplica)     * 
-     * @param string|null $key3 - Código auxiliar (si aplica)     * 
-     * @param string|null $key4 - Código auxiliar (si aplica)     * 
-     * @return \Illuminate\Http\JsonResponse - Respuesta JSON con el mensaje de éxito o error
-     */    
-    public function update(Request $request, $code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
-    {     
-        if ($this->delegationField) $delegation = trim($delegation) ?? '';
-        if ($this->key1Field) $key1 = trim($key1) ?? '';
-        if ($this->key2Field) $key2 = trim($key2) ?? '';
-        if ($this->key3Field) $key3 = trim($key3) ?? '';
-        if ($this->key4Field) $key4 = trim($key4) ?? '';        
-
-        $record = DB::connection('dynamic')->table($this->table)
-            ->where($this->delegationField, $delegation)
-            ->where($this->codeField, $code)
-            ->where($this->key1Field, $key1)
-            ->where($this->key2Field, $key2)
-            ->where($this->key3Field, $key3)
-            ->where($this->key4Field, $key4)
+        $row = DB::connection('dynamic')->table('ACCCLT')
+            ->where('DEL3COD', $delegation)
+            ->where('CLTCTAB', $this->table)
+            ->where('CLTCSER', $series)
+            ->lockForUpdate()
             ->first();
-        
-        if (!$record) {
-            return response()->json(['error' => 'Registro no encontrado en ' . $this->table], 404);
-        }        
-        
-        try {
-            // Iniciar la transacción
-            DB::connection('dynamic')->beginTransaction();
 
-            // Convierte request de forma no predeterminada para evitar conversiones de cadenas vacías a null
-            $data = json_decode($request->getContent(), true);
+        if (! $row) {
+            DB::connection('dynamic')->table('ACCCLT')->insert([
+                'DEL3COD' => $delegation,
+                'CLTCTAB' => $this->table,
+                'CLTCSER' => $series,
+                'CLTNVAL' => 1,
+            ]);
 
-            // Validar los datos del request
-            $validatedData = $this->validateData($data);
-
-            // Validar las relaciones y referencias
-            $this->validateRelationships($validatedData);
-
-            // Validar el nombre o descripción
-            $validatedData = $this->validateAdditionalCriteria($validatedData, $code, $delegation, $key1, $key2, $key3, $key4);
-
-            // Convertir los datos a formato de base de datos
-            $datosBD = $this->mapToDatabaseFields($validatedData);
-
-            // Actualizar el registro en la base de datos
-            if ($datosBD) {
-                DB::connection('dynamic')->table($this->table)
-                    ->where($this->delegationField, $delegation)
-                    ->where($this->codeField, $code)
-                    ->where($this->key1Field, $key1)
-                    ->where($this->key2Field, $key2)
-                    ->where($this->key3Field, $key3)
-                    ->where($this->key4Field, $key4)
-                    ->update($datosBD);   
-            }
-
-            // Realizar actualizaciones adicionales
-            $validatedData = $this->updateAdditionalData($validatedData, $code, $delegation, $key1, $key2, $key3, $key4);            
-            
-            // Confirmar la transacción
-            DB::connection('dynamic')->commit();
-
-            return response()->json(['message' => 'Registro actualizado correctamente',], 200);
-        } catch (\Exception $e) {
-            // Si ocurre un error, deshacer la transacción
-            DB::connection('dynamic')->rollBack();
-
-            return response()->json(['error' => 'Ocurrió un error al actualizar el registro', 'detalle' => $e->getMessage()], 500);
+            return 1;
         }
-    } 
 
-    /**
-     * Elimina un registro de la base de datos.
-     * 
-     * @param string $code - Código del registro a eliminar
-     * @param string|null $delegation - Delegación (si aplica)
-     * @param string|null $key1 - Serie o delegacion de segundo item (si aplica)
-     * @param string|null $key2 - Código de segundo item (si aplica)
-     * @param string|null $key3 - Código auxiliar (si aplica)
-     * @param string|null $key4 - Código auxiliar (si aplica)
-     * @return \Illuminate\Http\JsonResponse - Respuesta JSON con el mensaje de éxito o error
-     */    
-    public function destroy($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
-    {
-        if ($this->delegationField) $delegation = trim($delegation) ?? '';
-        if ($this->key1Field) $key1 = trim($key1) ?? '';
-        if ($this->key2Field) $key2 = trim($key2) ?? '';
-        if ($this->key3Field) $key3 = trim($key3) ?? '';
-        if ($this->key4Field) $key4 = trim($key4) ?? '';     
-                
-        $record = DB::connection('dynamic')->table($this->table)
-            ->where($this->delegationField, $delegation)
-            ->where($this->codeField, $code)
-            ->where($this->key1Field, $key1)
-            ->where($this->key2Field, $key2)
-            ->where($this->key3Field, $key3)
-            ->where($this->key4Field, $key4)
-            ->first();
-        
-        if (!$record) {
-            return response()->json(['error' => 'Registro no encontrado en ' . $this->table], 404);
-        }
-        try {
-            // Iniciar la transacción
-            DB::connection('dynamic')->beginTransaction();
+        $next = (int) $row->CLTNVAL + 1;
 
-            // Comprueba que no está referenciado
-            $this->validateBeforeDelete($code, $delegation, $key1, $key2, $key3, $key4);
+        DB::connection('dynamic')->table('ACCCLT')
+            ->where('DEL3COD', $delegation)
+            ->where('CLTCTAB', $this->table)
+            ->where('CLTCSER', $series)
+            ->update(['CLTNVAL' => $next]);
 
-            // Eliminar el registro de la base de datos
-            DB::connection('dynamic')->table($this->table)
-                ->where($this->delegationField, $delegation)
-                ->where($this->codeField, $code)
-                ->where($this->key1Field, $key1)
-                ->where($this->key2Field, $key2)
-                ->where($this->key3Field, $key3)
-                ->where($this->key4Field, $key4)
-                ->delete();
-
-            // Eliminar registros relacionados antes de eliminar el principal
-            $this->deleteRelatedRecords($code, $delegation, $key1, $key2, $key3, $key4);
-
-            // Confirmar la transacción
-            DB::connection('dynamic')->commit();
-
-            return response()->json(['message' => 'Registro eliminado correctamente'], 200);
-        } catch (\Exception $e) {
-            // Si ocurre un error, deshacer la transacción
-            DB::connection('dynamic')->rollBack();
-
-            return response()->json(['error' => 'Ocurrió un error al eliminar el registro', 'detalle' => $e->getMessage()], 500);
-        }
+        return $next;
     }
-
 }

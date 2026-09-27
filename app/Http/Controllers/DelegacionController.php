@@ -2,115 +2,103 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\BusinessRuleException;
 use Illuminate\Support\Facades\DB;
 
 class DelegacionController extends BaseController
 {
-    protected $table = 'ACCDEL';
-    protected $codeField = 'DEL1COD';    
-    protected $inactiveField = 'DELBBAJ';
-    protected $searchFields = ['DELCNOM', 'DELCOBS'];
-    
-    protected $mapping = [
-        'codigo'                        => 'DEL1COD',
-        'nombre'                        => 'DELCNOM',
-        'direccion'                     => 'DELCDIR',
-        'codigo_postal'                 => 'DELCCOP',
-        'provincia'                     => 'DELCPRO',
-        'poblacion'                     => 'DELCPOB',
-        'pais'                          => 'DELCPAI',
-        'telefono'                      => 'DELCTEL',
-        'movil'                         => 'DELCMOV',
-        'fax'                           => 'DELCFAX',
-        'email'                         => 'DELCEMA',
-        'nif'                           => 'DELCNIF',
-        'razon'                         => 'DELCRAS',
-        'tipo_persona'                  => 'DELCTIP',
-        'residencia'                    => 'DELCRES',
-        'moneda'                        => 'DELCMON',
-        'lengua'                        => 'DELCLEN',
-        'observaciones'                 => 'DELCOBS',
-        'fecha_alta'                    => 'DELDALT',
-        'fecha_baja'                    => 'DELDBAJ',
-        'es_baja'                       => 'DELBBAJ'
+    protected string $table = 'ACCDEL';
+    protected array $keys = [
+        'codigo' => 'DEL1COD',
+    ];
+    protected ?string $inactiveField = 'DELBBAJ';
+    protected array $searchFields = ['DELCNOM', 'DELCOBS'];
+
+    // La delegación no cuelga de otra delegación: no hay delegación en su clave.
+    protected bool $generatesCode = true;
+    protected ?string $delegationKey = null;
+
+    protected array $mapping = [
+        'codigo'        => 'DEL1COD',
+        'nombre'        => 'DELCNOM',
+        'direccion'     => 'DELCDIR',
+        'codigo_postal' => 'DELCCOP',
+        'provincia'     => 'DELCPRO',
+        'poblacion'     => 'DELCPOB',
+        'pais'          => 'DELCPAI',
+        'telefono'      => 'DELCTEL',
+        'movil'         => 'DELCMOV',
+        'fax'           => 'DELCFAX',
+        'email'         => 'DELCEMA',
+        'nif'           => 'DELCNIF',
+        'razon'         => 'DELCRAS',
+        'tipo_persona'  => 'DELCTIP',
+        'residencia'    => 'DELCRES',
+        'moneda'        => 'DELCMON',
+        'lengua'        => 'DELCLEN',
+        'observaciones' => 'DELCOBS',
+        'fecha_alta'    => 'DELDALT',
+        'fecha_baja'    => 'DELDBAJ',
+        'es_baja'       => 'DELBBAJ',
     ];
 
-    protected function rules()
+    protected function rules(): array
     {
-        // Reglas generales
-        $rules = [
-            'codigo'                    => 'nullable|string|max:10',
-            'nombre'                    => 'nullable|string|max:100',
-            'direccion'                 => 'nullable|string|max:255',
-            'codigo_postal'             => 'nullable|string|max:10',
-            'provincia'                 => 'nullable|string|max:100',
-            'poblacion'                 => 'nullable|string|max:100',
-            'pais'                      => 'nullable|string|max:3',
-            'telefono'                  => 'nullable|string|max:20',
-            'movil'                     => 'nullable|string|max:20',
-            'fax'                       => 'nullable|string|max:20',
-            'email'                     => 'nullable|string|max:100',
-            'nif'                       => 'nullable|string|max:15',
-            'razon'                     => 'nullable|string|max:255',
-            'tipo_persona'              => 'nullable|string|in:F,J|max:1',
-            'residencia'                => 'nullable|string|in:E,R,U|max:1',
-            'moneda'                    => 'nullable|string|max:3',
-            'lengua'                    => 'nullable|string|max:2',
-            'observaciones'             => 'nullable|string',
-            'fecha_alta'                => 'nullable|date',
-            'fecha_baja'                => 'nullable|date',
-            'es_baja'                   => 'nullable|string|in:T,F|max:1'
+        return [
+            'codigo'        => 'nullable|string|max:10',
+            'nombre'        => 'nullable|string|max:100',
+            'direccion'     => 'nullable|string|max:255',
+            'codigo_postal' => 'nullable|string|max:10',
+            'provincia'     => 'nullable|string|max:100',
+            'poblacion'     => 'nullable|string|max:100',
+            'pais'          => 'nullable|string|max:3',
+            'telefono'      => 'nullable|string|max:20',
+            'movil'         => 'nullable|string|max:20',
+            'fax'           => 'nullable|string|max:20',
+            'email'         => 'nullable|email|max:100',
+            'nif'           => 'nullable|string|max:15',
+            'razon'         => 'nullable|string|max:255',
+            'tipo_persona'  => 'nullable|string|in:F,J|max:1',
+            'residencia'    => 'nullable|string|in:E,R,U|max:1',
+            'moneda'        => 'nullable|string|max:3',
+            'lengua'        => 'nullable|string|max:2',
+            'observaciones' => 'nullable|string',
+            'fecha_alta'    => 'nullable|date',
+            'fecha_baja'    => 'nullable|date',
+            'es_baja'       => 'nullable|string|in:T,F|max:1',
         ];
-
-        return $rules;
     }
 
-    protected function validateRelationships(array $data)
-    {    
-        // No se requieren validaciones
-    }
-
-    protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
+    protected function validateAdditionalCriteria(array $data, array $keys = []): array
     {
-        $isCreating = request()->isMethod('post');
+        $isCreating = empty($keys);
+        $code = $keys['codigo'] ?? null;
 
-        // Comprueba que el nombre de delegación no esté en uso
-        if (!empty($data['nombre'])) {
-            $existingRecord = DB::connection('dynamic')->table('ACCDEL')->where('DELCNOM', $data['nombre']);            
-            if (!$isCreating) { 
-                // Si se trata de una actualización el nombre no debe estar repetido pero excluyendo el registro actual
-                $existingRecord = $existingRecord->where('DEL1COD', '!=', $code);                                      
+        if (! empty($data['nombre'])) {
+            $query = DB::connection('dynamic')->table('ACCDEL')->where('DELCNOM', $data['nombre']);
+            if (! $isCreating) {
+                $query->where('DEL1COD', '!=', $code);
             }
-            $existingRecord = $existingRecord->first();
-            if ($existingRecord) {
-                throw new \Exception("El nombre de la delegación ya está en uso");
+            if ($query->exists()) {
+                throw new BusinessRuleException('El nombre de la delegación ya está en uso');
             }
         }
 
-        // Comprueba que el código para la nueva delegación no esté en uso
-        if ($isCreating) { 
-            if (!empty($data['codigo'])) {
-                $existingRecord = DB::connection('dynamic')->table('ACCDEL')
-                    ->where('DEL1COD', $data['codigo'])
-                    ->exists();
-                if ($existingRecord) {
-                    throw new \Exception("El código de la delegación ya está en uso");
-                }
+        if ($isCreating && ! empty($data['codigo'])) {
+            $exists = DB::connection('dynamic')->table('ACCDEL')
+                ->where('DEL1COD', $data['codigo'])->exists();
+            if ($exists) {
+                throw new BusinessRuleException('El código de la delegación ya está en uso');
             }
         }
 
-        // Excluir campos clave de los datos a actualizar porque no serán editables
-        if (!$isCreating) { 
-            unset( 
-                $data['codigo'] 
-            );
-        } 
-                
-        return $data;        
+        return $data;
     }
-        
-    protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
+
+    protected function validateBeforeDelete(array $keys): void
     {
+        $code = $keys['codigo'] ?? null;
+
         $tables = [
             'ACCPER' => 'algún perfil',
             'ACCUSU' => 'algún usuario',
@@ -154,43 +142,23 @@ class DelegacionController extends BaseController
             'LABTAR' => 'alguna tarifa',
             'LABRAN' => 'algún rango',
             'LABMAR' => 'alguna marca',
-            'LABAUT' => 'algún autodefinible'
+            'LABAUT' => 'algún autodefinible',
         ];
-        
+
         foreach ($tables as $table => $reference) {
             if (DB::connection('dynamic')->table($table)->where('DEL3COD', $code)->exists()) {
-                throw new \Exception("La delegación no puede ser eliminada porque está siendo referenciada en $reference");
+                throw new BusinessRuleException("La delegación no puede ser eliminada porque está siendo referenciada en {$reference}");
             }
-        }         
-    }    
+        }
+    }
 
-    protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
+    protected function deleteRelatedRecords(array $keys): void
     {
-        // Borra las claves técnicas de la delegación
-        DB::connection('dynamic')->table('ACCCLT')
-            ->where('DEL3COD', $code)
-            ->delete();
+        $code = $keys['codigo'] ?? null;
 
-        // Borra los avisos de la delegación
-        DB::connection('dynamic')->table('ACCAVI')
-            ->where('DEL3COD', $code)
-            ->delete();
-
-        // Borra las notificaciones de la delegación
-        DB::connection('dynamic')->table('ACCNOT')
-            ->where('DEL3COD', $code)
-            ->delete();
-
-        // Borra los mensajes de la delegación
-        DB::connection('dynamic')->table('MENMEN')
-            ->where('DEL3COD', $code)
-            ->delete();            
-
-    }    
-
-    protected function updateAdditionalData (array $data, $code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
-    {
-        return $data;
-    }    
-
+        DB::connection('dynamic')->table('ACCCLT')->where('DEL3COD', $code)->delete();
+        DB::connection('dynamic')->table('ACCAVI')->where('DEL3COD', $code)->delete();
+        DB::connection('dynamic')->table('ACCNOT')->where('DEL3COD', $code)->delete();
+        DB::connection('dynamic')->table('MENMEN')->where('DEL3COD', $code)->delete();
+    }
 }

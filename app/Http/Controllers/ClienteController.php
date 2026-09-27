@@ -2,17 +2,25 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\BusinessRuleException;
 use Illuminate\Support\Facades\DB;
 
 class ClienteController extends BaseController
 {
-    protected $table = 'SINCLI';
-    protected $delegationField = 'DEL3COD';
-    protected $codeField = 'CLI1COD';    
-    protected $inactiveField = 'CLIBBAJ';
-    protected $searchFields = ['CLICNOM', 'CLICRAS'];
-    
-    protected $mapping = [
+    protected string $table = 'SINCLI';
+    protected array $keys = [
+        'delegacion' => 'DEL3COD',
+        'codigo'     => 'CLI1COD',
+    ];
+    protected ?string $inactiveField = 'CLIBBAJ';
+    protected array $searchFields = ['CLICNOM', 'CLICRAS'];
+
+    protected bool $generatesCode = true;
+    protected string $codeKey = 'codigo';
+    protected ?string $delegationKey = 'delegacion';
+    protected ?string $seriesKey = null;
+
+    protected array $mapping = [
         'delegacion'                    => 'DEL3COD',
         'codigo'                        => 'CLI1COD',
         'nombre'                        => 'CLICNOM',
@@ -93,10 +101,9 @@ class ClienteController extends BaseController
         'cliente_igeo'                  => 'CLICIGC',
     ];
 
-    protected function rules()
+    protected function rules(): array
     {
-        // Reglas generales
-        $rules = [
+        return [
             'delegacion'                    => 'nullable|string|max:10',
             'codigo'                        => 'nullable|string|max:15',
             'nombre'                        => 'nullable|string|max:255',
@@ -125,7 +132,7 @@ class ClienteController extends BaseController
             'movil'                         => 'nullable|string|max:40',
             'fax'                           => 'nullable|string|max:40',
             'persona_contacto'              => 'nullable|string|max:255',
-            'email'                         => 'nullable|string',
+            'email'                         => 'nullable|email|max:255',
             'web'                           => 'nullable|string|max:100',
             'es_contacto_laboratorio'       => 'nullable|string|in:T,F|max:1',
             'es_contacto_administracion'    => 'nullable|string|in:T,F|max:1',
@@ -157,7 +164,7 @@ class ClienteController extends BaseController
             'movil_2'                       => 'nullable|string|max:40',
             'fax_2'                         => 'nullable|string|max:40',
             'persona_contacto_2'            => 'nullable|string|max:255',
-            'email_2'                       => 'nullable|string',
+            'email_2'                       => 'nullable|email|max:255',
             'web_2'                         => 'nullable|string|max:100',
             'es_contacto_laboratorio_2'     => 'nullable|string|in:T,F|max:1',
             'es_contacto_administracion_2'  => 'nullable|string|in:T,F|max:1',
@@ -165,7 +172,7 @@ class ClienteController extends BaseController
             'movil_3'                       => 'nullable|string|max:40',
             'fax_3'                         => 'nullable|string|max:40',
             'persona_contacto_3'            => 'nullable|string|max:255',
-            'email_3'                       => 'nullable|string',
+            'email_3'                       => 'nullable|email|max:255',
             'web_3'                         => 'nullable|string|max:100',
             'es_contacto_laboratorio_3'     => 'nullable|string|in:T,F|max:1',
             'es_contacto_administracion_3'  => 'nullable|string|in:T,F|max:1',
@@ -176,253 +183,138 @@ class ClienteController extends BaseController
             'tarifa_codigo'                 => 'nullable|integer',
             'cliente_igeo'                  => 'nullable|string|max:20',
         ];
-
-        return $rules;
     }
 
-    protected function validateRelationships(array $data)
-    {    
-        // Valida la existencia de la delegación 
-        if (!empty($data['delegacion'])) {
-            $delegation = DB::connection('dynamic')->table('ACCDEL')
-                ->where('DEL1COD', $data['delegacion'])
-                ->first(); 
-            if (!$delegation) {
-                throw new \Exception("La delegación no existe");
+    protected function validateRelationships(array $data): void
+    {
+        if (! empty($data['delegacion'])) {
+            $exists = DB::connection('dynamic')->table('ACCDEL')
+                ->where('DEL1COD', $data['delegacion'])->exists();
+            if (! $exists) {
+                throw new BusinessRuleException('La delegación no existe');
             }
         }
 
-        // Valida la existencia del código de cliente principal
-        if (!empty($data['cliente_principal_codigo'])) {
-            $mainClient = DB::connection('dynamic')->table('SINCLI')
+        if (! empty($data['cliente_principal_codigo'])) {
+            $exists = DB::connection('dynamic')->table('SINCLI')
                 ->where('DEL3COD', $data['cliente_principal_delegacion'] ?? '')
-                ->where('CLI1COD', $data['cliente_principal_codigo'])
-                ->first(); 
-            if (!$mainClient) {
-                throw new \Exception("El cliente principal no existe");
+                ->where('CLI1COD', $data['cliente_principal_codigo'])->exists();
+            if (! $exists) {
+                throw new BusinessRuleException('El cliente principal no existe');
             }
         }
 
-        // Valida la existencia del tipo de cliente
-        if (!empty($data['tipo_cliente_codigo'])) {
-            $clientType = DB::connection('dynamic')->table('SINTIC')
+        if (! empty($data['tipo_cliente_codigo'])) {
+            $exists = DB::connection('dynamic')->table('SINTIC')
                 ->where('DEL3COD', $data['tipo_cliente_delegacion'] ?? '')
-                ->where('TIC1COD', $data['tipo_cliente_codigo'])
-                ->first(); 
-            if (!$clientType) {
-                throw new \Exception("El tipo de cliente no existe");
+                ->where('TIC1COD', $data['tipo_cliente_codigo'])->exists();
+            if (! $exists) {
+                throw new BusinessRuleException('El tipo de cliente no existe');
             }
-        }    
+        }
 
-        // Valida la existencia de forma de envío
-        if (!empty($data['forma_envio_codigo'])) {
-            $method = DB::connection('dynamic')->table('LABFDE')
+        if (! empty($data['forma_envio_codigo'])) {
+            $exists = DB::connection('dynamic')->table('LABFDE')
                 ->where('DEL3COD', $data['forma_envio_delegacion'] ?? '')
-                ->where('FDE1COD', $data['forma_envio_codigo'])
-                ->first(); 
-            if (!$method) {
-                throw new \Exception("La forma de envío no existe");
+                ->where('FDE1COD', $data['forma_envio_codigo'])->exists();
+            if (! $exists) {
+                throw new BusinessRuleException('La forma de envío no existe');
             }
-        }    
+        }
 
-        // Valida la existencia de tarifa
-        if (!empty($data['tarifa_codigo'])) {
-            $rate = DB::connection('dynamic')->table('LABTAR')
+        if (! empty($data['tarifa_codigo'])) {
+            $exists = DB::connection('dynamic')->table('LABTAR')
                 ->where('DEL3COD', $data['tarifa_delegacion'] ?? '')
-                ->where('TAR1COD', $data['tarifa_codigo'])
-                ->first(); 
-            if (!$rate) {
-                throw new \Exception("La tarifa no existe");
+                ->where('TAR1COD', $data['tarifa_codigo'])->exists();
+            if (! $exists) {
+                throw new BusinessRuleException('La tarifa no existe');
             }
-        }         
+        }
     }
 
-    protected function validateAdditionalCriteria(array $data, $code = null, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
+    protected function validateAdditionalCriteria(array $data, array $keys = []): array
     {
-        $isCreating = request()->isMethod('post');
+        $isCreating = empty($keys);
+        $code = $keys['codigo'] ?? null;
+        $delegation = $keys['delegacion'] ?? '';
 
-        // Comprueba que el nombre de cliente no esté en uso
-        if (!empty($data['nombre'])) {
-            $existingRecord = DB::connection('dynamic')->table('SINCLI')->where('CLICNOM', $data['nombre']);            
-            if (!$isCreating) { 
-                // Si se trata de una actualización el nombre no debe estar repetido pero excluyendo el registro actual
-                $delegation = $delegation ?? '';
-                $existingRecord = $existingRecord->where(function ($query) use ($code, $delegation) {
-                    $query->where('CLI1COD', '!=', $code)
-                        ->orWhere('DEL3COD', '!=', $delegation);
-                });                          
+        // El nombre de cliente no puede estar repetido.
+        if (! empty($data['nombre'])) {
+            $query = DB::connection('dynamic')->table('SINCLI')->where('CLICNOM', $data['nombre']);
+            if (! $isCreating) {
+                $query->where(function ($q) use ($code, $delegation) {
+                    $q->where('CLI1COD', '!=', $code)->orWhere('DEL3COD', '!=', $delegation);
+                });
             }
-            $existingRecord = $existingRecord->first();
-            if ($existingRecord) {
-                throw new \Exception("El nombre del cliente ya está en uso");
+            if ($query->exists()) {
+                throw new BusinessRuleException('El nombre del cliente ya está en uso');
             }
         }
 
-        // Comprueba que el código para el nuevo cliente no esté en uso
-        if ($isCreating) { 
-            if (!empty($data['codigo'])) {
-                $existingRecord = DB::connection('dynamic')->table('SINCLI')
-                    ->where('DEL3COD', $data['delegacion'] ?? '')
-                    ->where('CLI1COD', $data['codigo'])
-                    ->exists();
-                if ($existingRecord) {
-                    throw new \Exception("El código del cliente ya está en uso");
-                }
+        // En creación, el código propuesto no puede estar en uso.
+        if ($isCreating && ! empty($data['codigo'])) {
+            $exists = DB::connection('dynamic')->table('SINCLI')
+                ->where('DEL3COD', $data['delegacion'] ?? '')
+                ->where('CLI1COD', $data['codigo'])->exists();
+            if ($exists) {
+                throw new BusinessRuleException('El código del cliente ya está en uso');
             }
         }
 
-        // Excluir campos clave de los datos a actualizar porque no serán editables
-        if (!$isCreating) { 
-            unset( 
-                $data['delegacion'], 
-                $data['codigo'] 
-            );
-        } 
-                
-        return $data;        
-    }
-        
-    protected function validateBeforeDelete($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
-    {
-        $delegation = $delegation ?? '';
-
-        // Comprueba que el cliente no está como cliente principal en otros clientes
-        $usedInAnotherTable = DB::connection('dynamic')->table('SINCLI')
-            ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $code)
-            ->exists();
-        if ($usedInAnotherTable) {
-            throw new \Exception("El cliente no puede ser eliminado porque está siendo referenciado como cliente principal");
-        }
-
-        // Comprueba que el cliente no está vinculado a ningún usuario
-        $usedInAnotherTable = DB::connection('dynamic')->table('ACCUSU')
-            ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $code)
-            ->exists();
-        if ($usedInAnotherTable) {
-            throw new \Exception("El cliente no puede ser eliminado porque está siendo referenciado en algún usuario");
-        }
-
-        // Comprueba que el cliente no está vinculado a ninguna factura
-        $usedInAnotherTable = DB::connection('dynamic')->table('FACFAC')
-            ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $code)
-            ->exists();
-        if ($usedInAnotherTable) {
-            throw new \Exception("El cliente no puede ser eliminado porque está siendo referenciado en alguna factura");
-        }        
-
-        // Comprueba que el cliente no está vinculado a ninguna línea de factura
-        $usedInAnotherTable = DB::connection('dynamic')->table('FACLIF')
-            ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $code)
-            ->exists();
-        if ($usedInAnotherTable) {
-            throw new \Exception("El cliente no puede ser eliminado porque está siendo referenciado en alguna línea de factura");
-        }
-
-        // Comprueba que el cliente no está vinculado a ningún contrato
-        $usedInAnotherTable = DB::connection('dynamic')->table('FACCON')
-            ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $code)
-            ->exists();
-        if ($usedInAnotherTable) {
-            throw new \Exception("El cliente no puede ser eliminado porque está siendo referenciado en algún contrato");
-        }
-        
-        // Comprueba que el cliente no está vinculado a ningún presupuesto
-        $usedInAnotherTable = DB::connection('dynamic')->table('FACPRE')
-            ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $code)
-            ->exists();
-        if ($usedInAnotherTable) {
-            throw new \Exception("El cliente no puede ser eliminado porque está siendo referenciado en algún presupuesto");
-        }
-        
-        // Comprueba que el cliente no está vinculado a ninguna planificación
-        $usedInAnotherTable = DB::connection('dynamic')->table('LABPLO')
-            ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $code)
-            ->exists();
-        if ($usedInAnotherTable) {
-            throw new \Exception("El cliente no puede ser eliminado porque está siendo referenciado en alguna planificación");
-        }
-
-        // Comprueba que el cliente no está vinculado a ninguna operación
-        $usedInAnotherTable = DB::connection('dynamic')->table('LABOPE')
-            ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $code)
-            ->exists();
-        if ($usedInAnotherTable) {
-            throw new \Exception("El cliente no puede ser eliminado porque está siendo referenciado en alguna operación");
-        }        
-
-        // Comprueba que el cliente no está vinculado a ningún lote
-        $usedInAnotherTable = DB::connection('dynamic')->table('LABLOT')
-            ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $code)
-            ->exists();
-        if ($usedInAnotherTable) {
-            throw new \Exception("El cliente no puede ser eliminado porque está siendo referenciado en algún lote");
-        }        
-
-        // Comprueba que el cliente no está vinculado a ningún equipo de cliente
-        $usedInAnotherTable = DB::connection('dynamic')->table('LABEQU')
-            ->where('CLI2DEL', $delegation)
-            ->where('CLI2COD', $code)
-            ->exists();
-        if ($usedInAnotherTable) {
-            throw new \Exception("El cliente no puede ser eliminado porque está siendo referenciado en algún equipo de cliente");
-        }        
-
-    }
-
-    protected function deleteRelatedRecords($code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
-    {
-        // Borra puntos de muestreo relacionados
-        DB::connection('dynamic')->table('LABPUM')
-        ->where('DEL3COD', $delegation)
-        ->where('CLI3COD', $code)
-        ->delete();
-
-        // Borra las relaciones del cliente con plantillas
-        DB::connection('dynamic')->table('PLAPYC')
-        ->where('DEL3CLI', $delegation)
-        ->where('CLI3COD', $code)
-        ->delete();
-
-        // Borra asociaciones del cliente con empleados
-        DB::connection('dynamic')->table('GRHCLI')
-        ->where('CLI3DEL', $delegation)
-        ->where('CLI3COD', $code)
-        ->delete();
-
-        // Borra precios por cliente de servicios
-        DB::connection('dynamic')->table('LABSYC')
-        ->where('CLI3DEL', $delegation)
-        ->where('CLI3COD', $code)
-        ->delete();
-
-        // Borra precios por cliente de técnicas
-        DB::connection('dynamic')->table('LABTYC')
-        ->where('CLI3DEL', $delegation)
-        ->where('CLI3COD', $code)
-        ->delete(); 
-
-        // Documentos a la papelera
-        DB::connection('dynamic')->table('DOCFAT')
-            ->where('DEL3COD', $delegation)
-            ->where('CLI2COD', $code)
-            ->update([
-                'DIR2DEL' => $delegation,
-                'DIR2COD' => 0
-            ]);          
-    }    
-
-    protected function updateAdditionalData (array $data, $code, $delegation = null, $key1 = null, $key2 = null, $key3 = null, $key4 = null)
-    {
         return $data;
-    }    
+    }
 
+    protected function validateBeforeDelete(array $keys): void
+    {
+        $delegation = $keys['delegacion'] ?? '';
+        $code = $keys['codigo'] ?? null;
+
+        $references = [
+            ['SINCLI', 'CLI2DEL', 'CLI2COD', 'está siendo referenciado como cliente principal'],
+            ['ACCUSU', 'CLI2DEL', 'CLI2COD', 'está siendo referenciado en algún usuario'],
+            ['FACFAC', 'CLI2DEL', 'CLI2COD', 'está siendo referenciado en alguna factura'],
+            ['FACLIF', 'CLI2DEL', 'CLI2COD', 'está siendo referenciado en alguna línea de factura'],
+            ['FACCON', 'CLI2DEL', 'CLI2COD', 'está siendo referenciado en algún contrato'],
+            ['FACPRE', 'CLI2DEL', 'CLI2COD', 'está siendo referenciado en algún presupuesto'],
+            ['LABPLO', 'CLI2DEL', 'CLI2COD', 'está siendo referenciado en alguna planificación'],
+            ['LABOPE', 'CLI2DEL', 'CLI2COD', 'está siendo referenciado en alguna operación'],
+            ['LABLOT', 'CLI2DEL', 'CLI2COD', 'está siendo referenciado en algún lote'],
+            ['LABEQU', 'CLI2DEL', 'CLI2COD', 'está siendo referenciado en algún equipo de cliente'],
+        ];
+
+        foreach ($references as [$table, $delCol, $codCol, $reason]) {
+            $used = DB::connection('dynamic')->table($table)
+                ->where($delCol, $delegation)
+                ->where($codCol, $code)->exists();
+            if ($used) {
+                throw new BusinessRuleException("El cliente no puede ser eliminado porque {$reason}");
+            }
+        }
+    }
+
+    protected function deleteRelatedRecords(array $keys): void
+    {
+        $delegation = $keys['delegacion'] ?? '';
+        $code = $keys['codigo'] ?? null;
+
+        DB::connection('dynamic')->table('LABPUM')
+            ->where('DEL3COD', $delegation)->where('CLI3COD', $code)->delete();
+
+        DB::connection('dynamic')->table('PLAPYC')
+            ->where('DEL3CLI', $delegation)->where('CLI3COD', $code)->delete();
+
+        DB::connection('dynamic')->table('GRHCLI')
+            ->where('CLI3DEL', $delegation)->where('CLI3COD', $code)->delete();
+
+        DB::connection('dynamic')->table('LABSYC')
+            ->where('CLI3DEL', $delegation)->where('CLI3COD', $code)->delete();
+
+        DB::connection('dynamic')->table('LABTYC')
+            ->where('CLI3DEL', $delegation)->where('CLI3COD', $code)->delete();
+
+        // Documentos del cliente a la papelera.
+        DB::connection('dynamic')->table('DOCFAT')
+            ->where('DEL3COD', $delegation)->where('CLI2COD', $code)
+            ->update(['DIR2DEL' => $delegation, 'DIR2COD' => 0]);
+    }
 }
