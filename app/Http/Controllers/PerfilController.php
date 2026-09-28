@@ -16,6 +16,10 @@ class PerfilController extends BaseController
 
     protected bool $generatesCode = true;
 
+    protected array $foreignKeys = [
+        'tipo_firma' => 'int',
+    ];
+
     protected array $mapping = [
         'delegacion'            => 'DEL3COD',
         'codigo'                => 'PER1COD',

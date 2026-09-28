@@ -17,6 +17,11 @@ class CargoController extends BaseController
 
     protected bool $generatesCode = true;
 
+    protected array $foreignKeys = [
+        'departamento'   => 'int',
+        'cargo_superior' => 'int',
+    ];
+
     protected array $mapping = [
         'delegacion'                => 'DEL3COD',
         'codigo'                    => 'CAR1COD',

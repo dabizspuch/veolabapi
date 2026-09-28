@@ -13,6 +13,10 @@ class AuditoriaArchivadaController extends BaseController
     // Registro de auditoría archivada: solo lectura.
     protected bool $generatesCode = false;
 
+    protected array $foreignKeys = [
+        'sesion' => 'int',
+    ];
+
     protected array $mapping = [
         'codigo'           => 'AUD1COD',
         'fecha'            => 'AUDTFEC',

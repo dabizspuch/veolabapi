@@ -16,6 +16,10 @@ class TipoEquipoController extends BaseController
 
     protected bool $generatesCode = true;
 
+    protected array $foreignKeys = [
+        'tipo_equipo' => 'int',
+    ];
+
     protected array $mapping = [
         'delegacion'             => 'DEL3COD',
         'codigo'                 => 'TEQ1COD',

@@ -17,6 +17,10 @@ class SeccionController extends BaseController
 
     protected bool $generatesCode = true;
 
+    protected array $foreignKeys = [
+        'departamento' => 'int',
+    ];
+
     protected array $mapping = [
         'delegacion'              => 'DEL3COD',
         'codigo'                  => 'SEC1COD',

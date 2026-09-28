@@ -17,6 +17,10 @@ class ProveedorController extends BaseController
 
     protected bool $generatesCode = true;
 
+    protected array $foreignKeys = [
+        'tipo_evaluacion' => 'int',
+    ];
+
     protected array $mapping = [
         'delegacion'                   => 'DEL3COD',
         'codigo'                       => 'PRO1COD',

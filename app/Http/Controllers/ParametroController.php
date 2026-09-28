@@ -17,6 +17,10 @@ class ParametroController extends BaseController
 
     protected bool $generatesCode = true;
 
+    protected array $foreignKeys = [
+        'seccion' => 'int',
+    ];
+
     protected array $mapping = [
         'delegacion'                  => 'DEL3COD',
         'codigo'                      => 'TEC1COD',

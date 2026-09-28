@@ -20,6 +20,13 @@ class ClienteController extends BaseController
     protected ?string $delegationKey = 'delegacion';
     protected ?string $seriesKey = null;
 
+    protected array $foreignKeys = [
+        'cliente_principal' => 'string',
+        'forma_envio'       => 'int',
+        'tipo_cliente'      => 'int',
+        'tarifa'            => 'int',
+    ];
+
     protected array $mapping = [
         'delegacion'                    => 'DEL3COD',
         'codigo'                        => 'CLI1COD',

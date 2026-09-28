@@ -17,6 +17,12 @@ class ServicioController extends BaseController
 
     protected bool $generatesCode = true;
 
+    protected array $foreignKeys = [
+        'tipo_operacion' => 'int',
+        'matriz'         => 'int',
+        'normativa'      => 'string',
+    ];
+
     protected array $mapping = [
         'delegacion'                => 'DEL3COD',
         'codigo'                    => 'SER1COD',

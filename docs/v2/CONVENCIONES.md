@@ -1,7 +1,7 @@
 # Veolab API REST v2 — Convenciones de diseño
 
 > Documento de referencia para la construcción de la v2. Recoge las decisiones
-> tomadas en la fase de análisis. **Aún no implementado.**
+> tomadas en la fase de análisis. Implementado en la rama `v2` (tablas sencillas).
 
 ## Índice
 
@@ -217,6 +217,26 @@ Con keyset, `meta` lleva `next_cursor` (y `per_page`) en lugar de `total/last_pa
 - **Actualización/borrado:** `{ "message": "..." }` (`200`).
 - Los nombres de campo son siempre los "humanos" del mapping, nunca los internos
   (`OPE1COD` → `codigo`).
+- **JSON compacto** (sin sangrado): el formateo es cosa del cliente (`| jq`, Postman).
+- **Códigos de texto:** las 19 tablas con `XXX1COD varchar` (clientes, productos,
+  equipos, normativas, usuarios, lotes…) exponen el código como texto (`"4"`) y se
+  ordenan alfabéticamente, igual que Veolab. Las otras 77 tienen código `int`.
+- **Los valores se devuelven tal cual** están en la BD (no se recortan espacios).
+
+### 9.1 Claves foráneas vacías
+
+Veolab guarda una FK vacía como `0` (código `int`) o `''` (código texto), no como
+`NULL`, aunque el esquema declare `DEFAULT NULL`. La API lo normaliza:
+
+- **Lectura:** si el código de la FK está vacío (`NULL`, `0` ó `''`), **todo el grupo**
+  (`{fk}_delegacion`, `{fk}_serie`, `{fk}_codigo`) sale como `null`. El vacío lo decide
+  el código, porque la delegación `''` es un valor válido.
+- **Escritura:** `null` se guarda como `0` / `''` según el tipo (lo que espera VB6).
+  Si el código llega vacío se vacía el grupo entero. En la creación, las FK no
+  enviadas también se rellenan así.
+- **Filtro:** `?{fk}_codigo[null]=T` (o sobre cualquier miembro del grupo) encuentra
+  `NULL`, `0` y `''`; `[null]=F`, lo contrario.
+- Cada controlador declara sus grupos en `$foreignKeys` (`grupo => 'int'|'string'`).
 
 ## 10. Códigos de estado HTTP
 

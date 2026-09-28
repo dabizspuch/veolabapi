@@ -16,6 +16,10 @@ class FamiliaController extends BaseController
 
     protected bool $generatesCode = true;
 
+    protected array $foreignKeys = [
+        'familia_padre' => 'int',
+    ];
+
     protected array $mapping = [
         'delegacion'               => 'DEL3COD',
         'codigo'                   => 'FAM1COD',

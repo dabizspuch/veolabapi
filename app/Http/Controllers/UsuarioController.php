@@ -17,6 +17,12 @@ class UsuarioController extends BaseController
 
     protected bool $generatesCode = true;
 
+    protected array $foreignKeys = [
+        'perfil'   => 'int',
+        'empleado' => 'int',
+        'cliente'  => 'string',
+    ];
+
     protected array $mapping = [
         'delegacion'              => 'DEL3COD',
         'codigo'                  => 'USU1COD',

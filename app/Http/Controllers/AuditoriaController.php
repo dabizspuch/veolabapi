@@ -13,6 +13,10 @@ class AuditoriaController extends BaseController
     // Registro de auditoría: solo lectura (no se generan códigos ni se altera).
     protected bool $generatesCode = false;
 
+    protected array $foreignKeys = [
+        'sesion' => 'int',
+    ];
+
     protected array $mapping = [
         'codigo'           => 'AUD1COD',
         'fecha'            => 'AUDTFEC',

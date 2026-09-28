@@ -36,6 +36,17 @@ abstract class BaseController extends Controller
     /** Columnas usadas para la búsqueda de texto libre (?search=). */
     protected array $searchFields = [];
 
+    /**
+     * Claves foráneas: nombre del grupo => tipo del código ('int' | 'string').
+     * El grupo lo forman los parámetros {grupo}_delegacion, {grupo}_serie y
+     * {grupo}_codigo que existan en $mapping (delegación y serie son texto).
+     *
+     * Veolab guarda la FK vacía como 0 / '' (no NULL). La API la expone como
+     * null en todo el grupo (el vacío lo decide el código: la delegación ''
+     * es válida), y al escribir convierte null en 0 / '' para no romper VB6.
+     */
+    protected array $foreignKeys = [];
+
     /** Columna que marca baja/anulación, para el atajo ?is_deleted= (opcional). */
     protected ?string $inactiveField = null;
 
@@ -148,7 +159,7 @@ abstract class BaseController extends Controller
                 }
             }
 
-            DB::connection('dynamic')->table($this->table)->insert($this->toDb($validated));
+            DB::connection('dynamic')->table($this->table)->insert($this->toDb($validated, true));
 
             $this->updateAdditionalData($validated, $this->keyParamsFromData($validated));
 
@@ -269,6 +280,10 @@ abstract class BaseController extends Controller
 
             if (is_array($value)) {
                 foreach ($value as $op => $operand) {
+                    if ($op === 'null' && ($group = $this->foreignKeyGroupOf($param))) {
+                        $this->applyForeignKeyNull($query, $group, $operand);
+                        continue;
+                    }
                     $this->applyOperator($query, $column, (string) $op, $operand);
                 }
             } elseif (is_string($value) && str_contains($value, ',')) {
@@ -297,6 +312,24 @@ abstract class BaseController extends Controller
                 if (isset(self::OPERATORS[$op])) {
                     $query->where($column, self::OPERATORS[$op], $operand);
                 }
+        }
+    }
+
+    /**
+     * campo[null]=T|F sobre cualquier miembro de un grupo FK: se evalúa sobre
+     * el código del grupo y cuenta como vacío NULL, 0 ó '' (lo que guarda Veolab).
+     */
+    private function applyForeignKeyNull($query, string $group, $operand): void
+    {
+        $column = $this->mapping["{$group}_codigo"];
+        $empty = $this->foreignKeys[$group] === 'int' ? 0 : '';
+
+        if (filter_var($operand, FILTER_VALIDATE_BOOLEAN)) {
+            $query->where(function ($q) use ($column, $empty) {
+                $q->whereNull($column)->orWhere($column, $empty);
+            });
+        } else {
+            $query->whereNotNull($column)->where($column, '!=', $empty);
         }
     }
 
@@ -422,8 +455,26 @@ abstract class BaseController extends Controller
         return $out;
     }
 
-    private function toDb(array $data): array
+    /**
+     * Parámetros API => columnas BD. Las FK nulas se escriben como 0 / '';
+     * si el código de un grupo llega vacío se vacía el grupo entero. Con
+     * $fillForeignKeys (creación) las FK ausentes también se rellenan así.
+     */
+    private function toDb(array $data, bool $fillForeignKeys = false): array
     {
+        foreach ($this->foreignKeys as $group => $type) {
+            $members = $this->foreignKeyMembers($group);
+            $code = "{$group}_codigo";
+            $clearGroup = array_key_exists($code, $data) && $this->isEmptyForeignKey($data[$code], $type);
+
+            foreach ($members as $param => $memberType) {
+                $present = array_key_exists($param, $data);
+                if ($clearGroup || ($present && $data[$param] === null) || (! $present && $fillForeignKeys)) {
+                    $data[$param] = $memberType === 'int' ? 0 : '';
+                }
+            }
+        }
+
         $out = [];
         foreach ($this->mapping as $param => $column) {
             if (array_key_exists($param, $data)) {
@@ -434,6 +485,7 @@ abstract class BaseController extends Controller
         return $out;
     }
 
+    /** Columnas BD => parámetros API. Un grupo FK vacío sale entero como null. */
     private function fromDb(array $row): array
     {
         $out = [];
@@ -441,7 +493,49 @@ abstract class BaseController extends Controller
             $out[$param] = $row[$column] ?? null;
         }
 
+        foreach ($this->foreignKeys as $group => $type) {
+            if ($this->isEmptyForeignKey($out["{$group}_codigo"] ?? null, $type)) {
+                foreach (array_keys($this->foreignKeyMembers($group)) as $param) {
+                    $out[$param] = null;
+                }
+            }
+        }
+
         return $out;
+    }
+
+    /** Miembros de un grupo FK presentes en $mapping: parámetro => tipo. */
+    private function foreignKeyMembers(string $group): array
+    {
+        $members = [];
+        foreach (['delegacion' => 'string', 'serie' => 'string', 'codigo' => $this->foreignKeys[$group]] as $suffix => $type) {
+            if (isset($this->mapping["{$group}_{$suffix}"])) {
+                $members["{$group}_{$suffix}"] = $type;
+            }
+        }
+
+        return $members;
+    }
+
+    /** Grupo FK al que pertenece un parámetro, o null. */
+    private function foreignKeyGroupOf(string $param): ?string
+    {
+        foreach (array_keys($this->foreignKeys) as $group) {
+            if (isset($this->foreignKeyMembers($group)[$param])) {
+                return $group;
+            }
+        }
+
+        return null;
+    }
+
+    private function isEmptyForeignKey($value, string $type): bool
+    {
+        if ($value === null || $value === '') {
+            return true;
+        }
+
+        return $type === 'int' && (int) $value === 0;
     }
 
     private function splitList(string $value): array

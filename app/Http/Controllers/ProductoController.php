@@ -17,6 +17,11 @@ class ProductoController extends BaseController
 
     protected bool $generatesCode = true;
 
+    protected array $foreignKeys = [
+        'familia'   => 'int',
+        'proveedor' => 'string',
+    ];
+
     protected array $mapping = [
         'delegacion'            => 'DEL3COD',
         'codigo'                => 'PRD1COD',
