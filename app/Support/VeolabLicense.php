@@ -41,6 +41,35 @@ class VeolabLicense
         return $type === null || $type === self::EMPRESARIAL_VERIFACTU;
     }
 
+    /** Módulos por tipo de licencia (Recursos.frm). */
+    private const MODULES = [
+        self::GRATUITA              => '',
+        self::PROFESIONAL           => 'COM,SIN,LOT,PLA,ORD',
+        self::EMPRESARIAL           => 'VEN,FAC,ALM,EST,AGE,COM,DOC,WEB,SIN,EQC,LOT,PLA,ORD,BAR,GEO,GDR,FIR,IGE,CDC',
+        self::EMPRESARIAL_VERIFACTU => 'VEN,FAC,VFU,ALM,EST,AGE,COM,DOC,WEB,SIN,EQC,LOT,PLA,ORD,BAR,GEO,GDR,FIR,IGE,CDC',
+    ];
+
+    /**
+     * LIC_ModuloActivo: el módulo está activado en ACCMOD y la licencia lo
+     * incluye. Con licencia no determinada solo cuenta ACCMOD (como la edición
+     * de demostración, salvo FAC/VFU que exigen licencia).
+     */
+    public static function moduleActive(string $connection, string $database, string $module): bool
+    {
+        $active = DB::connection($connection)->table('ACCMOD')
+            ->where('MOD1COD', $module)->value('MODBACT') === 'T';
+        if (! $active) {
+            return false;
+        }
+
+        $type = self::type($connection, $database);
+        if ($type === null || ! isset(self::MODULES[$type])) {
+            return $module !== 'FAC' && $module !== 'VFU';
+        }
+
+        return in_array($module, explode(',', self::MODULES[$type]), true);
+    }
+
     /** Tipo de licencia (1-4) o null si no se puede determinar. */
     public static function type(string $connection, string $database): ?int
     {

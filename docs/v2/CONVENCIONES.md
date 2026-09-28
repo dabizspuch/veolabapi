@@ -327,7 +327,29 @@ Se aplican dentro del rediseño (no son parte del diseño nuevo, son fallos):
 - Se escribe dentro de la transacción del cambio. Las lecturas no se auditan.
 
 **Códigos:** como `DBS_Autoincremento`: contador `ACCCLT` con el múltiplo de
-`ACCCFC.CFCNMUL`, repitiendo mientras el código ya exista.
+`ACCCFC.CFCNMUL`, repitiendo mientras el código ya exista. Reglas de `ACCCFC`
+(para todas las tablas): no autonumérico (`CFCBAUT`) → el código es obligatorio;
+bloqueado (`CFCBBLO`) → no se puede indicar a mano; un código indicado que ya
+existe → `422`. "Serie por cliente" (`CFCBCLI`) → sin serie, la del cliente.
+
+**Operaciones (`LABOPE`, fase 1: datos generales):**
+- Estado y fechas del flujo editables, con la lógica de la barra de estados de la
+  ficha: avanzar rellena con la fecha actual las fechas vacías hasta el nuevo estado
+  (preparada solo fecha); retroceder borra las de los estados posteriores; cambiar de
+  estado desanula. `LABCON.CONBBAR` bloquea el cambio de estado y `CONBUNO` lo
+  limita a un paso. Estados: 0 registrada · 1 recibida · 2 preparada · 3 iniciada ·
+  4 finalizada · 5 validada · 6 enviada · 7 archivada.
+- Anulación (`es_baja=T`): fecha de anulación = hoy si no se indica; si estaba
+  archivada pasa a enviada.
+- Solo lectura (los mantiene Veolab): tanda, técnicas, prefacturada/facturada/factura,
+  precios modificados, datos IGEO.
+- No se modifica si está en un informe validado, o pendiente con firma válida.
+- Borrado: mismas comprobaciones que Veolab (órdenes, informes, facturas, residuos,
+  cartas de control, operación de control, préstamos) y cascada de resultados,
+  servicios, analistas, departamentos, gastos, autodefinibles, movimientos y avisos;
+  documentos a la papelera; stock devuelto si el módulo Almacén está activo.
+- Pendiente (fase 2): servicios y resultados (`LABOYS`, `LABRES`, `LABCOR`...),
+  fecha de compromiso automática al recibir y aviso al analista al preparar.
 
 **Licencia / Verifactu:** la API lee el tipo de licencia de `ACCPAR.PARCLBD`
 (`App\Support\VeolabLicense`). Los patrones de cifrado son secretos: solo en el `.env`

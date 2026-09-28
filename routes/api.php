@@ -60,6 +60,9 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     $resource('/proveedores', 'ProveedorController');
     $resource('/servicios', 'ServicioController');
 
+    // --- Tablas con serie (3 claves: delegacion + serie + codigo) ---
+    $resource('/operaciones', 'OperacionController');
+
     // Auditoría: solo lectura.
     Route::get('/auditorias', [$ns.'AuditoriaController', 'index']);
     Route::get('/auditorias-archivadas', [$ns.'AuditoriaArchivadaController', 'index']);

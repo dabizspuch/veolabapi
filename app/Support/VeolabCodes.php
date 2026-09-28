@@ -54,6 +54,30 @@ class VeolabCodes
         return $config ? max((int) $config->CFCNMUL, 1) : 1;
     }
 
+    /** ¿El código se genera con el contador ACCCLT? (CFCBAUT; sin config, sí). */
+    public static function autonumeric(string $table): bool
+    {
+        $config = self::config($table);
+
+        return ! $config || $config->CFCBAUT === 'T';
+    }
+
+    /** ¿El código está bloqueado y no se puede indicar a mano? (CFCBBLO). */
+    public static function locked(string $table): bool
+    {
+        $config = self::config($table);
+
+        return $config && $config->CFCBBLO === 'T';
+    }
+
+    /** ¿La serie es por defecto el código del cliente? (CFCBCLI). */
+    public static function seriesPerClient(string $table): bool
+    {
+        $config = self::config($table);
+
+        return $config && $config->CFCBCLI === 'T';
+    }
+
     /**
      * Código formateado para mostrar/auditar (PAR_FormatoCodigo). Sin
      * configuración para la tabla usa el formato de reserva de VB: del-ser-cod.

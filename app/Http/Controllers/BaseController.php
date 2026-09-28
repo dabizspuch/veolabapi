@@ -153,11 +153,23 @@ abstract class BaseController extends Controller
                     $validated[$this->seriesKey] = $validated[$this->seriesKey] ?? '';
                 }
 
-                if (empty($validated[$this->codeKey])) {
+                // Reglas de ACCCFC: código bloqueado (solo automático) o no
+                // autonumérico (obligatorio indicarlo).
+                $given = isset($validated[$this->codeKey]) && $validated[$this->codeKey] !== '';
+                if ($given && VeolabCodes::locked($this->table)) {
+                    throw new BusinessRuleException('El código se asigna automáticamente y no se puede indicar');
+                }
+                if (! $given && ! VeolabCodes::autonumeric($this->table)) {
+                    throw new BusinessRuleException('El código es obligatorio');
+                }
+
+                if (! $given) {
                     $validated[$this->codeKey] = $this->generateCode(
                         $this->delegationKey ? (string) $validated[$this->delegationKey] : '',
                         $this->seriesKey ? (string) $validated[$this->seriesKey] : ''
                     );
+                } elseif ($this->keyQuery($this->keyColumnsFromData($validated))->exists()) {
+                    throw new BusinessRuleException('El código ya está en uso');
                 }
             }
 
@@ -468,6 +480,17 @@ abstract class BaseController extends Controller
     private function keyValue(Request $request, string $param): string
     {
         return (string) ($request->query($param) ?? '');
+    }
+
+    /** Clave completa [columna => valor] a partir de los datos (ausente = ''). */
+    private function keyColumnsFromData(array $data): array
+    {
+        $out = [];
+        foreach ($this->keys as $param => $column) {
+            $out[$column] = $data[$param] ?? '';
+        }
+
+        return $out;
     }
 
     private function keyParamsFromData(array $data): array
