@@ -310,6 +310,45 @@ Se aplican dentro del rediseño (no son parte del diseño nuevo, son fallos):
 5. **Validación devolvía `500`** y filtraba `$e->getMessage()` → §10.
 6. **`limit` sin tope ni casteo** → §8.1.
 
+## 12 bis. Auditoría, códigos y Verifactu
+
+**Auditoría (`ACCAUD`)**, replicando `SES_SucesoAuditoria` según `ACCPAR.PARNAUN`:
+
+| Operación | Suceso | Nivel |
+|---|---|---|
+| `POST` | `I` | ≥ 2 |
+| `PUT` | `F` (fila) con nivel 2; con nivel 3 un `C` por campo cambiado (`AUDCCAM` = tabla+columna, valor nuevo/anterior) | 2 / 3 |
+| `DELETE` | `B` | ≥ 2 |
+
+- `AUDCFIL` = código formateado como `PAR_FormatoCodigo` (config. de `ACCCFC`;
+  sin ella, `del-ser-cod`). Tablas con otra forma de clave sobreescriben `auditRow()`.
+- Cada token es una sesión de Veolab en `ACCSES` (`SESCOBS = 'API REST v2 (token N)'`,
+  delegación y usuario vacíos): en Veolab se ve que el cambio vino de la API.
+- Se escribe dentro de la transacción del cambio. Las lecturas no se auditan.
+
+**Códigos:** como `DBS_Autoincremento`: contador `ACCCLT` con el múltiplo de
+`ACCCFC.CFCNMUL`, repitiendo mientras el código ya exista.
+
+**Licencia / Verifactu:** la API lee el tipo de licencia de `ACCPAR.PARCLBD`
+(`App\Support\VeolabLicense`). Los patrones de cifrado son secretos: solo en el `.env`
+del servidor de Spuch (`VEOLAB_ENC_*`), nunca en el repositorio (es público y los
+clientes pueden autoalojar la API). **Sin patrones o sin licencia legible se aplican
+siempre las restricciones de Verifactu.** Prueba: `php artisan veolab:licencia <bd>`.
+
+Restricciones (a implementar con la facturación):
+
+| | Sin edición * | Edición Empresarial * |
+|---|---|---|
+| Borradores de factura (crear/modificar/borrar; si `LABCON.CONBFAB`) | ✓ | ✓ (registro `V` con hash) |
+| Emitir facturas definitivas | No (se emiten desde Veolab) | Nunca desde la API |
+| Borrar contratos / presupuestos | ✓ | ✗ |
+| Modificar presupuesto con factura (`FACFAC`/`FACSUB`) | ✓ | ✗ |
+
+- NIF de cliente inválido: Veolab solo avisa, no bloquea; la API tampoco.
+- Registros `V`: cadena hash en `ACCHAS 'AUD'` = SHA-256 de
+  `tipo|tabla|fila|campo|mod|ant|hashAnterior`. **Verificar contra datos reales**
+  (mayúsculas, codificación) antes de escribir ninguno.
+
 ## 13. Decisiones pendientes de confirmar
 
 - **Set exacto de operadores de filtro** a soportar en la primera versión (mínimo

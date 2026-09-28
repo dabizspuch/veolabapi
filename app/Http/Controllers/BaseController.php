@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\VeolabAudit;
+use App\Support\VeolabCodes;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -161,6 +163,8 @@ abstract class BaseController extends Controller
 
             DB::connection('dynamic')->table($this->table)->insert($this->toDb($validated, true));
 
+            VeolabAudit::record(VeolabAudit::INSERCION, $this->table, $this->auditRow($this->keyParamsFromData($validated)));
+
             $this->updateAdditionalData($validated, $this->keyParamsFromData($validated));
 
             DB::connection('dynamic')->commit();
@@ -190,12 +194,16 @@ abstract class BaseController extends Controller
     {
         $keyCols = $this->fullKeyColumns($request);
 
-        if (! $this->keyQuery($keyCols)->exists()) {
-            return response()->json(['message' => 'Registro no encontrado'], 404);
-        }
-
         try {
             DB::connection('dynamic')->beginTransaction();
+
+            // Fila anterior (bloqueada) para la auditoría de campos.
+            $before = $this->keyQuery($keyCols)->lockForUpdate()->first();
+            if (! $before) {
+                DB::connection('dynamic')->rollBack();
+
+                return response()->json(['message' => 'Registro no encontrado'], 404);
+            }
 
             $data = json_decode($request->getContent(), true) ?? [];
             $validated = $this->validateData($data);
@@ -210,6 +218,7 @@ abstract class BaseController extends Controller
             $dbData = $this->toDb($validated);
             if ($dbData) {
                 $this->keyQuery($keyCols)->update($dbData);
+                $this->auditUpdate((array) $before, $dbData, $this->keyParamsFromRequest($request));
             }
 
             $this->updateAdditionalData($validated, $this->keyParamsFromRequest($request));
@@ -248,6 +257,8 @@ abstract class BaseController extends Controller
             $this->validateBeforeDelete($this->keyParamsFromRequest($request));
             $this->keyQuery($keyCols)->delete();
             $this->deleteRelatedRecords($this->keyParamsFromRequest($request));
+
+            VeolabAudit::record(VeolabAudit::BORRADO, $this->table, $this->auditRow($this->keyParamsFromRequest($request)));
 
             DB::connection('dynamic')->commit();
 
@@ -570,39 +581,77 @@ abstract class BaseController extends Controller
     }
 
     /**
-     * Genera el siguiente código para (delegación, serie, tabla).
-     * DEBE llamarse dentro de una transacción abierta: usa lockForUpdate
-     * sobre ACCCLT para evitar colisiones (corrige la race condition de la v1,
-     * donde el bloqueo se liberaba antes del INSERT).
+     * Genera el siguiente código para (delegación, serie, tabla) como Veolab:
+     * contador ACCCLT con el múltiplo de ACCCFC, repitiendo mientras el código
+     * ya exista (puede haberse introducido a mano). DEBE llamarse dentro de una
+     * transacción abierta: el contador se bloquea con FOR UPDATE.
      */
     protected function generateCode(string $delegation, string $series): int
     {
-        $row = DB::connection('dynamic')->table('ACCCLT')
-            ->where('DEL3COD', $delegation)
-            ->where('CLTCTAB', $this->table)
-            ->where('CLTCSER', $series)
-            ->lockForUpdate()
-            ->first();
+        $multiple = VeolabCodes::multiple($this->table);
+        $codeColumn = $this->keys[$this->codeKey] ?? null;
 
-        if (! $row) {
-            DB::connection('dynamic')->table('ACCCLT')->insert([
-                'DEL3COD' => $delegation,
-                'CLTCTAB' => $this->table,
-                'CLTCSER' => $series,
-                'CLTNVAL' => 1,
-            ]);
+        for ($attempt = 0; $attempt < 10000; $attempt++) {
+            $code = VeolabCodes::next($this->table, $series, $delegation, $multiple);
 
-            return 1;
+            if ($codeColumn === null) {
+                return $code;
+            }
+
+            $query = DB::connection('dynamic')->table($this->table)->where($codeColumn, $code);
+            if ($this->delegationKey && isset($this->keys[$this->delegationKey])) {
+                $query->where($this->keys[$this->delegationKey], $delegation);
+            }
+            if ($this->seriesKey && isset($this->keys[$this->seriesKey])) {
+                $query->where($this->keys[$this->seriesKey], $series);
+            }
+            if (! $query->exists()) {
+                return $code;
+            }
         }
 
-        $next = (int) $row->CLTNVAL + 1;
+        throw new BusinessRuleException('No se ha podido generar un código libre');
+    }
 
-        DB::connection('dynamic')->table('ACCCLT')
-            ->where('DEL3COD', $delegation)
-            ->where('CLTCTAB', $this->table)
-            ->where('CLTCSER', $series)
-            ->update(['CLTNVAL' => $next]);
+    // ------------------------------------------------------------------
+    // Auditoría (ACCAUD)
+    // ------------------------------------------------------------------
 
-        return $next;
+    /**
+     * Fila auditada (AUDCFIL): el código formateado como en Veolab. Las tablas
+     * cuya clave no sea delegación/serie/código deben sobreescribirlo.
+     */
+    protected function auditRow(array $keyParams): string
+    {
+        return VeolabCodes::format(
+            $this->table,
+            (string) ($keyParams[$this->codeKey] ?? ''),
+            $this->delegationKey ? (string) ($keyParams[$this->delegationKey] ?? '') : '',
+            $this->seriesKey ? (string) ($keyParams[$this->seriesKey] ?? '') : ''
+        );
+    }
+
+    /**
+     * Modificación: con nivel 2 un suceso de fila; con nivel 3 uno por cada
+     * campo que cambia (AUDCCAM = tabla+columna, valores nuevo y anterior).
+     */
+    private function auditUpdate(array $before, array $dbData, array $keyParams): void
+    {
+        $row = $this->auditRow($keyParams);
+
+        VeolabAudit::record(VeolabAudit::MODIFICACION_FILA, $this->table, $row);
+
+        if (! VeolabAudit::enabled(VeolabAudit::MODIFICACION_CAMPO)) {
+            return;
+        }
+
+        foreach ($dbData as $column => $new) {
+            $old = $before[$column] ?? null;
+            if ((string) $old === (string) $new) {
+                continue;
+            }
+            VeolabAudit::record(VeolabAudit::MODIFICACION_CAMPO, $this->table, $row,
+                $this->table.$column, (string) $new, (string) $old);
+        }
     }
 }
