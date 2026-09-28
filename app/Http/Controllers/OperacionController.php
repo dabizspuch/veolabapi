@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Exceptions\BusinessRuleException;
 use App\Support\VeolabCodes;
 use App\Support\VeolabLicense;
+use App\Support\VeolabOperationServices;
 use App\Support\VeolabStock;
 use Illuminate\Support\Facades\DB;
 
@@ -174,8 +175,11 @@ class OperacionController extends BaseController
 
     /**
      * Sin regla (solo lectura, los mantiene Veolab): tanda, tecnicas,
-     * es_prefacturada, es_facturada, factura_*, precios_modificados y los
-     * campos de IGEO.
+     * es_facturable (se deriva del tipo y del cliente), es_prefacturada,
+     * es_facturada, factura_*, precios_modificados y los campos de IGEO.
+     *
+     * 'servicios' solo al crear: genera servicios, parámetros, columnas de
+     * resultado, gastos, analistas, departamentos y consumos como Veolab.
      */
     protected function rules(): array
     {
@@ -210,10 +214,9 @@ class OperacionController extends BaseController
             'temperatura'                    => 'nullable|string|max:50',
             'es_urgente'                     => 'nullable|string|in:T,F',
             'es_baja'                        => 'nullable|string|in:T,F',
-            'es_facturable'                  => 'nullable|string|in:T,F',
             'cantidad'                       => 'nullable|string|max:50',
             'unidad'                         => 'nullable|string|max:15',
-            'tipo_desglose'                  => 'nullable|string|max:15',
+            'tipo_desglose'                  => 'nullable|string|in:S,T,N,O',
             'lote_muestra'                   => 'nullable|string|max:70',
             'marca'                          => 'nullable|string|max:50',
             'envase'                         => 'nullable|string|max:255',
@@ -267,6 +270,9 @@ class OperacionController extends BaseController
             'operacion_control_delegacion'   => 'nullable|string|max:10',
             'operacion_control_serie'        => 'nullable|string|max:10',
             'operacion_control_codigo'       => 'nullable|integer',
+            'servicios'                      => 'nullable|array|min:1',
+            'servicios.*.delegacion'         => 'nullable|string|max:10',
+            'servicios.*.codigo'             => 'required|string|max:20',
         ];
     }
 
@@ -359,9 +365,23 @@ class OperacionController extends BaseController
         if (empty($keys)) {
             // Valores por defecto de una operación nueva.
             $data['tipo'] ??= 'E';
-            $data['es_facturable'] ??= $data['tipo'] === 'E' ? 'T' : 'F';
             $data['es_urgente'] ??= 'F';
             $data['es_baja'] ??= 'F';
+            $data['tipo_desglose'] ??= $this->defaultBreakdown();
+
+            // Tarifa por defecto: la del cliente (CargarTarifaCliente).
+            if (empty($data['tarifa_codigo']) && ! empty($data['cliente_codigo'])) {
+                $clientRate = DB::connection('dynamic')->table('SINCLI')
+                    ->where('DEL3COD', (string) ($data['cliente_delegacion'] ?? ''))
+                    ->where('CLI1COD', $data['cliente_codigo'])
+                    ->first(['TAR2DEL', 'TAR2COD']);
+                if ($clientRate && (int) $clientRate->TAR2COD > 0) {
+                    $data['tarifa_delegacion'] = (string) $clientRate->TAR2DEL;
+                    $data['tarifa_codigo'] = (int) $clientRate->TAR2COD;
+                }
+            }
+
+            $this->validateServices($data['servicios'] ?? []);
 
             // Serie por cliente (ACCCFC.CFCBCLI): sin serie, la del cliente.
             if (($data['serie'] ?? null) === null && VeolabCodes::seriesPerClient($this->table)) {
@@ -375,9 +395,82 @@ class OperacionController extends BaseController
                 ->first();
 
             $this->assertNotInValidatedReport($keys['delegacion'], $keys['serie'], (int) $keys['codigo']);
+
+            if (array_key_exists('servicios', $data)) {
+                throw new BusinessRuleException('Los servicios solo se indican al crear la operación');
+            }
         }
 
+        $data = $this->applyBillable($data, $current);
+
         return $this->applyStateRules($data, $current);
+    }
+
+    /**
+     * Facturable (GrabarCamposOperacion): interna => 'F'; externa => 'T' si el
+     * cliente existe y su modo de facturación (CLICMDF) no es 'N'. Se
+     * recalcula al crear y cuando cambia el tipo o el cliente.
+     */
+    private function applyBillable(array $data, ?object $current): array
+    {
+        $clientChanged = array_key_exists('cliente_codigo', $data) || array_key_exists('cliente_delegacion', $data);
+        if ($current !== null && ! array_key_exists('tipo', $data) && ! $clientChanged) {
+            return $data;
+        }
+
+        $type = $data['tipo'] ?? $current?->OPECTIP;
+        $clientDel = array_key_exists('cliente_delegacion', $data) ? (string) $data['cliente_delegacion'] : (string) ($current?->CLI2DEL ?? '');
+        $clientCode = array_key_exists('cliente_codigo', $data) ? (string) $data['cliente_codigo'] : (string) ($current?->CLI2COD ?? '');
+
+        if ($type === 'I' || $clientCode === '') {
+            $data['es_facturable'] = 'F';
+        } else {
+            $mode = DB::connection('dynamic')->table('SINCLI')
+                ->where('DEL3COD', $clientDel)->where('CLI1COD', $clientCode)
+                ->first(['CLICMDF']);
+            $data['es_facturable'] = $mode && $mode->CLICMDF !== 'N' ? 'T' : 'F';
+        }
+
+        return $data;
+    }
+
+    /** Desglose predeterminado (LABCON.CONCTID; si no es válido, por servicio). */
+    private function defaultBreakdown(): string
+    {
+        $value = DB::connection('dynamic')->table('LABCON')->where('CON1COD', 1)->value('CONCTID');
+
+        return in_array($value, ['S', 'T', 'N', 'O'], true) ? $value : 'S';
+    }
+
+    /** Servicios de una operación nueva: existen y respetan CONBSER. */
+    private function validateServices(array $services): void
+    {
+        if (count($services) > 1
+            && DB::connection('dynamic')->table('LABCON')->where('CON1COD', 1)->value('CONBSER') === 'T') {
+            throw new BusinessRuleException(
+                'Este laboratorio está configurado con una operación por servicio: cree una operación por cada servicio'
+            );
+        }
+
+        foreach ($services as $service) {
+            $this->mustExist('LABSER', [
+                'DEL3COD' => (string) ($service['delegacion'] ?? ''),
+                'SER1COD' => $service['codigo'],
+            ], "El servicio {$service['codigo']} no existe");
+        }
+    }
+
+    /** Tras crear: genera la estructura de los servicios (fase 2). */
+    protected function updateAdditionalData(array $data, array $keys): array
+    {
+        if (! empty($data['servicios'])) {
+            VeolabOperationServices::add(
+                (string) $keys['delegacion'], (string) $keys['serie'], (int) $keys['codigo'],
+                $data['servicios'], $data
+            );
+        }
+
+        return $data;
     }
 
     /**

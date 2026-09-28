@@ -348,8 +348,29 @@ existe → `422`. "Serie por cliente" (`CFCBCLI`) → sin serie, la del cliente.
   cartas de control, operación de control, préstamos) y cascada de resultados,
   servicios, analistas, departamentos, gastos, autodefinibles, movimientos y avisos;
   documentos a la papelera; stock devuelto si el módulo Almacén está activo.
-- Pendiente (fase 2): servicios y resultados (`LABOYS`, `LABRES`, `LABCOR`...),
-  fecha de compromiso automática al recibir y aviso al analista al preparar.
+- Facturable (solo lectura): interna → `F`; externa → `T` si el cliente existe y su
+  modo de facturación (`CLICMDF`) no es `N`. Se recalcula al cambiar tipo o cliente.
+- Al crear: desglose por defecto `LABCON.CONCTID` (si no, `S`); tarifa por defecto la
+  del cliente.
+
+**Operaciones, fase 2: servicios al crear** (`POST /operaciones` con
+`"servicios": [{"delegacion": "", "codigo": "..."}]`). Solo en la creación; cambiar o
+quitar servicios después se hace en Veolab. Con `LABCON.CONBSER` (una operación por
+servicio) solo se admite uno. Réplica de `FichaOperacion.frm` (`AñadirServicio` + `Grabar`):
+- **Precio** de servicio/parámetro: del presupuesto (si `CONBSDP` y la operación tiene
+  presupuesto; se filtra por ese presupuesto, a diferencia de Veolab), de la tarifa
+  (`CONBTAR`) o del cliente; con respaldo en el precio/descuento base. Total por
+  desglose: `S` precio del servicio (si es 0 y `CONBDPZ`, suma de parámetros); `T` suma
+  de parámetros y gastos; `N` precio manual. Precio de la operación = suma de servicios,
+  sin suplidos. `precios_modificados` = `F`.
+- **Genera** `LABOYS`, `LABRES` (un parámetro una sola vez por operación; normativa
+  `LABTYN` del servicio; primer analista; referencia IGEO), `LABCOR` (valor por defecto
+  si `CONBPRE`; marca -1 si existe), `LABOYG` (suplidos aparte), `LABOYE`, `LABOYD` y,
+  con Almacén, consumos/usos (`ALMMOV`) sobre el lote predeterminado descontando stock.
+- **Operación**: tipo de operación y matriz del primer servicio (si no se indican),
+  envases/cantidad del último (si vacíos), lista de técnicas (`;`), fecha de compromiso
+  si `CONBAFC` y hay recepción (días laborables con festivos `AGEFES`, o naturales).
+- Pendiente: avisos (`ACCNOT`) al analista/compromiso, que Veolab crea tras grabar.
 
 **Licencia / Verifactu:** la API lee el tipo de licencia de `ACCPAR.PARCLBD`
 (`App\Support\VeolabLicense`). Los patrones de cifrado son secretos: solo en el `.env`
