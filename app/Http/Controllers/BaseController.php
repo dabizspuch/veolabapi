@@ -646,12 +646,13 @@ abstract class BaseController extends Controller
         }
 
         foreach ($dbData as $column => $new) {
-            $old = $before[$column] ?? null;
-            if ((string) $old === (string) $new) {
+            $new = VeolabAudit::value($new);
+            $old = VeolabAudit::value($before[$column] ?? null);
+            if ($old === $new) {
                 continue;
             }
             VeolabAudit::record(VeolabAudit::MODIFICACION_CAMPO, $this->table, $row,
-                $this->table.$column, (string) $new, (string) $old);
+                $this->table.$column, $new, $old);
         }
     }
 }

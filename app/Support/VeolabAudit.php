@@ -62,6 +62,27 @@ class VeolabAudit
         ]);
     }
 
+    /**
+     * Valor auditado como lo escribe Veolab: las fechas de la BD (ISO) pasan a
+     * formato de CStr(Date) de VB en español: "25/09/2026 9:00:00", o solo
+     * "25/09/2026" si la hora es 00:00:00.
+     */
+    public static function value($value): string
+    {
+        $value = (string) ($value ?? '');
+
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}):(\d{2}))?$/', $value, $m)) {
+            $date = "{$m[3]}/{$m[2]}/{$m[1]}";
+            if (isset($m[4]) && "{$m[4]}{$m[5]}{$m[6]}" !== '000000') {
+                $date .= ' '.((int) $m[4]).":{$m[5]}:{$m[6]}";
+            }
+
+            return $date;
+        }
+
+        return $value;
+    }
+
     /** Sesión de Veolab del token actual; se crea en ACCSES la primera vez. */
     private static function session(): int
     {
