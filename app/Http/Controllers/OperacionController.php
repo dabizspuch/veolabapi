@@ -367,6 +367,7 @@ class OperacionController extends BaseController
             $data['tipo'] ??= 'E';
             $data['es_urgente'] ??= 'F';
             $data['es_baja'] ??= 'F';
+            $data['descuento'] ??= ''; // Veolab guarda '' sin descuento
             $data['tipo_desglose'] ??= $this->defaultBreakdown();
 
             // Tarifa por defecto: la del cliente (CargarTarifaCliente).
