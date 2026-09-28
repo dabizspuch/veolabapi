@@ -288,6 +288,12 @@ abstract class BaseController extends Controller
                 }
             } elseif (is_string($value) && str_contains($value, ',')) {
                 $query->whereIn($column, $this->splitList($value));
+            } elseif ($value === null) {
+                // ?campo= llega como null (ConvertEmptyStringsToNull): es vacío.
+                // En Veolab eso es '' (p. ej. la delegación vacía), o NULL.
+                $query->where(function ($q) use ($column) {
+                    $q->where($column, '')->orWhereNull($column);
+                });
             } else {
                 $query->where($column, '=', $value);
             }
@@ -417,7 +423,7 @@ abstract class BaseController extends Controller
                     response()->json(['message' => "Falta la clave '{$param}'"], 400)
                 );
             }
-            $columns[$column] = $request->query($param);
+            $columns[$column] = $this->keyValue($request, $param);
         }
 
         return $columns;
@@ -437,10 +443,20 @@ abstract class BaseController extends Controller
     {
         $out = [];
         foreach ($this->keys as $param => $column) {
-            $out[$param] = $request->query($param);
+            $out[$param] = $this->keyValue($request, $param);
         }
 
         return $out;
+    }
+
+    /**
+     * Valor de una clave en la query string. Laravel convierte ?delegacion= en
+     * null (ConvertEmptyStringsToNull); en Veolab la clave vacía es '' (las
+     * columnas de PK son NOT NULL), así que se restituye.
+     */
+    private function keyValue(Request $request, string $param): string
+    {
+        return (string) ($request->query($param) ?? '');
     }
 
     private function keyParamsFromData(array $data): array
