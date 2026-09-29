@@ -3,12 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Http\Controllers\Concerns\ChecksVeolabReferences;
 use App\Support\VeolabCodes;
 use App\Support\VeolabCustomFields;
 use App\Support\VeolabLicense;
 use App\Support\VeolabOperationServices;
 use App\Support\VeolabStock;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 
 /**
  * Operaciones (LABOPE): datos generales, servicios al crear (LABOYS, LABRES...)
@@ -24,9 +27,32 @@ use Illuminate\Support\Facades\DB;
  *    obligatorios de LABCON.CONCCAO (CamposObligatoriosCubiertos).
  *  - Borrado con las comprobaciones de CON_BorradoFisicoPermitidoOperaciones
  *    y la cascada de Operaciones.frm (con devolución de stock si hay Almacén).
+ *  - Generación desde una planificación (POST /planificaciones/generar).
  */
 class OperacionController extends BaseController
 {
+    use ChecksVeolabReferences;
+
+    /** Planificación de la que se genera la operación en curso, o null. */
+    private ?array $planningSource = null;
+
+    /** Campos de la operación que se copian de la planificación (GenerarOperacion). */
+    private const PLANNING_FIELDS = [
+        'informacion' => 'PLOCINF', 'referencia' => 'PLOCREF', 'tipo' => 'PLOCTIP',
+        'tipo_analisis' => 'PLONTIA', 'precio' => 'PLONPRE', 'descuento' => 'PLOCDTO',
+        'descripcion' => 'PLOCDES', 'observaciones' => 'PLOCOBS', 'recolector' => 'PLOCREC',
+        'lugar_recogida' => 'PLOCLUR', 'temperatura' => 'PLOCTEM', 'cantidad' => 'PLOCCAN',
+        'unidad' => 'PLOCUNI', 'tipo_desglose' => 'PLOCTID', 'lote_muestra' => 'PLOCLOT',
+        'marca' => 'PLOCMAR', 'envase' => 'PLOCENV', 'numero_envases' => 'PLONENV',
+        'latitud' => 'PLOCLAT', 'longitud' => 'PLOCLNG', 'direccion_gps' => 'PLOCDIG',
+        'tipo_muestreo' => 'PLOCTIM', 'id_red_sinac' => 'PLONRED',
+        'codigo_localidad_sinac' => 'PLONLOC', 'direccion_sinac' => 'PLOCDIR',
+    ];
+
+    /** Grupos de claves foráneas que se copian de la planificación (mismas columnas). */
+    private const PLANNING_REFERENCES = ['tipo_operacion', 'matriz', 'equipamiento', 'cliente', 'contrato',
+        'presupuesto', 'empleado_recolector', 'lote', 'tarifa', 'proveedor', 'producto'];
+
     protected string $table = 'LABOPE';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
@@ -286,84 +312,7 @@ class OperacionController extends BaseController
 
     protected function validateRelationships(array $data): void
     {
-        $del = fn (string $group) => (string) ($data["{$group}_delegacion"] ?? '');
-        $ser = fn (string $group) => (string) ($data["{$group}_serie"] ?? '');
-
-        if (! empty($data['delegacion'])) {
-            $this->mustExist('ACCDEL', ['DEL1COD' => $data['delegacion']], 'La delegación no existe');
-        }
-
-        $simple = [
-            'tipo_operacion'      => ['LABTIO', 'TIO1COD', 'El tipo de operación no existe'],
-            'matriz'              => ['LABMAT', 'MAT1COD', 'La matriz no existe'],
-            'equipamiento'        => ['LABEQU', 'EQU1COD', 'El equipamiento no existe'],
-            'cliente'             => ['SINCLI', 'CLI1COD', 'El cliente no existe'],
-            'empleado_recolector' => ['GRHEMP', 'EMP1COD', 'El empleado recolector no existe'],
-            'planificacion'       => ['LABPLO', 'PLO1COD', 'La planificación no existe'],
-            'dictamen'            => ['LABDIC', 'DIC1COD', 'El dictamen no existe'],
-            'tarifa'              => ['LABTAR', 'TAR1COD', 'La tarifa no existe'],
-            'proveedor'           => ['SINPRO', 'PRO1COD', 'El proveedor no existe'],
-            'producto'            => ['ALMPRD', 'PRD1COD', 'El producto no existe'],
-            'tecnica'             => ['LABTEC', 'TEC1COD', 'La técnica no existe'],
-        ];
-        foreach ($simple as $group => [$table, $codeColumn, $message]) {
-            if (! empty($data["{$group}_codigo"])) {
-                $this->mustExist($table, ['DEL3COD' => $del($group), $codeColumn => $data["{$group}_codigo"]], $message);
-            }
-        }
-
-        $withSeries = [
-            'contrato'          => ['FACCON', 'CON1SER', 'CON1COD', 'El contrato no existe'],
-            'presupuesto'       => ['FACPRE', 'PRE1SER', 'PRE1COD', 'El presupuesto no existe'],
-            'lote'              => ['LABLOT', 'LOT1SER', 'LOT1COD', 'El lote no existe'],
-            'lote_relacionado'  => ['LABLOT', 'LOT1SER', 'LOT1COD', 'El lote relacionado no existe'],
-            'operacion_control' => ['LABOPE', 'OPE1SER', 'OPE1COD', 'La operación de control no existe'],
-        ];
-        foreach ($withSeries as $group => [$table, $seriesColumn, $codeColumn, $message]) {
-            if (! empty($data["{$group}_codigo"])) {
-                $this->mustExist($table, [
-                    'DEL3COD'     => $del($group),
-                    $seriesColumn => $ser($group),
-                    $codeColumn   => $data["{$group}_codigo"],
-                ], $message);
-            }
-        }
-
-        // Punto de muestreo: cuelga del cliente.
-        if (! empty($data['punto_muestreo_codigo'])) {
-            if (empty($data['cliente_codigo'])) {
-                throw new BusinessRuleException('El punto de muestreo requiere indicar el cliente');
-            }
-            $this->mustExist('LABPUM', [
-                'DEL3COD' => $del('cliente'),
-                'CLI3COD' => $data['cliente_codigo'],
-                'PUM1COD' => $data['punto_muestreo_codigo'],
-            ], 'El punto de muestreo no existe');
-        }
-
-        // Fecha de planificación: cuelga de la planificación.
-        if (! empty($data['planificacion_fecha_codigo'])) {
-            if (empty($data['planificacion_codigo'])) {
-                throw new BusinessRuleException('La fecha de planificación requiere indicar la planificación');
-            }
-            $this->mustExist('LABFEP', [
-                'PLO3DEL' => $del('planificacion'),
-                'PLO3COD' => $data['planificacion_codigo'],
-                'FEP1COD' => $data['planificacion_fecha_codigo'],
-            ], 'La fecha de planificación no existe');
-        }
-
-        // Serie o lote del producto: cuelga del producto.
-        if (! empty($data['producto_serie_lote_codigo'])) {
-            if (empty($data['producto_codigo'])) {
-                throw new BusinessRuleException('La serie o lote requiere indicar el producto');
-            }
-            $this->mustExist('ALMSEL', [
-                'PRD3DEL' => $del('producto'),
-                'PRD3COD' => $data['producto_codigo'],
-                'SEL1COD' => $data['producto_serie_lote_codigo'],
-            ], 'La serie o lote del producto no existe');
-        }
+        $this->checkReferences($data);
     }
 
     protected function validateAdditionalCriteria(array $data, array $keys = []): array
@@ -374,6 +323,13 @@ class OperacionController extends BaseController
         $customFields = VeolabCustomFields::resolve($delegation, $data['autodefinibles'] ?? null);
         unset($data['autodefinibles']);
 
+        if ($this->planningSource) {
+            $this->assertPlanningDateAvailable();
+            // Los autodefinibles de la planificación, con los indicados encima.
+            $customFields += VeolabCustomFields::stored('LABPLO',
+                [$this->planningSource['delegacion'], $this->planningSource['codigo']], $delegation);
+        }
+
         if (empty($keys)) {
             // Valores por defecto de una operación nueva.
             $data['tipo'] ??= 'E';
@@ -383,16 +339,7 @@ class OperacionController extends BaseController
             $data['tipo_desglose'] ??= $this->defaultBreakdown();
 
             // Tarifa por defecto: la del cliente (CargarTarifaCliente).
-            if (empty($data['tarifa_codigo']) && ! empty($data['cliente_codigo'])) {
-                $clientRate = DB::connection('dynamic')->table('SINCLI')
-                    ->where('DEL3COD', (string) ($data['cliente_delegacion'] ?? ''))
-                    ->where('CLI1COD', $data['cliente_codigo'])
-                    ->first(['TAR2DEL', 'TAR2COD']);
-                if ($clientRate && (int) $clientRate->TAR2COD > 0) {
-                    $data['tarifa_delegacion'] = (string) $clientRate->TAR2DEL;
-                    $data['tarifa_codigo'] = (int) $clientRate->TAR2COD;
-                }
-            }
+            $data = $this->applyClientTariff($data);
 
             $this->validateServices($data['servicios'] ?? []);
 
@@ -507,14 +454,6 @@ class OperacionController extends BaseController
         return $data;
     }
 
-    /** Desglose predeterminado (LABCON.CONCTID; si no es válido, por servicio). */
-    private function defaultBreakdown(): string
-    {
-        $value = DB::connection('dynamic')->table('LABCON')->where('CON1COD', 1)->value('CONCTID');
-
-        return in_array($value, ['S', 'T', 'N', 'O'], true) ? $value : 'S';
-    }
-
     /** Servicios de una operación nueva: existen y respetan CONBSER. */
     private function validateServices(array $services): void
     {
@@ -525,11 +464,154 @@ class OperacionController extends BaseController
             );
         }
 
-        foreach ($services as $service) {
-            $this->mustExist('LABSER', [
-                'DEL3COD' => (string) ($service['delegacion'] ?? ''),
-                'SER1COD' => $service['codigo'],
-            ], "El servicio {$service['codigo']} no existe");
+        $this->checkServicesExist($services);
+    }
+
+    /**
+     * POST /planificaciones/generar: operación a partir de una planificación
+     * (Planificaciones.GenerarOperacion, generación sin abrir la ficha). Cuerpo:
+     * {delegacion, codigo, fecha?, operacion?}; "fecha" es el código de la fecha
+     * planificada (LABFEP) y "operacion" campos que sustituyen a los copiados.
+     * Una fecha ya generada no se vuelve a generar (se puede marcar como
+     * pendiente). Tandas (PLONNOP > 1) y "una operación por servicio" con
+     * varios servicios se generan desde Veolab.
+     */
+    public function generateFromPlanning(Request $request)
+    {
+        $body = json_decode($request->getContent(), true) ?? [];
+        $validator = Validator::make($body, [
+            'delegacion' => 'nullable|string|max:10',
+            'codigo'     => 'required|integer',
+            'fecha'      => 'nullable|integer',
+            'operacion'  => 'nullable|array',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Datos no válidos', 'errors' => $validator->errors()], 422);
+        }
+
+        $del = (string) ($body['delegacion'] ?? '');
+        $plan = DB::connection('dynamic')->table('LABPLO')
+            ->where('DEL3COD', $del)->where('PLO1COD', (int) $body['codigo'])->first();
+        if (! $plan) {
+            return response()->json(['message' => 'Planificación no encontrada'], 404);
+        }
+
+        try {
+            $payload = $this->payloadFromPlanning($plan, $body['fecha'] ?? null, $body['operacion'] ?? []);
+        } catch (BusinessRuleException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $this->planningSource = [
+            'delegacion' => $del,
+            'codigo'     => (int) $plan->PLO1COD,
+            'fecha'      => isset($body['fecha']) ? (int) $body['fecha'] : null,
+            'compromiso' => $plan->PLOBCOM === 'T',
+        ];
+
+        return $this->create($payload);
+    }
+
+    /** Datos de la operación copiados de la planificación, con las sustituciones. */
+    private function payloadFromPlanning(object $plan, $date, array $overrides): array
+    {
+        if ((int) $plan->PLONNOP > 1) {
+            throw new BusinessRuleException('La planificación genera una tanda de operaciones: genérela desde Veolab');
+        }
+        $services = DB::connection('dynamic')->table('LABPYS')
+            ->where('PLO3DEL', $plan->DEL3COD)->where('PLO3COD', $plan->PLO1COD)->count();
+        if ($services > 1 && DB::connection('dynamic')->table('LABCON')->where('CON1COD', 1)->value('CONBSER') === 'T') {
+            throw new BusinessRuleException(
+                'Este laboratorio crea una operación por servicio y la planificación tiene varios: genérela desde Veolab'
+            );
+        }
+        foreach (['delegacion', 'servicios', 'planificacion_delegacion', 'planificacion_codigo', 'planificacion_fecha_codigo'] as $param) {
+            if (array_key_exists($param, $overrides)) {
+                throw new BusinessRuleException("El campo '{$param}' no se puede indicar al generar desde una planificación");
+            }
+        }
+
+        $payload = [];
+        foreach (self::PLANNING_FIELDS as $param => $column) {
+            if ($plan->{$column} !== null && $plan->{$column} !== '') {
+                $payload[$param] = $plan->{$column};
+            }
+        }
+        foreach (self::PLANNING_REFERENCES as $group) {
+            foreach (['delegacion', 'serie', 'codigo'] as $suffix) {
+                $param = "{$group}_{$suffix}";
+                if (isset($this->mapping[$param]) && $plan->{$this->mapping[$param]} !== null) {
+                    $payload[$param] = $plan->{$this->mapping[$param]};
+                }
+            }
+        }
+        if ((int) $plan->PUM2COD !== 0) {
+            $payload['punto_muestreo_codigo'] = (int) $plan->PUM2COD;
+        }
+        if ((string) $plan->SEL2COD !== '') {
+            $payload['producto_serie_lote_codigo'] = (string) $plan->SEL2COD;
+        }
+        if ((string) $plan->PLOCSER !== '') {
+            $payload['serie'] = mb_substr((string) $plan->PLOCSER, 0, 10);
+        }
+        $payload['es_urgente'] = $plan->PLOBURG === 'T' ? 'T' : 'F';
+        $payload['es_visible_sinac'] = $plan->PLOBVIS === 'F' ? 'F' : 'T';
+
+        $payload['delegacion'] = (string) $plan->DEL3COD;
+        $payload['planificacion_delegacion'] = (string) $plan->DEL3COD;
+        $payload['planificacion_codigo'] = (int) $plan->PLO1COD;
+        if ($date !== null) {
+            $payload['planificacion_fecha_codigo'] = (int) $date;
+        }
+
+        return array_merge($payload, $overrides);
+    }
+
+    /** La fecha planificada existe, está activa y no se ha generado ya (con bloqueo). */
+    private function assertPlanningDateAvailable(): void
+    {
+        if ($this->planningSource['fecha'] === null) {
+            return;
+        }
+
+        $row = DB::connection('dynamic')->table('LABFEP')
+            ->where('PLO3DEL', $this->planningSource['delegacion'])
+            ->where('PLO3COD', $this->planningSource['codigo'])
+            ->where('FEP1COD', $this->planningSource['fecha'])
+            ->lockForUpdate()->first();
+
+        if (! $row || $row->FEPTINI === null) {
+            throw new BusinessRuleException('La fecha de planificación no existe');
+        }
+        if ($row->FEPBCOM === 'T') {
+            throw new BusinessRuleException(
+                'Esa fecha de la planificación ya está generada (márquela como pendiente para volver a generarla)'
+            );
+        }
+    }
+
+    /**
+     * Rejilla de servicios de la planificación, fecha de compromiso (PLOBCOM,
+     * desde la recepción o ahora) y fecha planificada como completada
+     * (FichaOperacion.ActualizarPlanificacion).
+     */
+    private function completeFromPlanning(array $data, string $del, string $ser, int $cod): void
+    {
+        $source = $this->planningSource;
+        $commitmentFrom = null;
+        if ($source['compromiso'] && empty($data['fecha_compromiso'])) {
+            $commitmentFrom = ! empty($data['fecha_recepcion'])
+                ? (string) $data['fecha_recepcion']
+                : (string) DB::connection('dynamic')->selectOne('SELECT NOW() AS n')->n;
+        }
+
+        VeolabOperationServices::addFromPlanning($del, $ser, $cod, $source['delegacion'], $source['codigo'], $commitmentFrom);
+
+        if ($source['fecha'] !== null) {
+            DB::connection('dynamic')->table('LABFEP')
+                ->where('PLO3DEL', $source['delegacion'])->where('PLO3COD', $source['codigo'])
+                ->where('FEP1COD', $source['fecha'])
+                ->update(['FEPBCOM' => 'T']);
         }
     }
 
@@ -542,7 +624,11 @@ class OperacionController extends BaseController
             VeolabOperationServices::add($del, $ser, $cod, $data['servicios'], $data);
         }
 
-        VeolabCustomFields::save($del, $ser, $cod, $data['_autodefinibles'] ?? [], $this->auditRow($keys));
+        if ($this->planningSource) {
+            $this->completeFromPlanning($data, $del, $ser, $cod);
+        }
+
+        VeolabCustomFields::save('LABOPE', [$del, $ser, $cod], $data['_autodefinibles'] ?? [], $this->auditRow($keys));
 
         return $data;
     }
@@ -550,7 +636,7 @@ class OperacionController extends BaseController
     /** Cada operación del listado lleva sus autodefinibles ({nombre: valor}). */
     protected function appendRelatedData(array $rows): array
     {
-        $values = VeolabCustomFields::valuesFor(array_map(
+        $values = VeolabCustomFields::valuesFor('LABOPE', array_map(
             fn ($row) => [(string) $row['delegacion'], (string) $row['serie'], (int) $row['codigo']], $rows
         ));
 
@@ -717,10 +803,4 @@ class OperacionController extends BaseController
             ->update(['DIR2DEL' => $del, 'DIR2COD' => 0]);
     }
 
-    private function mustExist(string $table, array $where, string $message): void
-    {
-        if (! DB::connection('dynamic')->table($table)->where($where)->exists()) {
-            throw new BusinessRuleException($message);
-        }
-    }
 }

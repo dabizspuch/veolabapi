@@ -19,6 +19,7 @@ class VeolabAudit
     public const BORRADO = 'B';
     public const MODIFICACION_FILA = 'F';
     public const MODIFICACION_CAMPO = 'C';
+    public const MODIFICACION = 'M'; // de fila y de campo a la vez
 
     private static array $levels = [];
     private static array $sessions = [];

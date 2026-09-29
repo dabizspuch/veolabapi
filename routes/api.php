@@ -63,6 +63,11 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     // --- Tablas con serie (3 claves: delegacion + serie + codigo) ---
     $resource('/operaciones', 'OperacionController');
 
+    // --- Planificaciones (delegacion + codigo) y su generación de operaciones ---
+    $resource('/planificaciones', 'PlanificacionController');
+    Route::post('/planificaciones/generar', [$ns.'OperacionController', 'generateFromPlanning']);
+    Route::put('/planificaciones/fechas', [$ns.'PlanificacionController', 'markDate']);
+
     // Auditoría: solo lectura.
     Route::get('/auditorias', [$ns.'AuditoriaController', 'index']);
     Route::get('/auditorias-archivadas', [$ns.'AuditoriaArchivadaController', 'index']);

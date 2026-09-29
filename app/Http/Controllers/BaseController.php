@@ -144,10 +144,15 @@ abstract class BaseController extends Controller
     /** Crea un registro. Genera el código si procede (dentro de la transacción). */
     public function store(Request $request)
     {
+        return $this->create(json_decode($request->getContent(), true) ?? []);
+    }
+
+    /** Alta a partir de los datos ya decodificados (store y altas derivadas). */
+    protected function create(array $data)
+    {
         try {
             DB::connection('dynamic')->beginTransaction();
 
-            $data = json_decode($request->getContent(), true) ?? [];
             $validated = $this->validateData($data);
             $this->validateRelationships($validated);
             $validated = $this->validateAdditionalCriteria($validated, []);

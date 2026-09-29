@@ -7,15 +7,16 @@ use DateTimeImmutable;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Campos autodefinibles de operación (LABAUT / LABOYA), replicando
+ * Campos autodefinibles de operación (LABAUT; valores en LABOYA para las
+ * operaciones y en LABPYA para las planificaciones), replicando
  * FichaOperacion.frm (AcumulaGrabarAutodefinibles, EjecutaGrabarAutodefinibles,
- * CamposObligatoriosCubiertos) y Autodefinibles.bas.
+ * CamposObligatoriosCubiertos), FichaPlanificacion.frm y Autodefinibles.bas.
  *
  *  - En la API se identifican por NOMBRE (AUTCNOM): Veolab no deja repetirlo
- *    entre delegaciones. Solo valen los de la delegación de la operación y los
+ *    entre delegaciones. Solo valen los de la delegación del registro y los
  *    generales (DEL3COD = ''), nunca los de otra delegación; si un nombre
- *    estuviera en ambas, gana el de la delegación de la operación.
- *  - Valor vacío (null / '') = se borra la fila de LABOYA, como Veolab.
+ *    estuviera en ambas, gana el de la delegación del registro.
+ *  - Valor vacío (null / '') = se borra la fila de valores, como Veolab.
  *  - Fichero (F): se indica {delegacion, codigo}; se guarda la clave en
  *    OYA3DEL/OYA3COD y en OYACVAL el texto que muestra Veolab.
  *  - LABAYS (vínculo con servicios) solo decide lo que muestra Veolab: no
@@ -30,6 +31,18 @@ class VeolabCustomFields
     private const DATE = 'D';
     private const DATE_WARNING = 'V';
     private const FILE = 'F';
+
+    /**
+     * Valores por tabla propietaria: operación (LABOYA, con fila "cero" y
+     * auditoría también en el alta) y planificación (LABPYA, que Veolab solo
+     * audita al modificar). Las definiciones (LABAUT tipo O) son las mismas.
+     */
+    private const OWNERS = [
+        'LABOPE' => ['table' => 'LABOYA', 'prefix' => 'OYA', 'keys' => ['OPE3DEL', 'OPE3SER', 'OPE3COD'],
+            'zeroRow' => true, 'auditNew' => true],
+        'LABPLO' => ['table' => 'LABPYA', 'prefix' => 'PYA', 'keys' => ['PLO3DEL', 'PLO3COD'],
+            'zeroRow' => false, 'auditNew' => false],
+    ];
 
     /**
      * Ficheros de un autodefinible F: tabla => [código, nombre, baja, código
@@ -117,107 +130,158 @@ class VeolabCustomFields
     }
 
     /**
-     * Guarda los valores resueltos: borra e inserta solo los que cambian, sin
+     * Guarda los valores resueltos de una operación o planificación ($key =
+     * valores de su clave en orden): borra e inserta solo los que cambian, sin
      * fila para los vacíos (EjecutaGrabarAutodefinibles), y audita cada valor
-     * nuevo como modificación del campo "#<nombre>" de LABOPE.
+     * nuevo como modificación del campo "#<nombre>" de la tabla propietaria
+     * (la planificación, como Veolab, solo al modificar).
      *
-     * Asegura además la fila "cero" (AUT3DEL = '', AUT3COD = 0) que Veolab crea
-     * en cada operación nueva y que necesitan sus listados de operaciones con
+     * En operaciones asegura además la fila "cero" (AUT3DEL = '', AUT3COD = 0)
+     * que Veolab crea en cada operación nueva y que necesitan sus listados con
      * columnas de autodefinibles (también repara operaciones que no la tengan).
      */
-    public static function save(string $del, string $ser, int $cod, array $resolved, string $auditRow): void
+    public static function save(string $owner, array $key, array $resolved, string $auditRow, bool $isNew = false): void
     {
+        $o = self::OWNERS[$owner];
         $db = DB::connection('dynamic');
-        $opKey = ['OPE3DEL' => $del, 'OPE3SER' => $ser, 'OPE3COD' => $cod];
+        $ownerKey = array_combine($o['keys'], $key);
+        [$valueCol, $fileDelCol, $fileCodCol] = self::valueColumns($owner);
 
-        $db->table('LABOYA')->insertOrIgnore($opKey + [
-            'AUT3DEL' => '', 'AUT3COD' => 0, 'OYACVAL' => '', 'OYA3DEL' => '', 'OYA3COD' => '',
-        ]);
+        if ($o['zeroRow']) {
+            $db->table($o['table'])->insertOrIgnore($ownerKey + [
+                'AUT3DEL' => '', 'AUT3COD' => 0, $valueCol => '', $fileDelCol => '', $fileCodCol => '',
+            ]);
+        }
 
         if ($resolved === []) {
             return;
         }
 
-        $previous = $db->table('LABOYA')->where($opKey)->get()
+        $previous = $db->table($o['table'])->where($ownerKey)->get()
             ->keyBy(fn ($row) => self::key($row->AUT3DEL, $row->AUT3COD));
 
-        foreach ($resolved as $key => $item) {
-            $old = $previous[$key] ?? null;
-            $oldValue = (string) ($old->OYACVAL ?? '');
+        foreach ($resolved as $itemKey => $item) {
+            $old = $previous[$itemKey] ?? null;
+            $oldValue = (string) ($old->{$valueCol} ?? '');
 
             $unchanged = $old
-                ? $oldValue === $item['value'] && (string) $old->OYA3DEL === $item['fileDel'] && (string) $old->OYA3COD === $item['fileCod']
+                ? $oldValue === $item['value'] && (string) $old->{$fileDelCol} === $item['fileDel']
+                    && (string) $old->{$fileCodCol} === $item['fileCod']
                 : $item['value'] === '';
             if ($unchanged) {
                 continue;
             }
 
-            $where = $opKey + ['AUT3DEL' => (string) $item['def']->DEL3COD, 'AUT3COD' => (int) $item['def']->AUT1COD];
-            $db->table('LABOYA')->where($where)->delete();
+            $where = $ownerKey + ['AUT3DEL' => (string) $item['def']->DEL3COD, 'AUT3COD' => (int) $item['def']->AUT1COD];
+            $db->table($o['table'])->where($where)->delete();
 
             if ($item['value'] !== '') {
-                $db->table('LABOYA')->insert($where + [
-                    'OYACVAL' => $item['value'],
-                    'OYA3DEL' => $item['fileDel'],
-                    'OYA3COD' => $item['fileCod'],
+                $db->table($o['table'])->insert($where + [
+                    $valueCol   => $item['value'],
+                    $fileDelCol => $item['fileDel'],
+                    $fileCodCol => $item['fileCod'],
                 ]);
-                VeolabAudit::record(VeolabAudit::MODIFICACION_CAMPO, 'LABOPE', $auditRow,
-                    '#'.$item['def']->AUTCNOM, $item['value'], $oldValue);
+                if (! $isNew || $o['auditNew']) {
+                    VeolabAudit::record(VeolabAudit::MODIFICACION_CAMPO, $owner, $auditRow,
+                        '#'.$item['def']->AUTCNOM, $item['value'], $oldValue);
+                }
             }
         }
     }
 
     /**
-     * Valores para la respuesta de varias operaciones ([[del, ser, cod], ...]):
-     * [clave "del\x1Bser\x1Bcod" => [nombre => valor]]. Los de fichero salen como
-     * {delegacion, codigo}. Solo autodefinibles de operación en vigor de la
-     * delegación de la operación o generales, como los muestra Veolab.
+     * Valores guardados de una operación o planificación en el formato de
+     * resolve() (solo autodefinibles en vigor de la delegación o generales).
+     * Sirve para copiar los de una planificación a la operación que genera.
      */
-    public static function valuesFor(array $operations): array
+    public static function stored(string $owner, array $key, string $delegation): array
     {
-        if ($operations === []) {
+        $o = self::OWNERS[$owner];
+        [$valueCol, $fileDelCol, $fileCodCol] = self::valueColumns($owner);
+
+        $definitions = [];
+        foreach (self::definitions($delegation) as $def) {
+            $definitions[self::key($def->DEL3COD, $def->AUT1COD)] = $def;
+        }
+
+        $out = [];
+        $rows = DB::connection('dynamic')->table($o['table'])->where(array_combine($o['keys'], $key))->get();
+        foreach ($rows as $row) {
+            $itemKey = self::key($row->AUT3DEL, $row->AUT3COD);
+            $value = (string) $row->{$valueCol};
+            $fileCode = (string) $row->{$fileCodCol};
+            if (! isset($definitions[$itemKey]) || ($value === '' && $fileCode === '')) {
+                continue;
+            }
+            $out[$itemKey] = ['def' => $definitions[$itemKey], 'value' => $value,
+                'fileDel' => (string) $row->{$fileDelCol}, 'fileCod' => $fileCode];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Valores para la respuesta de varias operaciones o planificaciones (lista
+     * de claves en orden): [clave unida por "\x1B" => [nombre => valor]]. Los de
+     * fichero salen como {delegacion, codigo}. Solo autodefinibles de operación
+     * en vigor de su delegación o generales, como los muestra Veolab.
+     */
+    public static function valuesFor(string $owner, array $keys): array
+    {
+        if ($keys === []) {
             return [];
         }
 
-        $rows = DB::connection('dynamic')->table('LABOYA')
-            ->join('LABAUT', function ($join) {
-                $join->on('LABOYA.AUT3DEL', '=', 'LABAUT.DEL3COD')
-                    ->on('LABOYA.AUT3COD', '=', 'LABAUT.AUT1COD');
+        $o = self::OWNERS[$owner];
+        $t = $o['table'];
+        [$valueCol, $fileDelCol, $fileCodCol] = self::valueColumns($owner);
+        $delegationCol = $o['keys'][0];
+
+        $rows = DB::connection('dynamic')->table($t)
+            ->join('LABAUT', function ($join) use ($t) {
+                $join->on("{$t}.AUT3DEL", '=', 'LABAUT.DEL3COD')->on("{$t}.AUT3COD", '=', 'LABAUT.AUT1COD');
             })
-            ->where(function ($q) use ($operations) {
-                foreach ($operations as [$del, $ser, $cod]) {
-                    $q->orWhere(fn ($w) => $w->where('LABOYA.OPE3DEL', $del)
-                        ->where('LABOYA.OPE3SER', $ser)->where('LABOYA.OPE3COD', $cod));
+            ->where(function ($q) use ($keys, $o, $t) {
+                foreach ($keys as $key) {
+                    $q->orWhere(function ($w) use ($key, $o, $t) {
+                        foreach ($o['keys'] as $i => $column) {
+                            $w->where("{$t}.{$column}", $key[$i]);
+                        }
+                    });
                 }
             })
             ->where('LABAUT.AUTCTIP', 'O')
             ->where(fn ($q) => $q->whereNull('LABAUT.AUTBCAT')->orWhere('LABAUT.AUTBCAT', '<>', 'T'))
             ->where(fn ($q) => $q->whereNull('LABAUT.AUTBBAJ')->orWhere('LABAUT.AUTBBAJ', '<>', 'T'))
             ->orderBy('LABAUT.DEL3COD')->orderBy('LABAUT.AUTNORD')
-            ->get(['LABOYA.OPE3DEL', 'LABOYA.OPE3SER', 'LABOYA.OPE3COD', 'LABOYA.AUT3DEL', 'LABOYA.OYACVAL',
-                'LABOYA.OYA3DEL', 'LABOYA.OYA3COD', 'LABAUT.AUTCNOM', 'LABAUT.AUTCTDD', 'LABAUT.AUTCFOR']);
+            ->get(array_merge(
+                array_map(fn ($c) => "{$t}.{$c}", $o['keys']),
+                ["{$t}.AUT3DEL", "{$t}.{$valueCol}", "{$t}.{$fileDelCol}", "{$t}.{$fileCodCol}",
+                    'LABAUT.AUTCNOM', 'LABAUT.AUTCTDD', 'LABAUT.AUTCFOR']
+            ));
 
         $out = [];
         foreach ($rows as $row) {
-            if ($row->AUT3DEL !== '' && $row->AUT3DEL !== $row->OPE3DEL) {
+            if ($row->AUT3DEL !== '' && $row->AUT3DEL !== $row->{$delegationCol}) {
                 continue;
             }
-            $fileCode = (string) $row->OYA3COD;
-            if ((string) $row->OYACVAL === '' && $fileCode === '') {
+            $fileCode = (string) $row->{$fileCodCol};
+            $value = (string) $row->{$valueCol};
+            if ($value === '' && $fileCode === '') {
                 continue;
             }
 
-            $value = (string) $row->OYACVAL;
             if ($row->AUTCTDD === self::FILE && $fileCode !== '') {
                 $table = self::fileTable((string) $row->AUTCFOR);
                 $value = [
-                    'delegacion' => (string) $row->OYA3DEL,
+                    'delegacion' => (string) $row->{$fileDelCol},
                     'codigo'     => $table && self::FILE_TABLES[$table][3] ? (int) $fileCode : $fileCode,
                 ];
             }
 
-            // Orden por delegación: la de la operación pisa a la general.
-            $out[$row->OPE3DEL."\x1B".$row->OPE3SER."\x1B".$row->OPE3COD][(string) $row->AUTCNOM] = $value;
+            // Orden por delegación: la propia pisa a la general.
+            $ownerKey = implode("\x1B", array_map(fn ($c) => (string) $row->{$c}, $o['keys']));
+            $out[$ownerKey][(string) $row->AUTCNOM] = $value;
         }
 
         return $out;
@@ -225,8 +289,9 @@ class VeolabCustomFields
 
     /**
      * Autodefinibles obligatorios de CONCCAO ("AU_<del>_<cod>.OYACVAL") que
-     * quedarían vacíos: sus nombres. Se ignoran los de otra delegación o que ya
-     * no están en vigor (Veolab no los muestra). $opKey null = operación nueva.
+     * quedarían vacíos en una operación: sus nombres. Se ignoran los de otra
+     * delegación o que ya no están en vigor (Veolab no los muestra).
+     * $opKey null = operación nueva.
      */
     public static function missingRequired(array $entries, string $delegation, ?array $opKey, array $resolved): array
     {
@@ -238,38 +303,34 @@ class VeolabCustomFields
         foreach (self::definitions($delegation) as $def) {
             $definitions[self::key($def->DEL3COD, $def->AUT1COD)] = $def;
         }
-
-        $stored = [];
-        if ($opKey !== null) {
-            $stored = DB::connection('dynamic')->table('LABOYA')
-                ->where(['OPE3DEL' => $opKey[0], 'OPE3SER' => $opKey[1], 'OPE3COD' => $opKey[2]])
-                ->get()->keyBy(fn ($row) => self::key($row->AUT3DEL, $row->AUT3COD))->all();
-        }
+        $stored = $opKey === null ? [] : self::stored('LABOPE', $opKey, $delegation);
+        $values = $resolved + $stored;
 
         $missing = [];
         foreach ($entries as $entry) {
             // CAD_DescomponerParFinal: la delegación puede contener '_'.
             $pair = preg_replace('/^AU_|\.OYACVAL$/', '', $entry);
             $pos = strrpos($pair, '_');
-            $key = $pos === false ? self::key('', (int) $pair) : self::key(substr($pair, 0, $pos), (int) substr($pair, $pos + 1));
+            $itemKey = $pos === false ? self::key('', (int) $pair) : self::key(substr($pair, 0, $pos), (int) substr($pair, $pos + 1));
 
-            $def = $definitions[$key] ?? null;
-            if (! $def) {
+            if (! isset($definitions[$itemKey])) {
                 continue;
             }
-
-            if (isset($resolved[$key])) {
-                $empty = $resolved[$key]['value'] === '' && $resolved[$key]['fileCod'] === '';
-            } else {
-                $row = $stored[$key] ?? null;
-                $empty = ! $row || ((string) $row->OYACVAL === '' && (string) $row->OYA3COD === '');
-            }
-            if ($empty) {
-                $missing[] = (string) $def->AUTCNOM;
+            $item = $values[$itemKey] ?? null;
+            if (! $item || ($item['value'] === '' && $item['fileCod'] === '')) {
+                $missing[] = (string) $definitions[$itemKey]->AUTCNOM;
             }
         }
 
         return $missing;
+    }
+
+    /** Columnas de valor, delegación y código de fichero (OYACVAL / PYACVAL...). */
+    private static function valueColumns(string $owner): array
+    {
+        $prefix = self::OWNERS[$owner]['prefix'];
+
+        return ["{$prefix}CVAL", "{$prefix}3DEL", "{$prefix}3COD"];
     }
 
     // ------------------------------------------------------------------

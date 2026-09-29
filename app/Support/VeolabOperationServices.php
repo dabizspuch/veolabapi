@@ -5,10 +5,17 @@ namespace App\Support;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Servicios de una operación nueva, replicando FichaOperacion.frm
- * (AñadirServicio + Grabar): LABOYS, LABRES, LABCOR, LABOYG, LABOYE, LABOYD,
- * consumos de almacén (ALMMOV + existencias) y los datos que la operación
- * toma de sus servicios (precio, técnicas, tipo, matriz, envases, compromiso).
+ * Servicios de operaciones y planificaciones, replicando FichaOperacion.frm y
+ * FichaPlanificacion.frm (AñadirServicio + Grabar) y Planificaciones.frm
+ * (GenerarOperacion):
+ *  - Operación nueva: LABOYS, LABRES, LABCOR, LABOYG, LABOYE, LABOYD, consumos
+ *    de almacén (ALMMOV + existencias) y los datos que la operación toma de sus
+ *    servicios (precio, técnicas, tipo, matriz, envases, compromiso).
+ *  - Planificación nueva: LABPYS, LABPYT y LABPYG con los mismos precios (las
+ *    técnicas salen siempre de LABSYT, no del presupuesto) y los datos que
+ *    toma de sus servicios (precio, tipo, matriz, envases).
+ *  - Operación generada de una planificación: la rejilla guardada en la
+ *    planificación, con sus precios y analistas (no se recalculan).
  *
  * Se trabaja sobre la conexión 'dynamic' y dentro de la transacción del alta.
  * Referencias al código VB entre paréntesis.
@@ -18,49 +25,134 @@ class VeolabOperationServices
     /** Separador de la lista de técnicas (PAR_strSeparadorLista en España). */
     private const LIST_SEPARATOR = ';';
 
+    /** Servicios de una operación nueva. */
     public static function add(string $del, string $ser, int $cod, array $services, array $opData): void
+    {
+        $op = DB::connection('dynamic')->table('LABOPE')
+            ->where('DEL3COD', $del)->where('OPE1SER', $ser)->where('OPE1COD', $cod)->first();
+        $ctx = self::context($op);
+
+        $serviceList = self::serviceList($services);
+        $grid = self::gridFromServices($serviceList, $ctx);
+
+        $breakdown = (string) ($op->OPECTID ?: 'S');
+        $opPrice = self::computeTotals($grid, $breakdown, $ctx);
+
+        self::saveOperationGrid($del, $ser, $cod, $grid, $ctx);
+        self::updateOperation($op, $grid, $serviceList, $breakdown, $opPrice, $opData, $ctx);
+    }
+
+    /** Servicios de una planificación nueva (FichaPlanificacion.AñadirServicio + Grabar). */
+    public static function addToPlanning(string $del, int $cod, array $services, array $planData): void
+    {
+        $db = DB::connection('dynamic');
+        $plan = $db->table('LABPLO')->where('DEL3COD', $del)->where('PLO1COD', $cod)->first();
+        $ctx = self::context($plan, false);
+
+        $serviceList = self::serviceList($services);
+        $grid = self::gridFromServices($serviceList, $ctx);
+
+        $breakdown = (string) ($plan->PLOCTID ?: 'S');
+        $price = self::computeTotals($grid, $breakdown, $ctx);
+
+        self::savePlanningGrid($del, $cod, $grid);
+
+        $update = ['PLOBMOP' => 'F'];
+        if ($breakdown !== 'N') {
+            $update['PLONPRE'] = $price;
+        }
+        $update += self::inheritedFromServices($serviceList, $planData,
+            self::decimal($plan->PLONENV), (string) $plan->PLOCCAN, 'PLO');
+
+        $db->table('LABPLO')->where('DEL3COD', $del)->where('PLO1COD', $cod)->update($update);
+    }
+
+    /**
+     * Operación generada de una planificación (GenerarOperacion + Grabar): la
+     * rejilla de la planificación con sus precios, el analista de la
+     * planificación (si no tiene, el primero de LABTYE), consumos por defecto y
+     * referencias IGEO del cliente. El precio de la operación es el de la
+     * planificación (ya copiado en OPENPRE). $commitmentFrom: fecha desde la
+     * que se calcula la de compromiso (PLOBCOM), o null.
+     */
+    public static function addFromPlanning(string $del, string $ser, int $cod, string $planDel, int $planCod,
+        ?string $commitmentFrom): void
     {
         $db = DB::connection('dynamic');
         $op = $db->table('LABOPE')->where('DEL3COD', $del)->where('OPE1SER', $ser)->where('OPE1COD', $cod)->first();
-        $config = $db->table('LABCON')->where('CON1COD', 1)
+        $ctx = self::context($op);
+
+        $grid = self::planningGrid($planDel, $planCod, $ctx);
+        self::saveOperationGrid($del, $ser, $cod, $grid, $ctx);
+
+        $update = ['OPEBMOP' => 'F', 'OPECTEC' => self::techniqueNames($grid)];
+        if ($commitmentFrom !== null) {
+            $services = [];
+            foreach ($grid as $row) {
+                if ($row['type'] === 'S') {
+                    $services[] = ['del' => $row['del'], 'cod' => $row['cod']];
+                }
+            }
+            $update['OPEDCOM'] = self::commitmentDate($commitmentFrom, $services, $del);
+        }
+
+        $db->table('LABOPE')->where('DEL3COD', $del)->where('OPE1SER', $ser)->where('OPE1COD', $cod)->update($update);
+    }
+
+    /**
+     * Contexto de precios a partir de la operación o planificación (mismas
+     * columnas de cliente, tarifa y presupuesto). $budgetTechniques: las
+     * técnicas salen del presupuesto (operación) o siempre de LABSYT
+     * (planificación).
+     */
+    private static function context(object $row, bool $budgetTechniques = true): object
+    {
+        $config = DB::connection('dynamic')->table('LABCON')->where('CON1COD', 1)
             ->first(['CONBTAR', 'CONBSDP', 'CONBDPZ', 'CONBPRE', 'CONBAFC']);
 
-        $ctx = (object) [
-            'perTariff'   => $config && $config->CONBTAR === 'T',
-            'zeroDetail'  => $config && $config->CONBDPZ === 'T',
-            'defaultRes'  => $config && $config->CONBPRE === 'T',
-            'commitment'  => $config && $config->CONBAFC === 'T',
-            'clientDel'   => (string) $op->CLI2DEL,
-            'clientCode'  => (string) $op->CLI2COD,
-            'tariffDel'   => (string) $op->TAR2DEL,
-            'tariffCode'  => (int) $op->TAR2COD > 0 ? (string) $op->TAR2COD : '',
-            'budget'      => ($config && $config->CONBSDP === 'T' && (int) $op->PRE2COD > 0)
-                ? [(string) $op->PRE2DEL, (string) $op->PRE2SER, (int) $op->PRE2COD] : null,
+        return (object) [
+            'perTariff'        => $config && $config->CONBTAR === 'T',
+            'zeroDetail'       => $config && $config->CONBDPZ === 'T',
+            'defaultRes'       => $config && $config->CONBPRE === 'T',
+            'commitment'       => $config && $config->CONBAFC === 'T',
+            'clientDel'        => (string) $row->CLI2DEL,
+            'clientCode'       => (string) $row->CLI2COD,
+            'tariffDel'        => (string) $row->TAR2DEL,
+            'tariffCode'       => (int) $row->TAR2COD > 0 ? (string) $row->TAR2COD : '',
+            'budget'           => ($config && $config->CONBSDP === 'T' && (int) $row->PRE2COD > 0)
+                ? [(string) $row->PRE2DEL, (string) $row->PRE2SER, (int) $row->PRE2COD] : null,
+            'budgetTechniques' => $budgetTechniques,
         ];
+    }
 
-        // Servicios sin repetir, en el orden recibido.
+    /** Servicios sin repetir, en el orden recibido. */
+    private static function serviceList(array $services): array
+    {
         $serviceList = [];
         foreach ($services as $s) {
             $key = ($s['delegacion'] ?? '')."\x1B".$s['codigo'];
             $serviceList[$key] ??= ['del' => (string) ($s['delegacion'] ?? ''), 'cod' => (string) $s['codigo']];
         }
 
-        $techniques = self::techniques($serviceList, $ctx);
-        $expenses = self::expenses($serviceList);
-        $grid = self::buildGrid($serviceList, $techniques, $expenses, $ctx);
+        return $serviceList;
+    }
 
-        $breakdown = (string) ($op->OPECTID ?: 'S');
-        $opPrice = self::computeTotals($grid, $breakdown, $ctx);
+    private static function gridFromServices(array $serviceList, object $ctx): array
+    {
+        return self::buildGrid($serviceList, self::techniques($serviceList, $ctx), self::expenses($serviceList), $ctx);
+    }
 
+    /** Rejilla de una operación: servicios, gastos, técnicas y consumos. */
+    private static function saveOperationGrid(string $del, string $ser, int $cod, array $grid, object $ctx): void
+    {
         self::saveServices($del, $ser, $cod, $grid);
         self::saveExpenses($del, $ser, $cod, $grid);
         self::saveTechniques($del, $ser, $cod, $grid, $ctx);
 
+        $db = DB::connection('dynamic');
         if (VeolabLicense::moduleActive('dynamic', $db->getDatabaseName(), 'ALM')) {
             self::saveConsumptions($del, $ser, $cod, $grid);
         }
-
-        self::updateOperation($op, $grid, $serviceList, $breakdown, $opPrice, $opData, $ctx);
     }
 
     // ------------------------------------------------------------------
@@ -80,7 +172,7 @@ class VeolabOperationServices
         $db = DB::connection('dynamic');
         $rows = [];
 
-        if ($ctx->budget) {
+        if ($ctx->budget && $ctx->budgetTechniques) {
             [$preDel, $preSer, $preCod] = $ctx->budget;
             // LAB_ObtenerWhereTecnicasServicioDePresupuesto: una línea de
             // técnica pertenece al último servicio visto en el presupuesto.
@@ -138,7 +230,7 @@ class VeolabOperationServices
         $clientPrice = $db->table('LABTYC')
             ->where('TEC3DEL', $tec->DEL3COD)->where('TEC3COD', $tec->TEC1COD)
             ->where('CLI3DEL', $ctx->clientDel)->where('CLI3COD', $ctx->clientCode)
-            ->first(['TYCNPRE', 'TYCCDTO', 'TYCCREF']);
+            ->first(['TYCNPRE', 'TYCCDTO']);
 
         // Precio (InsertarTecnicasServicio): presupuesto, tarifa o cliente.
         if (array_key_exists('budgetPrice', $row)) {
@@ -163,23 +255,32 @@ class VeolabOperationServices
             $discount = (string) $tec->TECCDTO;
         }
 
+        return ['tec' => $tec, 'price' => $price, 'discount' => $discount] + self::techniqueExtras($tec, $ctx);
+    }
+
+    /**
+     * Analista predeterminado (primero de LABTYE), departamento de la sección y
+     * referencia IGEO del cliente (PrimeraReferencia: hasta la primera coma).
+     */
+    private static function techniqueExtras(object $tec, object $ctx): array
+    {
+        $db = DB::connection('dynamic');
+
         $analyst = $db->table('LABTYE')
             ->where('TEC3DEL', $tec->DEL3COD)->where('TEC3COD', $tec->TEC1COD)->where('TYENPOS', 1)
             ->first(['EMP3DEL', 'EMP3COD']);
         $department = $db->table('LABSEC')
             ->where('DEL3COD', (string) $tec->SEC2DEL)->where('SEC1COD', (int) $tec->SEC2COD)
             ->first(['DEP2DEL', 'DEP2COD']);
-
-        // PrimeraReferencia: la referencia IGEO hasta la primera coma.
-        $ref = trim((string) ($clientPrice?->TYCCREF ?? ''));
+        $ref = trim((string) $db->table('LABTYC')
+            ->where('TEC3DEL', $tec->DEL3COD)->where('TEC3COD', $tec->TEC1COD)
+            ->where('CLI3DEL', $ctx->clientDel)->where('CLI3COD', $ctx->clientCode)
+            ->value('TYCCREF'));
         if (($pos = strpos($ref, ',')) !== false) {
             $ref = trim(substr($ref, 0, $pos));
         }
 
         return [
-            'tec'        => $tec,
-            'price'      => $price,
-            'discount'   => $discount,
             'analystDel' => (string) ($analyst?->EMP3DEL ?? ''),
             'analystCod' => (int) ($analyst?->EMP3COD ?? 0),
             'deptDel'    => (string) ($department?->DEP2DEL ?? ''),
@@ -374,6 +475,122 @@ class VeolabOperationServices
     // Grabación
     // ------------------------------------------------------------------
 
+    /**
+     * Rejilla guardada en una planificación (LABPYS, LABPYT, LABPYG) con sus
+     * precios. Las posiciones (PYSNPOS, PYTNORD, PYGNPOS) son las filas de la
+     * rejilla al grabarla, así que ordenando por ellas se reconstruye igual.
+     * Analista: el de la planificación y, si no tiene, el primero de LABTYE.
+     */
+    private static function planningGrid(string $del, int $cod, object $ctx): array
+    {
+        $db = DB::connection('dynamic');
+        $plan = ['PLO3DEL' => $del, 'PLO3COD' => $cod];
+        $items = [];
+
+        foreach ($db->table('LABPYS')->where($plan)->get() as $r) {
+            $items[] = ['pos' => (int) $r->PYSNPOS, 'type' => 'S', 'del' => (string) $r->SER3DEL,
+                'cod' => (string) $r->SER3COD, 'price' => self::decimal($r->PYSNPRE), 'discount' => (string) $r->PYSCDTO];
+        }
+
+        foreach ($db->table('LABPYT')->where($plan)->get() as $r) {
+            $tec = $db->table('LABTEC')->where('DEL3COD', $r->TEC3DEL)->where('TEC1COD', $r->TEC3COD)->first();
+            if (! $tec) {
+                continue;
+            }
+            $extras = self::techniqueExtras($tec, $ctx);
+            if ((int) $r->EMP2COD !== 0) {
+                $extras['analystDel'] = (string) $r->EMP2DEL;
+                $extras['analystCod'] = (int) $r->EMP2COD;
+            }
+            $items[] = ['pos' => (int) $r->PYTNORD, 'type' => 'T',
+                'service' => (string) $r->SER2COD !== '' ? $r->SER2DEL."\x1B".$r->SER2COD : null,
+                'tec' => $tec, 'price' => self::decimal($r->PYTNPRE), 'discount' => (string) $r->PYTCDTO] + $extras;
+        }
+
+        foreach ($db->table('LABPYG')->where($plan)->get() as $r) {
+            $items[] = ['pos' => (int) $r->PYGNPOS, 'type' => 'G', 'supplied' => $r->PYGBSUP === 'T',
+                'service' => (string) $r->SER2COD !== '' ? $r->SER2DEL."\x1B".$r->SER2COD : null,
+                'del' => (string) $r->ESC3DEL, 'cod' => (int) $r->ESC3COD,
+                'price' => self::decimal($r->PYGNPRE), 'discount' => (string) $r->PYGCDTO];
+        }
+
+        usort($items, fn ($a, $b) => $a['pos'] <=> $b['pos']);
+
+        $grid = [];
+        $services = [];
+        $suppliedGroup = null;
+        foreach ($items as $item) {
+            unset($item['pos']);
+            if ($item['type'] === 'S') {
+                $grid[] = $item + ['key' => $item['del']."\x1B".$item['cod'], 'children' => []];
+                $services[$item['del']."\x1B".$item['cod']] = count($grid) - 1;
+                continue;
+            }
+
+            if ($item['type'] === 'G' && $item['supplied']) {
+                if ($suppliedGroup === null) {
+                    $grid[] = ['type' => 'U', 'price' => 0.0, 'discount' => '', 'children' => []];
+                    $suppliedGroup = count($grid) - 1;
+                }
+                $parent = $suppliedGroup;
+            } else {
+                $parent = $item['service'] !== null ? ($services[$item['service']] ?? null) : null;
+            }
+            unset($item['service']);
+
+            $grid[] = ['parent' => $parent] + $item;
+            if ($parent !== null) {
+                $grid[$parent]['children'][] = count($grid) - 1;
+            }
+        }
+
+        foreach ($grid as $i => $row) {
+            $grid[$i]['position'] = $i + 1;
+        }
+
+        return $grid;
+    }
+
+    /** LABPYS, LABPYT y LABPYG de la planificación (FichaPlanificacion.Grabar). */
+    private static function savePlanningGrid(string $del, int $cod, array $grid): void
+    {
+        $db = DB::connection('dynamic');
+        $plan = ['PLO3DEL' => $del, 'PLO3COD' => $cod];
+        $first = true;
+
+        foreach ($grid as $row) {
+            $parent = isset($row['parent']) && $row['parent'] !== null ? $grid[$row['parent']] : null;
+            $isService = $parent && $parent['type'] === 'S';
+
+            if ($row['type'] === 'S') {
+                $db->table('LABPYS')->insert($plan + [
+                    'SER3DEL' => $row['del'], 'SER3COD' => $row['cod'],
+                    'PYSNPOS' => $row['position'], 'PYSBPRE' => $first ? 'T' : 'F',
+                    'PYSNPRE' => $row['price'], 'PYSCDTO' => mb_substr($row['discount'], 0, 15),
+                ]);
+                $first = false;
+            } elseif ($row['type'] === 'T') {
+                $db->table('LABPYT')->insert($plan + [
+                    'TEC3DEL' => $row['tec']->DEL3COD, 'TEC3COD' => $row['tec']->TEC1COD,
+                    'PYTNPRE' => $row['price'], 'PYTCDTO' => mb_substr($row['discount'], 0, 15),
+                    'PYTNORD' => $row['position'],
+                    'EMP2DEL' => $row['analystDel'], 'EMP2COD' => $row['analystCod'],
+                    'SER2DEL' => $isService ? $parent['del'] : '', 'SER2COD' => $isService ? $parent['cod'] : '',
+                    'PYTBAGR' => 'F',
+                ]);
+            } elseif ($row['type'] === 'G') {
+                $db->table('LABPYG')->insert($plan + [
+                    'ESC3DEL' => $row['del'], 'ESC3COD' => $row['cod'],
+                    'PYGBSUP' => $parent && $parent['type'] === 'U' ? 'T' : 'F',
+                    'PYGNPRE' => $row['price'], 'PYGCDTO' => mb_substr($row['discount'], 0, 15),
+                    'PYGNPOS' => $row['position'],
+                    'SER2DEL' => $isService ? $parent['del'] : '', 'SER2COD' => $isService ? $parent['cod'] : '',
+                    'PYGBAGR' => 'F',
+                ]);
+            }
+        }
+    }
+
     /** LABOYS (AcumulaGrabarServicios): el primero es el predeterminado. */
     private static function saveServices(string $del, string $ser, int $cod, array $grid): void
     {
@@ -399,12 +616,12 @@ class VeolabOperationServices
             if ($row['type'] !== 'G') {
                 continue;
             }
-            $parent = $grid[$row['parent']];
-            $isService = $parent['type'] === 'S';
+            $parent = $row['parent'] === null ? null : $grid[$row['parent']];
+            $isService = $parent && $parent['type'] === 'S';
             DB::connection('dynamic')->table('LABOYG')->insert([
                 'OPE3DEL' => $del, 'OPE3SER' => $ser, 'OPE3COD' => $cod,
                 'ESC3DEL' => $row['del'], 'ESC3COD' => $row['cod'],
-                'OYGBSUP' => $parent['type'] === 'U' ? 'T' : 'F',
+                'OYGBSUP' => $parent && $parent['type'] === 'U' ? 'T' : 'F',
                 'OYGBAGR' => 'F',
                 'OYGNPRE' => $row['price'], 'OYGCDTO' => $row['discount'],
                 'OYGNPOS' => $row['position'],
@@ -435,10 +652,12 @@ class VeolabOperationServices
             }
             $order++;
             $tec = $row['tec'];
-            $service = $grid[$row['parent']];
+            // Técnica suelta (sin servicio): solo en rejillas de planificación.
+            $service = $row['parent'] === null ? ['del' => '', 'cod' => ''] : $grid[$row['parent']];
 
             // Normativa del servicio para la técnica (LABTYN), si tiene valor.
-            $serviceNorm = $db->table('LABSER')->where('DEL3COD', $service['del'])->where('SER1COD', $service['cod'])
+            $serviceNorm = $service['cod'] === '' ? null : $db->table('LABSER')
+                ->where('DEL3COD', $service['del'])->where('SER1COD', $service['cod'])
                 ->first(['NOR2DEL', 'NOR2COD']);
             $norm = $serviceNorm ? $db->table('LABTYN')
                 ->where('TEC3DEL', $tec->DEL3COD)->where('TEC3COD', $tec->TEC1COD)
@@ -617,35 +836,9 @@ class VeolabOperationServices
             $update['OPENPRE'] = $opPrice;
         }
 
-        $names = [];
-        foreach ($grid as $row) {
-            if ($row['type'] === 'T') {
-                $names[] = (string) $row['tec']->TECCNOM;
-            }
-        }
-        $update['OPECTEC'] = implode(self::LIST_SEPARATOR, $names);
-
-        $first = reset($serviceList);
-        $firstRow = $db->table('LABSER')->where('DEL3COD', $first['del'])->where('SER1COD', $first['cod'])
-            ->first(['TIO2DEL', 'TIO2COD', 'MAT2DEL', 'MAT2COD']);
-        if ($firstRow && empty($opData['tipo_operacion_codigo']) && (int) $firstRow->TIO2COD > 0) {
-            $update['TIO2DEL'] = (string) $firstRow->TIO2DEL;
-            $update['TIO2COD'] = (int) $firstRow->TIO2COD;
-        }
-        if ($firstRow && empty($opData['matriz_codigo']) && (int) $firstRow->MAT2COD > 0) {
-            $update['MAT2DEL'] = (string) $firstRow->MAT2DEL;
-            $update['MAT2COD'] = (int) $firstRow->MAT2COD;
-        }
-
-        $last = end($serviceList);
-        $lastRow = $db->table('LABSER')->where('DEL3COD', $last['del'])->where('SER1COD', $last['cod'])
-            ->first(['SERNENV', 'SERCCAN']);
-        if ($lastRow && (float) $op->OPENENV == 0 && self::decimal($lastRow->SERNENV) != 0) {
-            $update['OPENENV'] = self::decimal($lastRow->SERNENV);
-        }
-        if ($lastRow && (string) $op->OPECCAN === '' && (string) $lastRow->SERCCAN !== '') {
-            $update['OPECCAN'] = (string) $lastRow->SERCCAN;
-        }
+        $update['OPECTEC'] = self::techniqueNames($grid);
+        $update += self::inheritedFromServices($serviceList, $opData,
+            self::decimal($op->OPENENV), (string) $op->OPECCAN, 'OPE');
 
         if ($ctx->commitment && $op->OPETREP !== null && empty($opData['fecha_compromiso'])) {
             $update['OPEDCOM'] = self::commitmentDate((string) $op->OPETREP, $serviceList, (string) $op->DEL3COD);
@@ -654,6 +847,55 @@ class VeolabOperationServices
         $db->table('LABOPE')
             ->where('DEL3COD', $op->DEL3COD)->where('OPE1SER', $op->OPE1SER)->where('OPE1COD', $op->OPE1COD)
             ->update($update);
+    }
+
+    /** Lista de nombres de las técnicas de la rejilla (OPECTEC). */
+    private static function techniqueNames(array $grid): string
+    {
+        $names = [];
+        foreach ($grid as $row) {
+            if ($row['type'] === 'T') {
+                $names[] = (string) $row['tec']->TECCNOM;
+            }
+        }
+
+        return implode(self::LIST_SEPARATOR, $names);
+    }
+
+    /**
+     * Lo que se hereda de los servicios (CompletarDesplegables y
+     * CopiarCamposEnvase): tipo de operación y matriz del primero si no se
+     * indicaron, envases y cantidad del último si están vacíos. $prefix: OPE o PLO.
+     */
+    private static function inheritedFromServices(array $serviceList, array $data, float $currentEnv,
+        string $currentQty, string $prefix): array
+    {
+        $db = DB::connection('dynamic');
+        $update = [];
+
+        $first = reset($serviceList);
+        $firstRow = $db->table('LABSER')->where('DEL3COD', $first['del'])->where('SER1COD', $first['cod'])
+            ->first(['TIO2DEL', 'TIO2COD', 'MAT2DEL', 'MAT2COD']);
+        if ($firstRow && empty($data['tipo_operacion_codigo']) && (int) $firstRow->TIO2COD > 0) {
+            $update['TIO2DEL'] = (string) $firstRow->TIO2DEL;
+            $update['TIO2COD'] = (int) $firstRow->TIO2COD;
+        }
+        if ($firstRow && empty($data['matriz_codigo']) && (int) $firstRow->MAT2COD > 0) {
+            $update['MAT2DEL'] = (string) $firstRow->MAT2DEL;
+            $update['MAT2COD'] = (int) $firstRow->MAT2COD;
+        }
+
+        $last = end($serviceList);
+        $lastRow = $db->table('LABSER')->where('DEL3COD', $last['del'])->where('SER1COD', $last['cod'])
+            ->first(['SERNENV', 'SERCCAN']);
+        if ($lastRow && $currentEnv == 0 && self::decimal($lastRow->SERNENV) != 0) {
+            $update["{$prefix}NENV"] = self::decimal($lastRow->SERNENV);
+        }
+        if ($lastRow && $currentQty === '' && (string) $lastRow->SERCCAN !== '') {
+            $update["{$prefix}CCAN"] = (string) $lastRow->SERCCAN;
+        }
+
+        return $update;
     }
 
     /**

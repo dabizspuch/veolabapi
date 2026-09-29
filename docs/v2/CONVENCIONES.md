@@ -399,6 +399,45 @@ servicio) solo se admite uno. Réplica de `FichaOperacion.frm` (`AñadirServicio
 - Incremento especial: solo actúa cuando Veolab crea varias operaciones a la vez;
   la API crea una por petición, así que el valor se guarda tal cual.
 
+**Planificaciones** (`/planificaciones`, `LABPLO`; clave `delegacion` + `codigo`, sin
+serie). "Preoperaciones" con los mismos campos que la operación (mismos nombres de
+parámetro), `serie_operaciones` (serie de las operaciones que genera),
+`numero_operaciones` (tanda) y `calcular_compromiso`. Réplica de
+`FichaPlanificacion`/`Planificaciones`:
+- **Servicios al crear** (`"servicios"`): `LABPYS`, `LABPYT` y `LABPYG` con los precios
+  calculados como en la operación, salvo que las técnicas salen siempre de `LABSYT`
+  (no del presupuesto); sin consumos, columnas de resultado ni referencias. Precio,
+  tipo de operación, matriz y envases se heredan como en la operación.
+- **Autodefinibles**: mismas definiciones y reglas que en la operación; valores
+  propios en `LABPYA` (se auditan solo al modificar, como Veolab).
+- **Fechas** (`LABFEP`): la respuesta incluye `fechas: [{codigo, fecha, completada}]`
+  (solo las activas). La **periodicidad es de solo lectura** (se configura en
+  Veolab): la API admite planificaciones sin fecha (`fecha_inicio: null`,
+  `PLONFRE = -1`) o de fecha única (`fecha_inicio`, `PLONFRE = 0`); cambiar la fecha
+  de una periódica → `422`. Al cambiar la fecha, las no completadas se desactivan
+  (`FEPTINI = NULL`, se conservan por el vínculo de códigos de barras) y se crea la
+  nueva salvo que ya haya una completada en esa fecha.
+- `PUT /planificaciones/fechas?delegacion=&codigo=&fecha=` con `{"completada": "T"|"F"}`
+  marca una fecha como generada o pendiente (suceso `M` en la auditoría).
+- Aviso en la agenda (`es_aviso`, `aviso_*`): solo lectura.
+- **Borrado**: desvincula sus operaciones, documentos a la papelera, borra
+  autodefinibles, fechas, servicios/técnicas/gastos (Veolab deja estos tres
+  huérfanos) y los eventos de agenda.
+
+**Generar operaciones** (`POST /planificaciones/generar`, cuerpo
+`{"delegacion": "", "codigo": 1, "fecha": 12, "operacion": {...}}`): como
+`GenerarOperacion` al generar sin abrir la ficha. Copia los campos de la planificación
+(serie = `serie_operaciones`), su rejilla de servicios/técnicas/gastos **con sus
+precios** (no se recalculan), el analista de la planificación (si no tiene, el primero
+de la técnica), consumos por defecto, referencias IGEO del cliente y sus
+autodefinibles; fecha de compromiso si `calcular_compromiso` (desde la recepción o
+ahora). Enlaza la operación (`planificacion_*`) y marca la fecha como completada.
+`fecha` (código de `LABFEP`) es opcional; una fecha ya generada → `422` (marcarla como
+pendiente para repetir). `operacion` sustituye campos copiados (p. ej. `estado`,
+`fecha_recepcion`, `autodefinibles`), salvo delegación, servicios y enlace a la
+planificación. Desde Veolab (→ `422`): tandas (`numero_operaciones > 1`) y
+planificaciones con varios servicios si `CONBSER`.
+
 **Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
 al pasar a recibida (estado 1) o guardar en un estado posterior, los campos de la
 lista (columnas de `LABOPE` y autodefinibles `AU_<del>_<cod>.OYACVAL`) deben tener
