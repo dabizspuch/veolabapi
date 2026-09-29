@@ -372,6 +372,39 @@ servicio) solo se admite uno. Réplica de `FichaOperacion.frm` (`AñadirServicio
   si `CONBAFC` y hay recepción (días laborables con festivos `AGEFES`, o naturales).
 - Pendiente: avisos (`ACCNOT`) al analista/compromiso, que Veolab crea tras grabar.
 
+**Operaciones: campos autodefinibles** (`LABAUT` definición, `LABOYA` valores;
+`App\Support\VeolabCustomFields`). En `POST`/`PUT` y en la lectura van como
+`"autodefinibles": {"Nombre": valor}`:
+- Se identifican por **nombre** (`AUTCNOM`, sin distinguir mayúsculas): solo
+  autodefinibles de operación (`AUTCTIP = 'O'`), no categorías ni de baja, de la
+  **delegación de la operación o generales** (`DEL3COD = ''`); nunca de otra
+  delegación. Veolab no deja repetir el nombre; si aun así estuviera en ambas, gana
+  el de la delegación de la operación. Nombre desconocido → `422`.
+- En `PUT` solo se tocan los indicados; `null`/`''` borra el valor (sin fila en
+  `LABOYA`, como Veolab). Cada valor nuevo se audita como campo `#<nombre>` de `LABOPE`.
+- Por tipo (`AUTCTDD`): número (`N`) con coma o punto, guardado con coma decimal y el
+  formato numérico de `AUTCFOR`; fecha (`D`, `V`) en ISO (o `dd/mm/aaaa`), guardada
+  con el formato de fecha de `AUTCFOR` (sin formato, `dd/mm/aaaa [h:mm:ss]`); fichero
+  (`F`) como `{"delegacion": "", "codigo": "..."}` de un registro en vigor de la tabla
+  de `AUTCFOR` (clave en `OYA3DEL`/`OYA3COD`, texto de Veolab en `OYACVAL`); texto,
+  extenso, seleccionable e incremento especial, tal cual (como Veolab, el
+  seleccionable admite texto libre). La lectura devuelve lo guardado (el fichero como
+  `{delegacion, codigo}`).
+- El vínculo con servicios (`LABAYS`) solo decide lo que muestra Veolab: no restringe.
+- Toda operación tiene la fila "cero" de `LABOYA` (`AUT3DEL = ''`, `AUT3COD = 0`),
+  que usan los listados de Veolab; la API la crea al dar de alta (y la repone al
+  modificar operaciones que no la tengan).
+- Con la operación en un informe validado/firmado solo se admite un `PUT` con
+  autodefinibles editables estando validada (`AUTBVAL = 'T'`).
+- Incremento especial: solo actúa cuando Veolab crea varias operaciones a la vez;
+  la API crea una por petición, así que el valor se guarda tal cual.
+
+**Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
+al pasar a recibida (estado 1) o guardar en un estado posterior, los campos de la
+lista (columnas de `LABOPE` y autodefinibles `AU_<del>_<cod>.OYACVAL`) deben tener
+valor; si no → `422` con la lista. Claves foráneas y nº de envases a 0 cuentan como
+vacíos (Veolab comprueba el nº de envases al revés; no se replica).
+
 **Licencia / Verifactu:** la API lee el tipo de licencia de `ACCPAR.PARCLBD`
 (`App\Support\VeolabLicense`). Los patrones de cifrado son secretos: solo en el `.env`
 del servidor de Spuch (`VEOLAB_ENC_*`), nunca en el repositorio (es público y los

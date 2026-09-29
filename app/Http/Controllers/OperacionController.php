@@ -4,20 +4,24 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
 use App\Support\VeolabCodes;
+use App\Support\VeolabCustomFields;
 use App\Support\VeolabLicense;
 use App\Support\VeolabOperationServices;
 use App\Support\VeolabStock;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Operaciones (LABOPE): datos generales. Los servicios y resultados de la
- * operación (LABOYS, LABRES...) se gestionarán aparte (fase 2).
+ * Operaciones (LABOPE): datos generales, servicios al crear (LABOYS, LABRES...)
+ * y campos autodefinibles (LABOYA, ver VeolabCustomFields).
  *
  * Réplica de FichaOperacion/Operaciones de Veolab:
  *  - Estado y fechas del flujo como la barra de estados: avanzar rellena las
  *    fechas vacías hasta el nuevo estado, retroceder borra las posteriores;
  *    respeta LABCON.CONBBAR (barra bloqueada) y CONBUNO (de uno en uno).
- *  - No se modifica si está en un informe validado o firmado.
+ *  - No se modifica si está en un informe validado o firmado (salvo los
+ *    autodefinibles editables estando validada, AUTBVAL).
+ *  - Para pasar a recibida (y guardar desde preparada) exige los campos
+ *    obligatorios de LABCON.CONCCAO (CamposObligatoriosCubiertos).
  *  - Borrado con las comprobaciones de CON_BorradoFisicoPermitidoOperaciones
  *    y la cascada de Operaciones.frm (con devolución de stock si hay Almacén).
  */
@@ -180,6 +184,9 @@ class OperacionController extends BaseController
      *
      * 'servicios' solo al crear: genera servicios, parámetros, columnas de
      * resultado, gastos, analistas, departamentos y consumos como Veolab.
+     *
+     * 'autodefinibles': {"nombre": valor} (fichero: {delegacion, codigo});
+     * valor vacío = se borra. Solo se tocan los indicados.
      */
     protected function rules(): array
     {
@@ -273,6 +280,7 @@ class OperacionController extends BaseController
             'servicios'                      => 'nullable|array|min:1',
             'servicios.*.delegacion'         => 'nullable|string|max:10',
             'servicios.*.codigo'             => 'required|string|max:20',
+            'autodefinibles'                 => 'nullable|array',
         ];
     }
 
@@ -362,6 +370,10 @@ class OperacionController extends BaseController
     {
         $current = null;
 
+        $delegation = (string) (empty($keys) ? ($data['delegacion'] ?? '') : $keys['delegacion']);
+        $customFields = VeolabCustomFields::resolve($delegation, $data['autodefinibles'] ?? null);
+        unset($data['autodefinibles']);
+
         if (empty($keys)) {
             // Valores por defecto de una operación nueva.
             $data['tipo'] ??= 'E';
@@ -395,7 +407,15 @@ class OperacionController extends BaseController
                 ->where('OPE1COD', $keys['codigo'])
                 ->first();
 
-            $this->assertNotInValidatedReport($keys['delegacion'], $keys['serie'], (int) $keys['codigo']);
+            try {
+                $this->assertNotInValidatedReport($keys['delegacion'], $keys['serie'], (int) $keys['codigo']);
+            } catch (BusinessRuleException $e) {
+                // Solo autodefinibles editables estando validada (AUTBVAL).
+                $onlyCustomFields = array_diff(array_keys($data), array_keys($this->keys)) === [];
+                if (! $onlyCustomFields || ! VeolabCustomFields::allEditableWhenValidated($customFields)) {
+                    throw $e;
+                }
+            }
 
             if (array_key_exists('servicios', $data)) {
                 throw new BusinessRuleException('Los servicios solo se indican al crear la operación');
@@ -403,8 +423,60 @@ class OperacionController extends BaseController
         }
 
         $data = $this->applyBillable($data, $current);
+        $data = $this->applyStateRules($data, $current);
 
-        return $this->applyStateRules($data, $current);
+        $opKey = $current ? [$keys['delegacion'], $keys['serie'], (int) $keys['codigo']] : null;
+        $this->assertRequiredFields($data, $current, $delegation, $opKey, $customFields);
+
+        $data['_autodefinibles'] = $customFields;
+
+        return $data;
+    }
+
+    /**
+     * CamposObligatoriosCubiertos: LABCON.CONCCAO lista (';') los campos que
+     * deben estar cubiertos para recibir la operación: columnas de LABOPE y
+     * autodefinibles ("AU_<del>_<cod>.OYACVAL"). Veolab lo exige al pasar a
+     * recibida y al guardar en un estado posterior.
+     */
+    private function assertRequiredFields(array $data, ?object $current, string $delegation, ?array $opKey, array $customFields): void
+    {
+        $newState = (int) $data['estado'];
+        $currentState = $current ? (int) $current->OPENEST : 0;
+        if ($newState < 1 || ($newState === 1 && $current && $currentState >= 1)) {
+            return;
+        }
+
+        $list = trim((string) DB::connection('dynamic')->table('LABCON')->where('CON1COD', 1)->value('CONCCAO'));
+        if ($list === '') {
+            return;
+        }
+
+        $params = array_flip($this->mapping);
+        $missing = [];
+        $customEntries = [];
+        foreach (array_filter(array_map('trim', explode(';', $list))) as $column) {
+            if (str_starts_with($column, 'AU_')) {
+                $customEntries[] = $column;
+                continue;
+            }
+            $param = $params[$column] ?? null;
+            if ($param === null) {
+                continue;
+            }
+            $value = array_key_exists($param, $data) ? $data[$param] : ($current->{$column} ?? null);
+            // Vacío: nulo o '' ; en claves foráneas y nº de envases también 0
+            // (Veolab marca el nº de envases al revés, cuando es > 0: no se replica).
+            $zeroIsEmpty = str_ends_with($column, '2COD') || $column === 'OPENENV';
+            if ($value === null || trim((string) $value) === '' || ($zeroIsEmpty && (float) $value == 0)) {
+                $missing[] = $param;
+            }
+        }
+
+        $missing = array_merge($missing, VeolabCustomFields::missingRequired($customEntries, $delegation, $opKey, $customFields));
+        if ($missing) {
+            throw new BusinessRuleException('Faltan campos obligatorios para recibir la operación: '.implode(', ', $missing));
+        }
     }
 
     /**
@@ -461,17 +533,33 @@ class OperacionController extends BaseController
         }
     }
 
-    /** Tras crear: genera la estructura de los servicios (fase 2). */
+    /** Tras crear: estructura de los servicios (fase 2). Siempre: autodefinibles. */
     protected function updateAdditionalData(array $data, array $keys): array
     {
+        [$del, $ser, $cod] = [(string) $keys['delegacion'], (string) $keys['serie'], (int) $keys['codigo']];
+
         if (! empty($data['servicios'])) {
-            VeolabOperationServices::add(
-                (string) $keys['delegacion'], (string) $keys['serie'], (int) $keys['codigo'],
-                $data['servicios'], $data
-            );
+            VeolabOperationServices::add($del, $ser, $cod, $data['servicios'], $data);
         }
 
+        VeolabCustomFields::save($del, $ser, $cod, $data['_autodefinibles'] ?? [], $this->auditRow($keys));
+
         return $data;
+    }
+
+    /** Cada operación del listado lleva sus autodefinibles ({nombre: valor}). */
+    protected function appendRelatedData(array $rows): array
+    {
+        $values = VeolabCustomFields::valuesFor(array_map(
+            fn ($row) => [(string) $row['delegacion'], (string) $row['serie'], (int) $row['codigo']], $rows
+        ));
+
+        foreach ($rows as &$row) {
+            $key = $row['delegacion']."\x1B".$row['serie']."\x1B".$row['codigo'];
+            $row['autodefinibles'] = (object) ($values[$key] ?? []);
+        }
+
+        return $rows;
     }
 
     /**

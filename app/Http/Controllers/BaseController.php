@@ -98,6 +98,12 @@ abstract class BaseController extends Controller
         return $data;
     }
 
+    /** Completa las filas ya mapeadas de un listado (datos de otras tablas). */
+    protected function appendRelatedData(array $rows): array
+    {
+        return $rows;
+    }
+
     // ------------------------------------------------------------------
     // Endpoints
     // ------------------------------------------------------------------
@@ -120,7 +126,9 @@ abstract class BaseController extends Controller
 
         $paginator = $query->paginate($perPage, ['*'], 'page', $page);
 
-        $data = collect($paginator->items())->map(fn ($row) => $this->fromDb((array) $row))->all();
+        $data = $this->appendRelatedData(
+            collect($paginator->items())->map(fn ($row) => $this->fromDb((array) $row))->all()
+        );
 
         return response()->json([
             'data' => $data,
