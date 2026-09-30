@@ -62,6 +62,9 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
 
     // --- Tablas con serie (3 claves: delegacion + serie + codigo) ---
     $resource('/operaciones', 'OperacionController');
+    // Resultados (LABRES + LABCOR): las técnicas vienen de los servicios de la operación.
+    Route::get('/resultados', [$ns.'ResultadoController', 'index']);
+    Route::put('/resultados', [$ns.'ResultadoController', 'update']);
     $resource('/lotes', 'LoteController');
     $resource('/ordenes', 'OrdenController');
     $resource('/informes', 'InformeController');

@@ -534,6 +534,50 @@ Réplica de `FichaOrden`/`Ordenes`:
   notificaciones (firmantes, rechazo, informe nuevo al cliente). El aviso de cliente con
   facturas vencidas (`CONBAFP`) es solo un aviso en Veolab: la API no lo aplica.
 
+**Resultados** (`/resultados`, `LABRES` + `LABCOR`; clave `operacion_delegacion` +
+`operacion_serie` + `operacion_codigo` + `tecnica_delegacion` + `tecnica_codigo`). Réplica
+de `FichaResultados` (`App\Support\VeolabResults`):
+- `GET`: listado estándar de técnicas de operaciones (filtrable, p. ej.
+  `?analista_codigo=3&fecha_fin[null]=T`), cada una con `columnas`: `columna`, `letra`,
+  `valor`, títulos, `tipo` (`N` número · `T` texto · `F` fecha · `H` hora · `C` casilla),
+  `formato`, `seleccionables`, `predeterminado`, `formula`, `es_activa`, `es_editable`,
+  visibilidad, control de exactitud/precisión y `marca_*`. Sin `POST` ni `DELETE`: las
+  técnicas llegan con los servicios de la operación.
+- `PUT ?operacion_delegacion=&operacion_serie=&operacion_codigo=` con
+  `{"tecnicas": [{"tecnica_delegacion": "", "tecnica_codigo": "PH", "valores": {"A": "7,2"},
+  "marcas": {"B": {"delegacion": "", "codigo": 3}}, "fecha_inicio": ..., "fecha_fin": ...,
+  "analista_delegacion": "", "analista_codigo": 4, "observaciones": "..."}],
+  "fecha_inicio": ..., "fecha_fin": ..., "dictamen_delegacion": "", "dictamen_codigo": 2,
+  "usuario_delegacion": "", "usuario_codigo": "ADMIN"}` (todo opcional). Añadiendo
+  `&tecnica_delegacion=&tecnica_codigo=` el cuerpo son los campos de esa técnica (y el
+  usuario). Respuesta: `estado`, fechas y dictamen de la operación y `avisos` de las marcas.
+- **Valores** por letra de columna, solo en celdas activas y editables, como texto
+  (máx. 255): números con **coma decimal** (`"7,2"`; un número JSON se convierte), fechas
+  `dd/mm/aaaa`, horas `hh:mm`, casillas `T`/`F` (se guardan `Sí`/`No`). `null` vacía.
+- **Marcas por rangos** (`LABCYR`/`LABRAN`, y los de normativa con el rango `LABTYN` de la
+  normativa del servicio): al cambiar el valor de una celda con rangos se recalcula su
+  marca (la primera concluyente; "no evaluable" `-2` si no la hay) y el valor puede
+  sustituirse por el límite superado (`RANBSUV`/`RANBSUX`) o por el texto de la marca
+  (`MARCSUS`). `marcas` aplica marcas a mano (`null` la quita).
+- **Analista**: las técnicas con resultado sin analista toman el empleado del usuario
+  indicado (`ACCUSU.EMP2*`), como la ficha con el usuario en sesión.
+- **Fechas y estado** (con `LABCON.CONBMAI`/`CONBMAF`): con algún valor la operación y la
+  técnica toman fecha de inicio (iniciada, 3); con todas las celdas editables cubiertas
+  (`CONCFIN = 'P'`: solo la primera columna), fecha de fin (finalizada, 4) y dictamen
+  (el asociado a las marcas, o el primero sin marca); al vaciarlas se deshacen. Las
+  casillas no cuentan. Las fechas de técnica indicadas mandan, y la de inicio de la
+  operación pasa a ser la menor de sus técnicas. `fecha_inicio`/`fecha_fin`/`dictamen_*`
+  de la operación actúan como en la ficha (sin inicio no hay fin ni dictamen; un
+  dictamen finaliza). Si el estado avanza, las fechas vacías de recepción y preparación
+  toman la de hoy (Veolab no las rellena aquí).
+- `422` si algún informe (no histórico) de la operación está validado o tiene la firma
+  total. Al grabar una operación finalizada se **borran las firmas** de sus informes, que
+  vuelven a pendientes (p. ej. corrección tras un rechazo).
+- **Pendiente**: el recálculo de **fórmulas** (`COTCFOM`; de momento la celda guarda lo que
+  llega) y los formatos de columna (`COTCFOR`). Con el módulo de **cartas de control**, los
+  resultados de control de una operación de control (`OPEBCON`) se graban en Veolab (`422`).
+  Tampoco: notificaciones de marcas, importación de equipos.
+
 **Presupuestos** (`/presupuestos`, `FACPRE`; clave `delegacion` + `serie` + `codigo`). Réplica
 de `FichaPresupuesto`/`Presupuestos` (`App\Support\VeolabBillingLines`):
 - Campos: `descripcion`, `informacion_adicional`, `orden_compra`, `solicitado_por`,
