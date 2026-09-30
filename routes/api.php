@@ -64,6 +64,10 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     $resource('/operaciones', 'OperacionController');
     $resource('/lotes', 'LoteController');
     $resource('/ordenes', 'OrdenController');
+    $resource('/informes', 'InformeController');
+    Route::put('/informes/firmas', [$ns.'InformeController', 'sign']);
+    // Tipos de firma: se configuran en Veolab (solo lectura).
+    Route::get('/tipos-firma', [$ns.'TipoFirmaController', 'index']);
 
     // --- Planificaciones (delegacion + codigo) y su generación de operaciones ---
     $resource('/planificaciones', 'PlanificacionController');

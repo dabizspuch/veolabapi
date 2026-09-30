@@ -475,6 +475,61 @@ Réplica de `FichaOrden`/`Ordenes`:
   envía los documentos a la papelera.
 - Pendiente: notificaciones al analista (`ACCNOT`), que Veolab crea al grabar.
 
+**Informes** (`/informes`, `LABINF`; clave `delegacion` + `serie` + `codigo`). Réplica de
+`FichaInforme`/`Informes` (`App\Support\VeolabReports`):
+- Campos: `fecha_creacion`, `fecha_envio` y `fecha_validacion` (sin hora, como la ficha),
+  `es_acreditado`, `es_final`, `es_visible`, `opiniones`, `observaciones`,
+  `forma_envio_*`, `normativa_*`. Solo lectura: `visto_cliente`, `ultima_firma_*`.
+- **Operaciones** (`LABIYO`): `"operaciones": [{"delegacion": "", "serie": "26", "codigo": 143}]`,
+  obligatoria al crear; en `PUT` sustituye la lista. Una operación puede estar en
+  varios informes.
+- **Operaciones históricas** (`"operaciones_historicas"`, mismo formato, opcional y
+  puede ir vacía; `LABIYO.IYOBHIS = 'T'`): la segunda lista de la ficha, con operaciones
+  anteriores que el informe muestra como histórico al exportarlo (p. ej. gráficas de
+  evolución). No pertenecen al informe: no reciben sus fechas ni su estado, no cuentan
+  para los departamentos de las firmas y al borrar el informe no pierden su fecha de
+  informe (Veolab no las distingue en estos dos últimos casos). Cada lista se sustituye
+  solo si se indica.
+- **Al crear**, lo que no se indique: pendiente, final, visible, fecha de hoy; acreditado
+  si alguna técnica de las operaciones tiene fecha de acreditación; normativa del
+  servicio de la operación de menor código; forma de envío del cliente de la primera
+  operación; opinión automática de `LABOEI` (por marca, sin marcas, con/sin normativa).
+- **Efecto sobre las operaciones** (informe final; al crear y al cambiar operaciones,
+  envío, validación o `es_final`): fecha de informe y de envío; con fecha de envío pasan
+  a enviadas (6); si no, pendiente → finalizadas (4, también si estaban más avanzadas),
+  validado → validadas (5) con su fecha, rechazado → de vuelta a preparadas (2) las
+  operaciones afectadas por el rechazo (todas si es total; las de los departamentos que
+  rechazan si es parcial; Veolab solo mira la última operación de la lista). Las fechas
+  vacías de los estados intermedios toman la de hoy. Sin fecha de envío y con el módulo
+  IGEO, las operaciones ya enviadas a IGEO vuelven a "recibida".
+- **Firmas** (`LABFIR`, tipos en `GET /tipos-firma`): `PUT /informes/firmas?delegacion=&serie=&codigo=`
+  con `{"accion": "firmar"|"rechazar"|"eliminar", "tipo_firma_delegacion": "",
+  "tipo_firma_codigo": 1, "usuario_delegacion": "", "usuario_codigo": "ADMIN",
+  "departamento_delegacion": "", "departamento_codigo": 2, "comentario": "..."}`.
+  La API no tiene usuario: **quien firma se indica en la petición** (usuario de Veolab
+  en vigor) y no se comprueban sus privilegios ni el tipo de firma de su perfil; eso es
+  cosa de la aplicación que llama. Sin departamento la firma es total; con él, parcial
+  (debe ser un departamento de las operaciones del informe). Se firma en orden: no se
+  puede firmar si la firma obligatoria anterior está pendiente, ni eliminar si la
+  obligatoria siguiente ya está aplicada (`422`).
+- **Estado de validación** (`estado_validacion`: `P`/`V`/`R`) resultante de las firmas:
+  rechazado si hay un rechazo total o un rechazo parcial de una firma obligatoria;
+  pendiente si falta una firma obligatoria o una firma parcial no cubre todos los
+  departamentos del informe; si no, validado (con fecha y usuario de validación).
+  A mano (`estado_validacion` en `POST`/`PUT`, con `usuario_validacion_*` para validar o
+  rechazar) solo si `LABCON.CONBBEV` no lo bloquea y el informe no está firmado.
+- **Informe firmado** (alguna firma total y ningún rechazo): `422` al cambiar fecha de
+  creación, acreditado/final/visible u operaciones; con `LABCON.CONBBLI` también
+  observaciones, opiniones y normativa. Envío y forma de envío siguen editables.
+- La lectura incluye `operaciones`, `operaciones_historicas` y `firmas` (una fila por
+  tipo de firma y departamento).
+- **Borrado**: `422` si está validado; quita la fecha de informe de sus operaciones, borra
+  operaciones, firmas y notificaciones del informe y envía sus documentos a la papelera.
+- Desde Veolab: el documento (PDF) del informe y su exportación automática, las marcas
+  de resultados y técnicas exportables/acreditadas de la rejilla, el JSON de IGEO y las
+  notificaciones (firmantes, rechazo, informe nuevo al cliente). El aviso de cliente con
+  facturas vencidas (`CONBAFP`) es solo un aviso en Veolab: la API no lo aplica.
+
 **Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
 al pasar a recibida (estado 1) o guardar en un estado posterior, los campos de la
 lista (columnas de `LABOPE` y autodefinibles `AU_<del>_<cod>.OYACVAL`) deben tener

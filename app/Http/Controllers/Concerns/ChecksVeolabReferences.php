@@ -6,9 +6,9 @@ use App\Exceptions\BusinessRuleException;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Comprobaciones compartidas por operaciones y planificaciones (mismos grupos
- * de claves foráneas): existencia de las referencias, tarifa por defecto del
- * cliente y desglose por defecto. Solo se comprueban los grupos que existan
+ * Comprobaciones compartidas por operaciones, planificaciones, lotes, órdenes
+ * e informes: existencia de las referencias, tarifa por defecto del cliente
+ * y desglose por defecto. Solo se comprueban los grupos que existan
  * en el $mapping del controlador.
  */
 trait ChecksVeolabReferences
@@ -29,6 +29,9 @@ trait ChecksVeolabReferences
             'producto'            => ['ALMPRD', 'PRD1COD', 'El producto no existe'],
             'tecnica'             => ['LABTEC', 'TEC1COD', 'La técnica no existe'],
             'departamento'        => ['GRHDEP', 'DEP1COD', 'El departamento no existe'],
+            'forma_envio'         => ['LABFDE', 'FDE1COD', 'La forma de envío no existe'],
+            'normativa'           => ['LABNOR', 'NOR1COD', 'La normativa no existe'],
+            'usuario_validacion'  => ['ACCUSU', 'USU1COD', 'El usuario que valida no existe'],
         ];
     }
 
