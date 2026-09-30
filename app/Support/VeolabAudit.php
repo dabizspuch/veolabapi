@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\DB;
  *  - Nivel en ACCPAR.PARNAUN: 0 desactivado, 1 accesos, 2 registro, 3 campo.
  *  - I (alta) y B (borrado) con nivel >= 2; F (modificación de fila) solo con
  *    nivel 2; C (modificación de campo, con valor nuevo/anterior) solo con 3.
+ *  - V (facturación / Verifactu): con ACCPAR.PARBAUF o licencia Verifactu,
+ *    sea cual sea el nivel. Van encadenados por hash (ACCHAS 'AUD').
  *  - Cada token de la API es una sesión de Veolab (ACCSES) con observaciones
  *    "API REST v2 (token N)", así que en Veolab se ve el origen del cambio.
  * Debe llamarse dentro de la transacción del cambio auditado.
@@ -20,8 +22,10 @@ class VeolabAudit
     public const MODIFICACION_FILA = 'F';
     public const MODIFICACION_CAMPO = 'C';
     public const MODIFICACION = 'M'; // de fila y de campo a la vez
+    public const VERIFACTU = 'V';
 
     private static array $levels = [];
+    private static array $billing = [];
     private static array $sessions = [];
 
     /** Nivel de auditoría del laboratorio (ACCPAR.PARNAUN). */
@@ -38,6 +42,7 @@ class VeolabAudit
         return match ($type) {
             self::MODIFICACION_FILA  => self::level() === 2,
             self::MODIFICACION_CAMPO => self::level() === 3,
+            self::VERIFACTU          => self::billingAudited(),
             default                  => self::level() >= 2,
         };
     }
@@ -49,18 +54,64 @@ class VeolabAudit
             return;
         }
 
-        DB::connection('dynamic')->table('ACCAUD')->insert([
-            'AUDTFEC' => DB::raw('NOW()'),
+        $values = [
             'AUDCTIP' => $type,
             'AUDCTAB' => mb_substr($table, 0, 6),
             'AUDCFIL' => mb_substr($row, 0, 50),
             'AUDCCAM' => mb_substr($field, 0, 13),
             'AUDCVAM' => mb_substr((string) $new, 0, 50),
             'AUDCVAA' => mb_substr((string) $old, 0, 50),
-            'AUDCHAS' => '',
+        ];
+
+        DB::connection('dynamic')->table('ACCAUD')->insert($values + [
+            'AUDTFEC' => DB::raw('NOW()'),
+            'AUDCHAS' => $type === self::VERIFACTU ? self::chainHash($values) : '',
             'SES2COD' => self::session(),
             'DEL2COD' => '',
         ]);
+    }
+
+    /**
+     * Suceso de facturación (SES_SUCESO_VERIFACTU): $message es la clave del
+     * texto de Veolab ("$ESPVER003" = nuevo presupuesto...).
+     */
+    public static function verifactu(string $table, string $row, string $message, string $detail = ''): void
+    {
+        self::record(self::VERIFACTU, $table, $row, $message, $detail);
+    }
+
+    /**
+     * ProcedeRegistroAuditoria, sucesos V: "auditar facturación" (PARBAUF) o
+     * licencia Verifactu; sin licencia legible también (ver VeolabLicense).
+     */
+    private static function billingAudited(): bool
+    {
+        $db = DB::connection('dynamic')->getDatabaseName();
+
+        return self::$billing[$db] ??= DB::connection('dynamic')->table('ACCPAR')->value('PARBAUF') === 'T'
+            || VeolabLicense::isVerifactu('dynamic', $db);
+    }
+
+    /**
+     * SES_GenerarHashAuditoria: SHA-256 (UTF-8, hexadecimal en minúsculas) de
+     * "tipo|tabla|fila|campo|nuevo|anterior|hash anterior" con los valores ya
+     * recortados; el último hash se guarda en ACCHAS 'AUD', que se bloquea
+     * hasta el commit para que la cadena siga el orden de los registros.
+     */
+    private static function chainHash(array $values): string
+    {
+        $db = DB::connection('dynamic');
+        $last = $db->table('ACCHAS')->where('HAS1COD', 'AUD')->lockForUpdate()->first();
+
+        $hash = hash('sha256', implode('|', $values).'|'.mb_substr((string) ($last->HASCULT ?? ''), 0, 64));
+
+        if ($last) {
+            $db->table('ACCHAS')->where('HAS1COD', 'AUD')->update(['HASCULT' => $hash]);
+        } else {
+            $db->table('ACCHAS')->insert(['HAS1COD' => 'AUD', 'HASCULT' => $hash]);
+        }
+
+        return $hash;
     }
 
     /**

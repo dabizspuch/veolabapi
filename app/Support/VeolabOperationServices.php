@@ -225,17 +225,24 @@ class VeolabOperationServices
 
     private static function techniqueData(object $tec, array $row, object $ctx): array
     {
+        [$price, $discount] = self::techniquePrice($tec, $ctx,
+            array_key_exists('budgetPrice', $row) ? [$row['budgetPrice'], $row['budgetDiscount']] : null);
+
+        return ['tec' => $tec, 'price' => $price, 'discount' => $discount] + self::techniqueExtras($tec, $ctx);
+    }
+
+    /**
+     * Precio y descuento de una técnica (InsertarTecnicasServicio): del
+     * presupuesto ($budget = [precio, descuento]), de la tarifa o del cliente,
+     * con respaldo en los de la técnica.
+     */
+    public static function techniquePrice(object $tec, object $ctx, ?array $budget = null): array
+    {
         $db = DB::connection('dynamic');
 
-        $clientPrice = $db->table('LABTYC')
-            ->where('TEC3DEL', $tec->DEL3COD)->where('TEC3COD', $tec->TEC1COD)
-            ->where('CLI3DEL', $ctx->clientDel)->where('CLI3COD', $ctx->clientCode)
-            ->first(['TYCNPRE', 'TYCCDTO']);
-
-        // Precio (InsertarTecnicasServicio): presupuesto, tarifa o cliente.
-        if (array_key_exists('budgetPrice', $row)) {
-            $price = self::decimal($row['budgetPrice']);
-            $discount = $row['budgetDiscount'];
+        if ($budget !== null) {
+            $price = self::decimal($budget[0]);
+            $discount = (string) $budget[1];
         } elseif ($ctx->perTariff) {
             $tariff = $ctx->tariffCode === '' ? null : $db->table('LABTYF')
                 ->where('TEC3DEL', $tec->DEL3COD)->where('TEC3COD', $tec->TEC1COD)
@@ -244,6 +251,10 @@ class VeolabOperationServices
             $price = self::decimal($tariff?->TYFNPRE);
             $discount = (string) ($tariff?->TYFCDTO ?? '');
         } else {
+            $clientPrice = $db->table('LABTYC')
+                ->where('TEC3DEL', $tec->DEL3COD)->where('TEC3COD', $tec->TEC1COD)
+                ->where('CLI3DEL', $ctx->clientDel)->where('CLI3COD', $ctx->clientCode)
+                ->first(['TYCNPRE', 'TYCCDTO']);
             $price = self::decimal($clientPrice?->TYCNPRE);
             $discount = (string) ($clientPrice?->TYCCDTO ?? '');
         }
@@ -255,7 +266,7 @@ class VeolabOperationServices
             $discount = (string) $tec->TECCDTO;
         }
 
-        return ['tec' => $tec, 'price' => $price, 'discount' => $discount] + self::techniqueExtras($tec, $ctx);
+        return [$price, $discount];
     }
 
     /**
@@ -375,7 +386,7 @@ class VeolabOperationServices
     }
 
     /** FAC_ObtenerPrecioServicio / FAC_ObtenerPrecioServicioDePresupuesto. */
-    private static function servicePrice(string $del, string $cod, object $ctx): array
+    public static function servicePrice(string $del, string $cod, object $ctx): array
     {
         $db = DB::connection('dynamic');
 
@@ -944,7 +955,7 @@ class VeolabOperationServices
     // Utilidades numéricas (GEN_Decimal, FAC_CalcularImporteConDescuento)
     // ------------------------------------------------------------------
 
-    private static function decimal($value): float
+    public static function decimal($value): float
     {
         // Como Val/GEN_Decimal: la parte numérica inicial ("10%" => 10).
         return (float) trim(str_replace(',', '.', (string) ($value ?? '')));

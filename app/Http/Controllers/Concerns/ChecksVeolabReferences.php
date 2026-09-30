@@ -22,6 +22,7 @@ trait ChecksVeolabReferences
             'equipamiento'        => ['LABEQU', 'EQU1COD', 'El equipamiento no existe'],
             'cliente'             => ['SINCLI', 'CLI1COD', 'El cliente no existe'],
             'empleado_recolector' => ['GRHEMP', 'EMP1COD', 'El empleado recolector no existe'],
+            'empleado_comercial'  => ['GRHEMP', 'EMP1COD', 'El empleado comercial no existe'],
             'planificacion'       => ['LABPLO', 'PLO1COD', 'La planificación no existe'],
             'dictamen'            => ['LABDIC', 'DIC1COD', 'El dictamen no existe'],
             'tarifa'              => ['LABTAR', 'TAR1COD', 'La tarifa no existe'],

@@ -530,6 +530,60 @@ Réplica de `FichaOrden`/`Ordenes`:
   notificaciones (firmantes, rechazo, informe nuevo al cliente). El aviso de cliente con
   facturas vencidas (`CONBAFP`) es solo un aviso en Veolab: la API no lo aplica.
 
+**Presupuestos** (`/presupuestos`, `FACPRE`; clave `delegacion` + `serie` + `codigo`). Réplica
+de `FichaPresupuesto`/`Presupuestos` (`App\Support\VeolabBillingLines`):
+- Campos: `descripcion`, `informacion_adicional`, `orden_compra`, `solicitado_por`,
+  `observaciones`, `lugar`, `horario`, `recogida`, `facturacion`, `notas`, `fecha`,
+  `fecha_vencimiento`, `fecha_entrega`, `fecha_aceptacion` (sin hora), `estado`
+  (`P` pendiente · `E` enviado · `A` aceptado · `R` rechazado · `V` validado ·
+  `C` cancelado), `es_acreditado`, `es_archivado`, `tipo_desglose` (`S` servicio ·
+  `T` técnica · `N` sin desglose), `descuento`, `tipo_impuesto_1/2`, `valor_impuesto_1/2`,
+  `cliente_*`, `empleado_comercial_*`, `tarifa_*`.
+- **Calculados** (solo lectura): `subtotal`, `base_imponible`, `importe_impuesto_1/2`,
+  `suplidos`, `total` y `precios_modificados`. Base = subtotal − descuento; total =
+  base + impuesto 1 − impuesto 2 (retención) + suplidos. Descuentos e impuestos son texto:
+  porcentaje (`"21%"`) o importe (`"15"`). **Se guardan tal cual llegan**, como en
+  Veolab, que los lee con el separador decimal de cada equipo: quien llama debe
+  escribir los decimales como los equipos del laboratorio (con configuración regional
+  española, `"10,5%"`; un `"10.5%"` Veolab lo leería allí como 105 %). La API entiende
+  coma y punto al calcular. Sin desglose (`N`) el `subtotal` se puede indicar a mano.
+- **Al crear**, lo que no se indique: pendiente, fecha de hoy, desglose de
+  `LABCON.CONCTID`; del cliente, su descuento, impuestos, tarifa y el vencimiento
+  (fecha + días de vencimiento de presupuestos). Lo mismo al **cambiar de cliente**.
+- Pasar a enviado / aceptado apunta la fecha de entrega / aceptación si está vacía.
+- **Líneas** (`FACLIP`), en `POST` y en `PUT` (sustituyen la rejilla entera). Dos formas,
+  excluyentes:
+  - `"servicios": [{"delegacion": "", "codigo": "AGUA01", "cantidad": 1, "punto_muestreo_codigo": 3}]`:
+    como "añadir servicio": cada servicio seguido de sus técnicas y sus gastos, y los
+    gastos suplidos en un grupo al final, con los precios del cliente o la tarifa.
+  - `"lineas": [...]`: la rejilla tal cual, en orden. Cada línea: `tipo`, `referencia`,
+    `descripcion`, `cantidad`, `precio`, `descuento`, `es_destacada`, `es_agrupada` y,
+    según el tipo, `servicio_*`, `tecnica_*` o `gasto_*` (y `punto_muestreo_codigo` en
+    las de servicio). Lo que no se indique (o vaya a `null`) toma lo que pone Veolab al
+    añadir la línea: referencia, nombre en informes (con la marca de acreditación si el
+    presupuesto es acreditado), cantidad 1 y precio/descuento del cliente o la tarifa.
+    Indicar algún precio o descuento marca `precios_modificados`.
+  - Tipos: grupos `S` servicio, `L` línea de grupo, y grupos especiales (sin cantidad ni
+    precio; suman sus líneas) `E` técnicas, `A` gastos, `U` suplidos; detalle `T` técnica,
+    `G` gasto, `D` línea libre. Una línea de detalle cuelga del grupo anterior.
+  - Totales: con desglose `T` cada grupo suma sus líneas; con `S`/`N` el grupo vale su
+    precio × cantidad − descuento (o la suma de sus líneas si el precio es 0 y
+    `LABCON.CONBDPZ`). El subtotal suma las líneas sin grupo y los grupos; los suplidos
+    van aparte.
+  - La lectura devuelve `lineas` con, además, `codigo` (nº de línea), `total`,
+    `mostrar_precio`, `es_computable` y `seccion_*`.
+- Al cambiar de cliente o (con precios por tarifa) de tarifa sin enviar líneas, los
+  precios de servicios y técnicas se regeneran, salvo que `precios_modificados` sea `T`
+  (Veolab pregunta; la API los conserva). Los puntos de muestreo de las líneas se quitan
+  al cambiar de cliente.
+- **Borrado**: `422` si tiene operaciones, planificaciones, facturas o contratos; borra
+  las líneas y envía los documentos a la papelera.
+- **Verifactu**: no se borra ningún presupuesto ni se modifica el que tiene factura o
+  subsanación (solo archivarlo). Alta, modificación y borrado dejan un registro `V`
+  encadenado (`$ESPVER003` / `007` / `009`) con el cliente y el importe (base + impuesto 1).
+- Desde Veolab: generar operaciones o planificaciones del presupuesto (desde la API,
+  `POST /operaciones` con `presupuesto_*`), facturarlo y exportarlo.
+
 **Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
 al pasar a recibida (estado 1) o guardar en un estado posterior, los campos de la
 lista (columnas de `LABOPE` y autodefinibles `AU_<del>_<cod>.OYACVAL`) deben tener
@@ -542,7 +596,7 @@ del servidor de Spuch (`VEOLAB_ENC_*`), nunca en el repositorio (es público y l
 clientes pueden autoalojar la API). **Sin patrones o sin licencia legible se aplican
 siempre las restricciones de Verifactu.** Prueba: `php artisan veolab:licencia <bd>`.
 
-Restricciones (a implementar con la facturación):
+Restricciones (presupuestos: hecho; contratos y facturas, pendientes):
 
 | | Sin edición * | Edición Empresarial * |
 |---|---|---|
@@ -552,9 +606,11 @@ Restricciones (a implementar con la facturación):
 | Modificar presupuesto con factura (`FACFAC`/`FACSUB`) | ✓ | ✗ |
 
 - NIF de cliente inválido: Veolab solo avisa, no bloquea; la API tampoco.
-- Registros `V`: cadena hash en `ACCHAS 'AUD'` = SHA-256 de
-  `tipo|tabla|fila|campo|mod|ant|hashAnterior`. **Verificar contra datos reales**
-  (mayúsculas, codificación) antes de escribir ninguno.
+- Registros `V` (`VeolabAudit::verifactu`): se escriben con "auditar facturación"
+  (`ACCPAR.PARBAUF`) o licencia Verifactu (o no legible), sea cual sea el nivel de
+  auditoría. Cadena hash en `ACCHAS 'AUD'` (bloqueada hasta el commit) = SHA-256 de
+  `tipo|tabla|fila|campo|mod|ant|hashAnterior` con los valores ya recortados a su
+  columna, en UTF-8 y hexadecimal en minúsculas (`HashLibrary.HashFunctions`).
 
 ## 13. Decisiones pendientes de confirmar
 

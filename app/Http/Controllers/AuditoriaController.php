@@ -26,6 +26,7 @@ class AuditoriaController extends BaseController
         'campo'            => 'AUDCCAM',
         'valor_modificado' => 'AUDCVAM',
         'valor_anterior'   => 'AUDCVAA',
+        'hash'             => 'AUDCHAS',
         'sesion_codigo'    => 'SES2COD',
         'delegacion'       => 'DEL2COD',
     ];
