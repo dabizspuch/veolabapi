@@ -34,9 +34,15 @@ class VeolabBillingLines
         'E' => ['ETI00490', 'Técnicas'],
     ];
 
-    /** Cabecera => [tabla de líneas, prefijo, columnas de la clave, ¿punto de muestreo?]. */
+    /**
+     * Cabecera => [tabla de líneas, prefijo, columnas de la clave, ¿punto de
+     * muestreo?, grupos que por servicio o sin desglose suman sus líneas].
+     * (CalcularPreciosDetalles: las fichas suman los tres grupos especiales;
+     * la de contrato solo sumaba el de suplidos, corregido en Veolab 2.4.4.)
+     */
     private const TABLES = [
-        'FACPRE' => ['FACLIP', 'LIP', ['PRE3DEL', 'PRE3SER', 'PRE3COD'], true],
+        'FACPRE' => ['FACLIP', 'LIP', ['PRE3DEL', 'PRE3SER', 'PRE3COD'], true, ['E', 'A', 'U']],
+        'FACCON' => ['FACLIC', 'LIC', ['CON3DEL', 'CON3SER', 'CON3COD'], false, ['E', 'A', 'U']],
     ];
 
     /**
@@ -306,8 +312,9 @@ class VeolabBillingLines
      *
      * @return array [subtotal, suplidos]
      */
-    public static function compute(array &$lines, string $breakdown, object $ctx): array
+    public static function compute(string $header, array &$lines, string $breakdown, object $ctx): array
     {
+        $summed = self::TABLES[$header][4];
         $parent = null;
         $sums = [];
         foreach ($lines as $i => $line) {
@@ -327,7 +334,7 @@ class VeolabBillingLines
             }
             $children = round($sums[$i] ?? 0, 2);
 
-            if ($breakdown === 'T' || in_array($line['type'], self::SPECIAL_GROUPS, true)) {
+            if ($breakdown === 'T' || in_array($line['type'], $summed, true)) {
                 $lines[$i]['total'] = $children;
             } elseif ($line['price'] == 0 && $ctx->zeroDetail) {
                 // Grupo a precio cero: se desglosa en sus líneas.

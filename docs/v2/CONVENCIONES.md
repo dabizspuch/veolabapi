@@ -584,6 +584,32 @@ de `FichaPresupuesto`/`Presupuestos` (`App\Support\VeolabBillingLines`):
 - Desde Veolab: generar operaciones o planificaciones del presupuesto (desde la API,
   `POST /operaciones` con `presupuesto_*`), facturarlo y exportarlo.
 
+**Contratos** (`/contratos`, `FACCON`; clave `delegacion` + `serie` + `codigo`). Réplica de
+`FichaContrato`/`Contratos`:
+- Campos: `descripcion` (obligatoria), `observaciones`, `concepto_facturacion`,
+  `fecha_inicio`, `fecha_fin`, `fecha_ultima_facturacion`, `fecha_proxima_facturacion`
+  (sin hora), `tipo_desglose`, `es_cancelado`, `es_archivado`, `es_predeterminado`,
+  `facturar_operaciones` (permitir facturar aparte las operaciones del contrato),
+  `importe_facturacion` (`C` importe del contrato · `O` importe de las operaciones),
+  `renovacion` + `renovacion_unidad` (`D`/`S`/`M`/`A`), `cliente_*`, `presupuesto_*`, `tarifa_*`.
+- **Al crear**: no cancelado ni archivado ni predeterminado, importe del contrato,
+  renovación 0 años, desglose de `LABCON.CONCTID`; con cliente, su tarifa.
+- **Líneas** (`FACLIC`): como en los presupuestos (`lineas` o `servicios`, mismos tipos y
+  reglas), sin punto de muestreo. Las técnicas llevan siempre la marca de acreditación.
+  Los grupos de técnicas, gastos y suplidos suman sus líneas (hasta Veolab 2.4.3 la ficha
+  de contrato solo sumaba el de suplidos; corregido en 2.4.4).
+- `precio` (sin suplidos) sale de la rejilla; sin desglose se puede indicar a mano.
+  `precios_modificados` y el regenerado de precios al cambiar de cliente o tarifa, como
+  en los presupuestos.
+- **Periodicidad de facturación** (`periodicidad*`, `numero_facturacion`): solo lectura,
+  se configura en Veolab (como en las planificaciones).
+- Un contrato **predeterminado**, al grabarse, quita la marca a los demás del cliente.
+- **Borrado**: `422` si tiene operaciones, planificaciones o facturas; borra las líneas y
+  envía los documentos a la papelera. Con Verifactu no se borra.
+- **Registros `V`**: `$ESPVER017` alta / `018` modificación (Veolab identifica el contrato
+  sin la serie) / `016` borrado, con el cliente y el precio.
+- Desde Veolab: generar operaciones o planificaciones, facturar y exportar.
+
 **Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
 al pasar a recibida (estado 1) o guardar en un estado posterior, los campos de la
 lista (columnas de `LABOPE` y autodefinibles `AU_<del>_<cod>.OYACVAL`) deben tener
@@ -596,7 +622,7 @@ del servidor de Spuch (`VEOLAB_ENC_*`), nunca en el repositorio (es público y l
 clientes pueden autoalojar la API). **Sin patrones o sin licencia legible se aplican
 siempre las restricciones de Verifactu.** Prueba: `php artisan veolab:licencia <bd>`.
 
-Restricciones (presupuestos: hecho; contratos y facturas, pendientes):
+Restricciones (presupuestos y contratos: hecho; facturas, pendiente):
 
 | | Sin edición * | Edición Empresarial * |
 |---|---|---|

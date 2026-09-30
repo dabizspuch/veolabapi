@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Http\Controllers\Concerns\BuildsBillingLines;
 use App\Http\Controllers\Concerns\ChecksVeolabReferences;
 use App\Support\VeolabAudit;
 use App\Support\VeolabBillingLines;
@@ -29,6 +30,7 @@ use Illuminate\Support\Facades\DB;
  */
 class PresupuestoController extends BaseController
 {
+    use BuildsBillingLines;
     use ChecksVeolabReferences;
 
     protected string $table = 'FACPRE';
@@ -216,7 +218,7 @@ class PresupuestoController extends BaseController
             $data['estado'] ??= 'P';
             $data['es_acreditado'] ??= 'F';
             $data['es_archivado'] ??= 'F';
-            $data['tipo_desglose'] ??= $this->budgetBreakdown($this->defaultBreakdown());
+            $data['tipo_desglose'] ??= $this->documentBreakdown($this->defaultBreakdown());
             $data['precios_modificados'] = 'F';
             if (! array_key_exists('fecha', $data)) {
                 $data['fecha'] = $today;
@@ -259,36 +261,11 @@ class PresupuestoController extends BaseController
         $tariffDel = $tariffCode === 0 ? '' : (string) ($value('tarifa_delegacion') ?? '');
         $tariffChanged = $tariffCode !== (int) ($current->TAR2COD ?? 0)
             || ($tariffCode !== 0 && $tariffDel !== (string) ($current->TAR2DEL ?? ''));
-        $breakdown = $this->budgetBreakdown((string) $value('tipo_desglose'));
+        $breakdown = $this->documentBreakdown((string) $value('tipo_desglose'));
         $ctx = VeolabBillingLines::context($clientDel, $clientCode, $tariffDel, $tariffCode, $value('es_acreditado') === 'T');
 
-        $input = $data['lineas'] ?? null;
-        if (array_key_exists('servicios', $data)) {
-            $input = VeolabBillingLines::inputFromServices($data['servicios']);
-        }
-        unset($data['lineas'], $data['servicios']);
-
-        if ($input !== null) {
-            [$lines, $priced] = VeolabBillingLines::fromInput($input, $ctx);
-            $data['precios_modificados'] = $priced ? 'T' : 'F';
-            $gridChanged = true;
-        } else {
-            $lines = $isNew ? [] : VeolabBillingLines::stored($this->table, $budget);
-            $gridChanged = $isNew || $breakdown !== $this->budgetBreakdown((string) $current->PRECTID);
-
-            if (! $isNew && ($clientChanged || ($tariffChanged && $ctx->perTariff))) {
-                // Los precios modificados a mano se conservan (Veolab pregunta).
-                if ((string) $current->PREBMOP !== 'T') {
-                    $lines = VeolabBillingLines::reprice($lines, $ctx);
-                }
-                if ($clientChanged) {
-                    // Los puntos de muestreo eran del cliente anterior.
-                    $lines = array_map(fn ($line) => ['point' => 0] + $line, $lines);
-                }
-                $gridChanged = true;
-            }
-        }
-        [$gridSubtotal, $gridSupplied] = VeolabBillingLines::compute($lines, $breakdown, $ctx);
+        [$lines, $gridChanged, $gridSubtotal, $gridSupplied] = $this->resolveLines(
+            $data, $current, $budget, $ctx, $breakdown, $clientChanged, $tariffChanged);
 
         // Subtotal: el de la rejilla; sin desglose se puede indicar a mano.
         if (array_key_exists('subtotal', $data) && $breakdown !== 'N') {
@@ -321,12 +298,6 @@ class PresupuestoController extends BaseController
                 .' '.number_format(round($base + $tax1, 2), 2, ',', '.');
 
         return $data;
-    }
-
-    /** Desglose de un presupuesto: por servicio, por técnica o sin desglose. */
-    private function budgetBreakdown(string $value): string
-    {
-        return in_array($value, ['S', 'T'], true) ? $value : 'N';
     }
 
     /**
