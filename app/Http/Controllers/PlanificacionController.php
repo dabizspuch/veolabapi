@@ -225,7 +225,7 @@ class PlanificacionController extends BaseController
     {
         $isNew = empty($keys);
         $delegation = (string) ($isNew ? ($data['delegacion'] ?? '') : $keys['delegacion']);
-        $customFields = VeolabCustomFields::resolve($delegation, $data['autodefinibles'] ?? null);
+        $customFields = VeolabCustomFields::resolve($delegation, $data['autodefinibles'] ?? null, 'LABPLO');
         unset($data['autodefinibles']);
 
         if ($isNew) {

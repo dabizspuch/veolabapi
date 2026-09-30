@@ -438,6 +438,22 @@ pendiente para repetir). `operacion` sustituye campos copiados (p. ej. `estado`,
 planificación. Desde Veolab (→ `422`): tandas (`numero_operaciones > 1`) y
 planificaciones con varios servicios si `CONBSER`.
 
+**Lotes** (`/lotes`, `LABLOT`; clave `delegacion` + `serie` + `codigo`, código de
+texto de hasta 50). Réplica de `FichaLote`/`Lotes`:
+- Código generado con el contador si no se indica (reglas de `ACCCFC` como el resto).
+- `estado`: 0 activo · 6 completado · 7 archivado (activo al crear). `fecha_registro`
+  = ahora si no se indica (`null` = sin fecha); `fecha_recepcion` se guarda con
+  hora y minutos.
+- **Autodefinibles de lote** (`LABAUT` con `AUTCTIP = 'L'`, valores en `LABLYA`):
+  mismas reglas que los de operación (nombre, delegación del lote o generales, tipos,
+  fichero como `{delegacion, codigo}`), salvo que no hay fila "cero" ni vínculo con
+  servicios, y como en Veolab solo se auditan al modificar.
+- Las operaciones se vinculan desde la operación (`lote_*`; `lote_relacionado_*` para
+  las relacionadas). Para listarlas: `GET /operaciones?lote_delegacion=&lote_serie=&lote_codigo=`.
+- **Borrado** (sin comprobaciones, como Veolab): desvincula sus operaciones, documentos
+  a la papelera y borra sus autodefinibles. Además desvincula las operaciones
+  relacionadas y las planificaciones (Veolab las deja apuntando al lote borrado).
+
 **Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
 al pasar a recibida (estado 1) o guardar en un estado posterior, los campos de la
 lista (columnas de `LABOPE` y autodefinibles `AU_<del>_<cod>.OYACVAL`) deben tener

@@ -7,10 +7,12 @@ use DateTimeImmutable;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Campos autodefinibles de operación (LABAUT; valores en LABOYA para las
- * operaciones y en LABPYA para las planificaciones), replicando
- * FichaOperacion.frm (AcumulaGrabarAutodefinibles, EjecutaGrabarAutodefinibles,
- * CamposObligatoriosCubiertos), FichaPlanificacion.frm y Autodefinibles.bas.
+ * Campos autodefinibles (LABAUT): de operación (tipo O; valores en LABOYA
+ * para las operaciones y en LABPYA para las planificaciones) y de lote
+ * (tipo L; valores en LABLYA), replicando FichaOperacion.frm
+ * (AcumulaGrabarAutodefinibles, EjecutaGrabarAutodefinibles,
+ * CamposObligatoriosCubiertos), FichaPlanificacion.frm, FichaLote.frm y
+ * Autodefinibles.bas.
  *
  *  - En la API se identifican por NOMBRE (AUTCNOM): Veolab no deja repetirlo
  *    entre delegaciones. Solo valen los de la delegación del registro y los
@@ -34,14 +36,17 @@ class VeolabCustomFields
 
     /**
      * Valores por tabla propietaria: operación (LABOYA, con fila "cero" y
-     * auditoría también en el alta) y planificación (LABPYA, que Veolab solo
-     * audita al modificar). Las definiciones (LABAUT tipo O) son las mismas.
+     * auditoría también en el alta), planificación (LABPYA, mismas definiciones
+     * de tipo O) y lote (LABLYA, definiciones de tipo L). Veolab solo audita
+     * las dos últimas al modificar.
      */
     private const OWNERS = [
         'LABOPE' => ['table' => 'LABOYA', 'prefix' => 'OYA', 'keys' => ['OPE3DEL', 'OPE3SER', 'OPE3COD'],
-            'zeroRow' => true, 'auditNew' => true],
+            'type' => 'O', 'noun' => 'la operación', 'zeroRow' => true, 'auditNew' => true],
         'LABPLO' => ['table' => 'LABPYA', 'prefix' => 'PYA', 'keys' => ['PLO3DEL', 'PLO3COD'],
-            'zeroRow' => false, 'auditNew' => false],
+            'type' => 'O', 'noun' => 'la planificación', 'zeroRow' => false, 'auditNew' => false],
+        'LABLOT' => ['table' => 'LABLYA', 'prefix' => 'LYA', 'keys' => ['LOT3DEL', 'LOT3SER', 'LOT3COD'],
+            'type' => 'L', 'noun' => 'el lote', 'zeroRow' => false, 'auditNew' => false],
     ];
 
     /**
@@ -85,10 +90,11 @@ class VeolabCustomFields
     private const WEEKDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 
     /**
-     * Valida y normaliza los autodefinibles recibidos ({nombre: valor}).
+     * Valida y normaliza los autodefinibles recibidos ({nombre: valor}) para
+     * un registro de la tabla $owner.
      * Devuelve [clave "del\x1Bcod" => ['def', 'value', 'fileDel', 'fileCod']].
      */
-    public static function resolve(string $delegation, $input): array
+    public static function resolve(string $delegation, $input, string $owner = 'LABOPE'): array
     {
         if ($input === null || $input === []) {
             return [];
@@ -98,7 +104,7 @@ class VeolabCustomFields
         }
 
         $byName = [];
-        foreach (self::definitions($delegation) as $def) {
+        foreach (self::definitions($delegation, $owner) as $def) {
             $byName[mb_strtolower(trim((string) $def->AUTCNOM))] = $def;
         }
 
@@ -106,7 +112,8 @@ class VeolabCustomFields
         foreach ($input as $name => $value) {
             $def = $byName[mb_strtolower(trim((string) $name))] ?? null;
             if (! $def) {
-                throw new BusinessRuleException("El autodefinible '{$name}' no existe para la delegación de la operación");
+                $noun = self::OWNERS[$owner]['noun'];
+                throw new BusinessRuleException("El autodefinible '{$name}' no existe para la delegación de {$noun}");
             }
             $out[self::key($def->DEL3COD, $def->AUT1COD)] = ['def' => $def] + self::normalize($def, $value, (string) $name);
         }
@@ -130,11 +137,11 @@ class VeolabCustomFields
     }
 
     /**
-     * Guarda los valores resueltos de una operación o planificación ($key =
+     * Guarda los valores resueltos de una operación, planificación o lote ($key =
      * valores de su clave en orden): borra e inserta solo los que cambian, sin
      * fila para los vacíos (EjecutaGrabarAutodefinibles), y audita cada valor
      * nuevo como modificación del campo "#<nombre>" de la tabla propietaria
-     * (la planificación, como Veolab, solo al modificar).
+     * (planificación y lote, como Veolab, solo al modificar).
      *
      * En operaciones asegura además la fila "cero" (AUT3DEL = '', AUT3COD = 0)
      * que Veolab crea en cada operación nueva y que necesitan sus listados con
@@ -190,7 +197,7 @@ class VeolabCustomFields
     }
 
     /**
-     * Valores guardados de una operación o planificación en el formato de
+     * Valores guardados de un registro (operación, planificación o lote) en el formato de
      * resolve() (solo autodefinibles en vigor de la delegación o generales).
      * Sirve para copiar los de una planificación a la operación que genera.
      */
@@ -200,7 +207,7 @@ class VeolabCustomFields
         [$valueCol, $fileDelCol, $fileCodCol] = self::valueColumns($owner);
 
         $definitions = [];
-        foreach (self::definitions($delegation) as $def) {
+        foreach (self::definitions($delegation, $owner) as $def) {
             $definitions[self::key($def->DEL3COD, $def->AUT1COD)] = $def;
         }
 
@@ -221,10 +228,10 @@ class VeolabCustomFields
     }
 
     /**
-     * Valores para la respuesta de varias operaciones o planificaciones (lista
+     * Valores para la respuesta de varios registros de la tabla $owner (lista
      * de claves en orden): [clave unida por "\x1B" => [nombre => valor]]. Los de
-     * fichero salen como {delegacion, codigo}. Solo autodefinibles de operación
-     * en vigor de su delegación o generales, como los muestra Veolab.
+     * fichero salen como {delegacion, codigo}. Solo autodefinibles del tipo de
+     * la tabla en vigor de su delegación o generales, como los muestra Veolab.
      */
     public static function valuesFor(string $owner, array $keys): array
     {
@@ -250,7 +257,7 @@ class VeolabCustomFields
                     });
                 }
             })
-            ->where('LABAUT.AUTCTIP', 'O')
+            ->where('LABAUT.AUTCTIP', $o['type'])
             ->where(fn ($q) => $q->whereNull('LABAUT.AUTBCAT')->orWhere('LABAUT.AUTBCAT', '<>', 'T'))
             ->where(fn ($q) => $q->whereNull('LABAUT.AUTBBAJ')->orWhere('LABAUT.AUTBBAJ', '<>', 'T'))
             ->orderBy('LABAUT.DEL3COD')->orderBy('LABAUT.AUTNORD')
@@ -300,7 +307,7 @@ class VeolabCustomFields
         }
 
         $definitions = [];
-        foreach (self::definitions($delegation) as $def) {
+        foreach (self::definitions($delegation, 'LABOPE') as $def) {
             $definitions[self::key($def->DEL3COD, $def->AUT1COD)] = $def;
         }
         $stored = $opKey === null ? [] : self::stored('LABOPE', $opKey, $delegation);
@@ -336,14 +343,14 @@ class VeolabCustomFields
     // ------------------------------------------------------------------
 
     /**
-     * Autodefinibles de operación en vigor utilizables en la delegación
-     * (AUT_CargarAutodefinibles): generales primero y luego los de la
-     * delegación, para que estos prevalezcan al indexar por nombre.
+     * Autodefinibles en vigor del tipo de la tabla $owner utilizables en la
+     * delegación (AUT_CargarAutodefinibles): generales primero y luego los de
+     * la delegación, para que estos prevalezcan al indexar por nombre.
      */
-    private static function definitions(string $delegation): array
+    private static function definitions(string $delegation, string $owner): array
     {
         return DB::connection('dynamic')->table('LABAUT')
-            ->where('AUTCTIP', 'O')
+            ->where('AUTCTIP', self::OWNERS[$owner]['type'])
             ->whereIn('DEL3COD', array_unique(['', $delegation]))
             ->where(fn ($q) => $q->whereNull('AUTBCAT')->orWhere('AUTBCAT', '<>', 'T'))
             ->where(fn ($q) => $q->whereNull('AUTBBAJ')->orWhere('AUTBBAJ', '<>', 'T'))
