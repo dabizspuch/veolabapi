@@ -12,7 +12,8 @@ use Illuminate\Support\Facades\DB;
  *  - V (facturación / Verifactu): con ACCPAR.PARBAUF o licencia Verifactu,
  *    sea cual sea el nivel. Van encadenados por hash (ACCHAS 'AUD').
  *  - Cada token de la API es una sesión de Veolab (ACCSES) con observaciones
- *    "API REST v2 (token N)", así que en Veolab se ve el origen del cambio.
+ *    "API REST v2 (token N)", así que en Veolab se ve el origen del cambio;
+ *    la cabecera X-Veolab-Sesion añade quién lo hace (ver session()).
  * Debe llamarse dentro de la transacción del cambio auditado.
  */
 class VeolabAudit
@@ -135,11 +136,25 @@ class VeolabAudit
         return $value;
     }
 
-    /** Sesión de Veolab del token actual; se crea en ACCSES la primera vez. */
+    /** Cabecera con la que el cliente anota quién hace el cambio (SESCOBS). */
+    public const SESSION_HEADER = 'X-Veolab-Sesion';
+
+    /**
+     * Sesión de Veolab del token actual; se crea en ACCSES la primera vez.
+     * Con la cabecera X-Veolab-Sesion el texto se añade a las observaciones
+     * ("API REST v2 (token N) - texto"), y cada texto distinto es otra sesión:
+     * así se distinguen usuarios externos sin reescribir sesiones ya auditadas.
+     */
     private static function session(): int
     {
         $token = request()->user()?->currentAccessToken()?->id;
         $observations = 'API REST v2 (token '.($token ?? '-').')';
+
+        $label = trim(preg_replace('/[\x00-\x1F\x7F]+/u', ' ', (string) request()->header(self::SESSION_HEADER, '')));
+        if ($label !== '') {
+            $observations = mb_substr($observations.' - '.$label, 0, 100); // SESCOBS varchar(100)
+        }
+
         $key = DB::connection('dynamic')->getDatabaseName().'.'.$observations;
 
         if (isset(self::$sessions[$key])) {
