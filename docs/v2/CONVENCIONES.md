@@ -324,6 +324,10 @@ Se aplican dentro del rediseño (no son parte del diseño nuevo, son fallos):
   sin ella, `del-ser-cod`). Tablas con otra forma de clave sobreescriben `auditRow()`.
 - Cada token es una sesión de Veolab en `ACCSES` (`SESCOBS = 'API REST v2 (token N)'`,
   delegación y usuario vacíos): en Veolab se ve que el cambio vino de la API.
+- Cabecera opcional `X-Veolab-Sesion: <texto>` → `SESCOBS = 'API REST v2 (token N) - <texto>'`
+  (recortado a 100, sin caracteres de control). Cada texto distinto es una sesión
+  distinta, para distinguir usuarios de la aplicación cliente; una sesión ya creada
+  nunca se reescribe, así que lo ya auditado sigue atribuido a quien era.
 - Se escribe dentro de la transacción del cambio. Las lecturas no se auditan.
 
 **Códigos:** como `DBS_Autoincremento`: contador `ACCCLT` con el múltiplo de
