@@ -6,11 +6,13 @@ use App\Exceptions\BusinessRuleException;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Rejilla de líneas de los documentos de venta (presupuestos: FACLIP),
- * réplica de la rejilla de servicios de FichaPresupuesto.
+ * Rejilla de líneas de los documentos de venta (presupuestos: FACLIP,
+ * contratos: FACLIC, facturas: FACLIF), réplica de la rejilla de servicios
+ * de FichaPresupuesto / FichaContrato / FichaFactura.
  *
  * Tipos de línea (Facturacion.bas):
- *  - Grupos: S servicio, L línea de grupo libre; especiales (su total es
+ *  - Grupos: S servicio, O operación (solo facturas), L línea de grupo
+ *    libre; especiales (su total es
  *    siempre la suma de sus líneas): E técnicas sueltas, A gastos, U suplidos.
  *  - Detalle: T técnica, G gasto, D línea libre. Una línea de detalle cuelga
  *    del grupo anterior más próximo (o de ninguno si no lo hay).
@@ -22,9 +24,9 @@ use Illuminate\Support\Facades\DB;
  */
 class VeolabBillingLines
 {
-    public const TYPES = ['S', 'T', 'G', 'D', 'L', 'E', 'A', 'U'];
+    public const TYPES = ['S', 'T', 'G', 'D', 'L', 'E', 'A', 'U', 'O'];
 
-    private const GROUPS = ['S', 'L', 'E', 'A', 'U'];
+    private const GROUPS = ['S', 'O', 'L', 'E', 'A', 'U'];
     private const SPECIAL_GROUPS = ['E', 'A', 'U'];
 
     /** Texto por defecto de los grupos especiales: clave de idioma y respaldo. */
@@ -36,13 +38,15 @@ class VeolabBillingLines
 
     /**
      * Cabecera => [tabla de líneas, prefijo, columnas de la clave, ¿punto de
-     * muestreo?, grupos que por servicio o sin desglose suman sus líneas].
+     * muestreo?, grupos que por servicio o sin desglose suman sus líneas,
+     * ¿columnas de factura? (fecha, adicional, cliente y operación)].
      * (CalcularPreciosDetalles: las fichas suman los tres grupos especiales;
      * la de contrato solo sumaba el de suplidos, corregido en Veolab 2.4.4.)
      */
     private const TABLES = [
-        'FACPRE' => ['FACLIP', 'LIP', ['PRE3DEL', 'PRE3SER', 'PRE3COD'], true, ['E', 'A', 'U']],
-        'FACCON' => ['FACLIC', 'LIC', ['CON3DEL', 'CON3SER', 'CON3COD'], false, ['E', 'A', 'U']],
+        'FACPRE' => ['FACLIP', 'LIP', ['PRE3DEL', 'PRE3SER', 'PRE3COD'], true, ['E', 'A', 'U'], false],
+        'FACCON' => ['FACLIC', 'LIC', ['CON3DEL', 'CON3SER', 'CON3COD'], false, ['E', 'A', 'U'], false],
+        'FACFAC' => ['FACLIF', 'LIF', ['FAC3DEL', 'FAC3SER', 'FAC3COD'], true, ['E', 'A', 'U'], true],
     ];
 
     /**
@@ -150,8 +154,7 @@ class VeolabBillingLines
             $n = $i + 1;
             $type = (string) ($in['tipo'] ?? 'D');
             $given = fn (string $key) => isset($in[$key]);
-            $line = ['type' => $type, 'ref' => '', 'desc' => '', 'qty' => 1.0, 'price' => 0.0, 'discount' => '',
-                'del' => '', 'cod' => '', 'point' => 0, 'secDel' => '', 'secCod' => 0];
+            $line = self::emptyLine($type);
 
             switch ($type) {
                 case 'S':
@@ -197,11 +200,43 @@ class VeolabBillingLines
                     $line['discount'] = (string) ($expense->ESCCDTO ?? '');
                     break;
 
+                case 'O':
+                    [$del, $cod] = self::entityKey($in, 'operacion', "Línea {$n}: falta la operación");
+                    $ser = (string) ($in['operacion_serie'] ?? '');
+                    $operation = $db->table('LABOPE')->where('DEL3COD', $del)->where('OPE1SER', $ser)->where('OPE1COD', (int) $cod)
+                        ->first(['OPECDES', 'OPENPRE', 'OPECDTO', 'OPECINF']);
+                    if (! $operation) {
+                        throw new BusinessRuleException("Línea {$n}: la operación {$cod} no existe");
+                    }
+                    $line['del'] = $del;
+                    $line['ser'] = $ser;
+                    $line['cod'] = (string) (int) $cod;
+                    $line['ref'] = VeolabCodes::format('LABOPE', (string) (int) $cod, $del, $ser, (string) $operation->OPECINF);
+                    $line['desc'] = (string) $operation->OPECDES;
+                    $line['price'] = VeolabOperationServices::decimal($operation->OPENPRE);
+                    $line['discount'] = (string) ($operation->OPECDTO ?? '');
+                    break;
+
                 case 'U':
                 case 'A':
                 case 'E':
                     $line['desc'] = self::groupLabel($type);
                     break;
+            }
+
+            // Columnas de las líneas de factura.
+            if ($given('fecha')) {
+                $line['date'] = (new \DateTime((string) $in['fecha']))->format('Y-m-d 00:00:00');
+            }
+            if ($given('adicional')) {
+                $line['extra'] = (string) $in['adicional'];
+            }
+            if ($given('cliente_codigo')) {
+                $line['lineClientDel'] = (string) ($in['cliente_delegacion'] ?? '');
+                $line['lineClientCod'] = (string) $in['cliente_codigo'];
+            } elseif ($line['point'] > 0) {
+                $line['lineClientDel'] = $ctx->clientDel;
+                $line['lineClientCod'] = $ctx->clientCode;
             }
 
             if ($given('referencia')) {
@@ -230,7 +265,8 @@ class VeolabBillingLines
 
             $isGroup = in_array($type, self::GROUPS, true);
             $line['highlighted'] = ($in['es_destacada'] ?? 'F') === 'T';
-            $line['collapsed'] = $isGroup && ($given('es_agrupada') ? $in['es_agrupada'] === 'T' : ($type === 'S' && ! $ctx->expand));
+            $line['collapsed'] = $isGroup && ($given('es_agrupada') ? $in['es_agrupada'] === 'T'
+                : (($type === 'S' || $type === 'O') && ! $ctx->expand));
 
             $lines[] = $line;
         }
@@ -238,23 +274,38 @@ class VeolabBillingLines
         return [$lines, $modified];
     }
 
+    /** Línea vacía con todos los campos de la representación interna. */
+    public static function emptyLine(string $type): array
+    {
+        return ['type' => $type, 'ref' => '', 'desc' => '', 'qty' => 1.0, 'price' => 0.0, 'discount' => '',
+            'del' => '', 'ser' => '', 'cod' => '', 'point' => 0, 'secDel' => '', 'secCod' => 0,
+            'date' => null, 'extra' => '', 'lineClientDel' => '', 'lineClientCod' => '',
+            'highlighted' => false, 'collapsed' => false];
+    }
+
     /** Líneas guardadas de un documento, con el mismo formato que fromInput(). */
     public static function stored(string $header, array $key): array
     {
-        [$table, $p, $keyColumns, $hasPoint] = self::TABLES[$header];
+        [$table, $p, $keyColumns, $hasPoint, , $invoice] = self::TABLES[$header];
 
         return DB::connection('dynamic')->table($table)->where(array_combine($keyColumns, $key))
             ->orderBy("{$p}1COD")->get()
-            ->map(function ($row) use ($p, $hasPoint) {
+            ->map(function ($row) use ($p, $hasPoint, $invoice) {
                 $type = (string) ($row->{"{$p}CTIP"} ?: 'D');
                 [$del, $cod] = match ($type) {
                     'S'     => [(string) $row->SER2DEL, (string) $row->SER2COD],
                     'T'     => [(string) $row->TEC2DEL, (string) $row->TEC2COD],
                     'G'     => [(string) $row->ESC2DEL, (string) $row->ESC2COD],
+                    'O'     => $invoice ? [(string) $row->OPE2DEL, (string) $row->OPE2COD] : ['', ''],
                     default => ['', ''],
                 };
 
                 return [
+                    'ser'           => $invoice && $type === 'O' ? (string) $row->OPE2SER : '',
+                    'date'          => $invoice ? $row->LIFDFEC : null,
+                    'extra'         => $invoice ? (string) $row->LIFCADI : '',
+                    'lineClientDel' => $invoice ? (string) $row->CLI2DEL : '',
+                    'lineClientCod' => $invoice ? (string) $row->CLI2COD : '',
                     'type'        => $type,
                     'ref'         => (string) $row->{"{$p}CREF"},
                     'desc'        => (string) $row->{"{$p}CDES"},
@@ -314,7 +365,7 @@ class VeolabBillingLines
      */
     public static function compute(string $header, array &$lines, string $breakdown, object $ctx): array
     {
-        $summed = self::TABLES[$header][4];
+        [, , , , $summed, $invoice] = self::TABLES[$header];
         $parent = null;
         $sums = [];
         foreach ($lines as $i => $line) {
@@ -363,11 +414,20 @@ class VeolabBillingLines
                     || ($group['price'] == 0 && $ctx->zeroDetail);
             }
 
+            // Grabar: en la factura también el gasto y la línea libre sueltos cuentan.
             $lines[$i]['computable'] = match ($line['type']) {
                 'T'     => $line['parent'] === null,
-                'G'     => false,
+                'G'     => $invoice && $line['parent'] === null,
+                'D'     => ! $invoice || $line['parent'] === null,
                 default => true,
             };
+
+            // En la factura el servicio toma la sección de su primera técnica.
+            $next = $lines[$i + 1] ?? null;
+            if ($invoice && $line['type'] === 'S' && $next && $next['type'] === 'T') {
+                $lines[$i]['secDel'] = $next['secDel'];
+                $lines[$i]['secCod'] = $next['secCod'];
+            }
         }
 
         return [round($subtotal, 2), round($supplied, 2)];
@@ -397,7 +457,7 @@ class VeolabBillingLines
     /** Sustituye las líneas del documento (Grabar borra e inserta la rejilla). */
     public static function save(string $header, array $key, array $lines): void
     {
-        [$table, $p, $keyColumns, $hasPoint] = self::TABLES[$header];
+        [$table, $p, $keyColumns, $hasPoint, , $invoice] = self::TABLES[$header];
         $db = DB::connection('dynamic');
         $keyValues = array_combine($keyColumns, $key);
 
@@ -427,7 +487,16 @@ class VeolabBillingLines
                 'ESC2COD'  => $type === 'G' ? (int) $line['cod'] : 0,
                 'SEC2DEL'  => $line['secDel'],
                 'SEC2COD'  => $line['secCod'],
-            ] + ($hasPoint ? ['PUM2COD' => $type === 'S' ? $line['point'] : 0] : []);
+            ] + ($hasPoint ? ['PUM2COD' => ($invoice || $type === 'S') ? $line['point'] : 0] : [])
+              + ($invoice ? [
+                'LIFDFEC' => $line['date'],
+                'LIFCADI' => mb_substr($line['extra'], 0, 50),
+                'CLI2DEL' => $line['lineClientDel'],
+                'CLI2COD' => $line['lineClientCod'],
+                'OPE2DEL' => $type === 'O' ? $line['del'] : '',
+                'OPE2SER' => $type === 'O' ? $line['ser'] : '',
+                'OPE2COD' => $type === 'O' ? (int) $line['cod'] : 0,
+            ] : []);
         }
 
         if ($rows) {
@@ -450,7 +519,7 @@ class VeolabBillingLines
      */
     public static function read(string $header, array $keys): array
     {
-        [$table, $p, $keyColumns, $hasPoint] = self::TABLES[$header];
+        [$table, $p, $keyColumns, $hasPoint, , $invoice] = self::TABLES[$header];
         if ($keys === []) {
             return [];
         }
@@ -500,6 +569,19 @@ class VeolabBillingLines
             ];
             if ($hasPoint) {
                 $line['punto_muestreo_codigo'] = (int) $row->PUM2COD ?: null;
+            }
+            if ($invoice) {
+                [$cliDel, $cliCod] = $pair('CLI2DEL', 'CLI2COD');
+                [$opeDel, $opeCod] = $pair('OPE2DEL', 'OPE2COD', true);
+                $line += [
+                    'fecha'                => $row->LIFDFEC,
+                    'adicional'            => $row->LIFCADI,
+                    'cliente_delegacion'   => $cliDel,
+                    'cliente_codigo'       => $cliCod,
+                    'operacion_delegacion' => $opeDel,
+                    'operacion_serie'      => $opeCod === null ? null : (string) $row->OPE2SER,
+                    'operacion_codigo'     => $opeCod,
+                ];
             }
 
             $out[implode("\x1B", [$row->{$keyColumns[0]}, $row->{$keyColumns[1]}, $row->{$keyColumns[2]}])][] = $line;
@@ -560,8 +642,13 @@ class VeolabBillingLines
      */
     private static function techniqueName(object $tec, object $ctx): string
     {
-        $name = (string) ($tec->TECCNOI ?: $tec->TECCNOM);
-        $accredited = (string) ($tec->TECDACR ?? '') !== '';
+        return self::markedName((string) ($tec->TECCNOI ?: $tec->TECCNOM), (string) ($tec->TECDACR ?? ''), $ctx);
+    }
+
+    /** Nombre con la marca de acreditación según $ctx->markMode ('' = sin marca). */
+    public static function markedName(string $name, string $accreditationDate, object $ctx): string
+    {
+        $accredited = $accreditationDate !== '';
 
         $marked = match ($ctx->markMode) {
             'A'     => $accredited,
@@ -611,7 +698,7 @@ class VeolabBillingLines
     }
 
     /** Texto del grupo especial en el idioma principal de Veolab (IDICAD). */
-    private static function groupLabel(string $type): string
+    public static function groupLabel(string $type): string
     {
         [$key, $fallback] = self::GROUP_LABELS[$type];
 

@@ -70,6 +70,8 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     Route::get('/tipos-firma', [$ns.'TipoFirmaController', 'index']);
     $resource('/presupuestos', 'PresupuestoController');
     $resource('/contratos', 'ContratoController');
+    // Facturas: la API gestiona borradores y el estado de las emitidas (se emiten en Veolab).
+    $resource('/facturas', 'FacturaController');
 
     // --- Planificaciones (delegacion + codigo) y su generación de operaciones ---
     $resource('/planificaciones', 'PlanificacionController');

@@ -610,6 +610,58 @@ de `FichaPresupuesto`/`Presupuestos` (`App\Support\VeolabBillingLines`):
   sin la serie) / `016` borrado, con el cliente y el precio.
 - Desde Veolab: generar operaciones o planificaciones, facturar y exportar.
 
+**Facturas** (`/facturas`, `FACFAC`; clave `delegacion` + `serie` + `codigo`). Réplica de
+`FichaFactura`/`Facturas` (`App\Support\VeolabInvoiceLines` para la rejilla):
+- **La API no emite facturas**: definitivas, rectificativas, subsanaciones y envío a la AEAT
+  (Verifactu) se hacen en Veolab. La lectura devuelve todas, con `lineas`, `operaciones`
+  (`LABOPE.FAC2*`) y `subsanaciones` (`FACSUB`, sin el XML ni la respuesta de la AEAT), y los
+  datos de Verifactu como solo lectura (`estado`, `huella`, `identificador_verifactu`...).
+- **Borradores** (serie `BOR`, solo si `LABCON.CONBFAB`): alta, modificación y borrado. El
+  código lo da el contador de la serie `BOR`; la serie con la que se emitirá va en
+  `serie_final`. Al crear: fecha de hoy, estado `B`, sin rectificar, desglose de `CONCTID`.
+  Datos del emisor copiados de la delegación (o de la central, `ACCPAR.PARCCDC`) en cada
+  grabación. Al elegir cliente se copian sus datos de facturación (NIF, razón social,
+  nombre, dirección de facturación, forma de pago, cuenta, descuento, impuestos, notas,
+  centros FACe y vencimiento con sus días y día de pago); con Verifactu, persona jurídica,
+  residente y `ESP` por defecto. En persona física, la razón social es nombre y apellidos.
+- **Líneas** (`FACLIF`), tres formas:
+  - `"operaciones": [{"delegacion": "", "serie": "26", "codigo": 143}]` sin líneas: la rejilla
+    se genera como en la facturación de Veolab (agrupación `CONCTAR` por servicio u
+    operación, técnicas y gastos sueltos, servicios con sus técnicas, gastos agrupados y
+    suplidos al final, líneas iguales acumuladas, columnas de fecha/referencia/adicional
+    según `CONCMOF`/`CONCMOR`/`CONCMOA`, desglose por cliente y punto según
+    `CONBDPC`/`CONBDPP`) y el desglose es el de la primera operación. Sin cliente, se toma
+    el de facturación de la primera operación (su principal si factura al principal), y
+    también su presupuesto y contrato. Al cambiar las operaciones de un borrador se
+    regenera, salvo que sus líneas se hubieran editado (`lineas_modificadas`).
+  - `lineas` o `servicios`, como en presupuestos; además, por línea, `fecha`, `adicional`,
+    `cliente_*` y el tipo `O` (operación, con `operacion_*`).
+  - **Conversión**: `presupuesto_*` o `contrato_*` sin operaciones ni líneas copia las líneas,
+    el desglose y el subtotal del documento (del presupuesto también descuento e impuestos;
+    del contrato, el concepto) y vincula sus operaciones facturables. Un contrato por importe
+    de las operaciones (`CONCFIM = 'O'`) genera la rejilla a partir de ellas.
+- **Operaciones**: `422` si alguna ya está en otra factura. Las del borrador quedan
+  prefacturadas (`FAC2*`, `OPEBPRE`, `OPEBFAB`); las que se quitan vuelven a estar
+  disponibles (y se desarchivan si hay modo de archivo `CONCARC`). Los borradores no
+  archivan operaciones.
+- **Importes** como en presupuestos (con desglose `O`, el subtotal es la suma de los precios de
+  las operaciones). `pendiente` sigue al total mientras no se cambie ni esté cobrada;
+  marcarla cobrada deja el pendiente a 0 y la fecha de pago de hoy.
+- **Contrato**: un borrador nuevo con contrato apunta su última facturación y suma una al
+  número de facturación; si el contrato es periódico → `422` (la próxima facturación depende
+  de la periodicidad, que la API no calcula).
+- **Facturas emitidas**: solo `es_enviada`, `es_cobrada`, `es_contabilizada`, `pendiente`,
+  `fecha_vencimiento`, `fecha_pago` y `notas`; cualquier otro campo → `422`. No se borran.
+- **Borrado** (solo borradores): líneas, operaciones desarchivadas y libres, documentos a la
+  papelera.
+- **Registros `V`**: `$ESPVER004` borrador nuevo, `011` conversión de presupuesto y `019` de
+  contrato (con su código como valor anterior), `008` modificación de borrador, con el
+  cliente y el importe (base + impuesto 1). Como en Veolab, borrar un borrador no deja
+  registro `V`.
+- Diferencias con la facturación automática de Veolab (fallos suyos): total = base +
+  impuesto 1 − impuesto 2 + suplidos (Veolab suma el impuesto 2), las líneas se guardan
+  aunque no haya técnicas y los gastos agrupados con servicio no se repiten.
+
 **Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
 al pasar a recibida (estado 1) o guardar en un estado posterior, los campos de la
 lista (columnas de `LABOPE` y autodefinibles `AU_<del>_<cod>.OYACVAL`) deben tener
@@ -622,7 +674,7 @@ del servidor de Spuch (`VEOLAB_ENC_*`), nunca en el repositorio (es público y l
 clientes pueden autoalojar la API). **Sin patrones o sin licencia legible se aplican
 siempre las restricciones de Verifactu.** Prueba: `php artisan veolab:licencia <bd>`.
 
-Restricciones (presupuestos y contratos: hecho; facturas, pendiente):
+Restricciones (hechas en presupuestos, contratos y facturas):
 
 | | Sin edición * | Edición Empresarial * |
 |---|---|---|

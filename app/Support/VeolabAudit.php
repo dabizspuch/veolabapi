@@ -75,9 +75,9 @@ class VeolabAudit
      * Suceso de facturación (SES_SUCESO_VERIFACTU): $message es la clave del
      * texto de Veolab ("$ESPVER003" = nuevo presupuesto...).
      */
-    public static function verifactu(string $table, string $row, string $message, string $detail = ''): void
+    public static function verifactu(string $table, string $row, string $message, string $detail = '', string $previous = ''): void
     {
-        self::record(self::VERIFACTU, $table, $row, $message, $detail);
+        self::record(self::VERIFACTU, $table, $row, $message, $detail, $previous);
     }
 
     /**

@@ -81,8 +81,9 @@ class VeolabCodes
     /**
      * Código formateado para mostrar/auditar (PAR_FormatoCodigo). Sin
      * configuración para la tabla usa el formato de reserva de VB: del-ser-cod.
+     * $info = ':SINFORMATO' (OPECINF de la operación) deja el código sin formato.
      */
-    public static function format(string $table, string $code, string $delegation = '', string $series = ''): string
+    public static function format(string $table, string $code, string $delegation = '', string $series = '', string $info = ''): string
     {
         $config = self::config($table);
 
@@ -91,7 +92,7 @@ class VeolabCodes
         }
 
         $separator = (string) $config->CFCCSEP;
-        $out = self::vbFormat($code, (string) $config->CFCCFCO);
+        $out = $info === ':SINFORMATO' ? $code : self::vbFormat($code, (string) $config->CFCCFCO);
 
         if ($config->CFCBTOD === 'T' && $config->CFCBMSE === 'T' && $series !== '') {
             $out = $config->CFCCPSE === 'D' ? $out.$separator.$series : $series.$separator.$out;
