@@ -28,6 +28,7 @@ trait ChecksVeolabReferences
             'proveedor'           => ['SINPRO', 'PRO1COD', 'El proveedor no existe'],
             'producto'            => ['ALMPRD', 'PRD1COD', 'El producto no existe'],
             'tecnica'             => ['LABTEC', 'TEC1COD', 'La técnica no existe'],
+            'departamento'        => ['GRHDEP', 'DEP1COD', 'El departamento no existe'],
         ];
     }
 

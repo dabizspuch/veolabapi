@@ -63,6 +63,7 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     // --- Tablas con serie (3 claves: delegacion + serie + codigo) ---
     $resource('/operaciones', 'OperacionController');
     $resource('/lotes', 'LoteController');
+    $resource('/ordenes', 'OrdenController');
 
     // --- Planificaciones (delegacion + codigo) y su generación de operaciones ---
     $resource('/planificaciones', 'PlanificacionController');

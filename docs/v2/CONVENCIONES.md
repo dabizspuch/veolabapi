@@ -454,6 +454,27 @@ texto de hasta 50). Réplica de `FichaLote`/`Lotes`:
   a la papelera y borra sus autodefinibles. Además desvincula las operaciones
   relacionadas y las planificaciones (Veolab las deja apuntando al lote borrado).
 
+**Órdenes de trabajo** (`/ordenes`, `LABORD`; clave `delegacion` + `serie` + `codigo`).
+Réplica de `FichaOrden`/`Ordenes`:
+- Campos: `observaciones`, `fecha_creacion` (ahora si no se indica), `fecha_impresion`,
+  `departamento_*` (vacío = todos) y `tecnica_*`.
+- **Operaciones** (`LABOYO`): `"operaciones": [{"delegacion": "", "serie": "26", "codigo": 143}]`,
+  obligatoria (al menos una) al crear; en `PUT` sustituye la lista entera. Una operación
+  puede estar en varias órdenes: `posicion` (`OYONPOS`, solo lectura) es su índice entre
+  ellas; al quitarla de la primera, la siguiente orden pasa a ser la primera. Las
+  operaciones registradas o recibidas pasan a **preparadas** (estado 2, fecha de
+  preparación de hoy), como en Veolab.
+- **Personal** (`LABORE`): `"personal": [{"delegacion": "", "codigo": 3}]` (empleados).
+  Si no se indica, se añaden los analistas (`LABOYE`) de las operaciones nuevas, como
+  hace la ficha al seleccionarlas; si se indica, sustituye la lista.
+- Con `LABCON.CONBBTD`, `422` si alguna técnica de las operaciones está bloqueada
+  (operación interna sin archivar ni anular con dictamen no satisfactorio).
+- La lectura incluye `operaciones` (con `posicion`) y `personal`. Los cambios de estas
+  listas se auditan como campos `LABOYO` / `LABORE` de la orden.
+- **Borrado**: renumera las operaciones, borra operaciones y personal de la orden y
+  envía los documentos a la papelera.
+- Pendiente: notificaciones al analista (`ACCNOT`), que Veolab crea al grabar.
+
 **Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
 al pasar a recibida (estado 1) o guardar en un estado posterior, los campos de la
 lista (columnas de `LABOPE` y autodefinibles `AU_<del>_<cod>.OYACVAL`) deben tener
