@@ -436,9 +436,10 @@ class ResultadoController extends BaseController
     }
 
     /**
-     * Valor de celda como lo guarda Veolab: texto; en las columnas numéricas
-     * con coma decimal (un número JSON se convierte); en las casillas Sí/No
-     * (también T/F o booleano).
+     * Valor de celda como lo guarda Veolab: texto tal cual llega; en las
+     * columnas numéricas con el separador decimal del laboratorio (coma o
+     * punto, según la configuración regional de sus equipos); en las casillas
+     * Sí/No (también T/F o booleano).
      */
     private function cellValue($value, array $cell, string $label): string
     {
@@ -459,7 +460,9 @@ class ResultadoController extends BaseController
             return '';
         }
         if (is_int($value) || is_float($value)) {
-            $value = VeolabResults::vbString((float) $value);
+            // El separador decimal depende de la configuración regional de cada
+            // equipo: la API no puede elegirlo, así que el número llega como texto.
+            throw new BusinessRuleException("El valor de {$where} debe enviarse como texto, con el separador decimal del laboratorio");
         }
         if (! is_string($value)) {
             throw new BusinessRuleException("El valor de {$where} no es válido");
@@ -471,8 +474,8 @@ class ResultadoController extends BaseController
 
         switch ($cell['type']) {
             case 'N':
-                if (! preg_match('/^\s*[+-]?\d+(,\d+)?\s*$/', $value)) {
-                    throw new BusinessRuleException("El valor de {$where} debe ser numérico, con coma decimal");
+                if (! preg_match('/^\s*[+-]?\d+([.,]\d+)?\s*$/', $value)) {
+                    throw new BusinessRuleException("El valor de {$where} debe ser numérico");
                 }
                 break;
             case 'F':

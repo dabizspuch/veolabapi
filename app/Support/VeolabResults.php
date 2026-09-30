@@ -17,7 +17,8 @@ use Illuminate\Support\Facades\DB;
  *  - Dictamen (ObtenerDictamen) a partir de las marcas de la operación.
  *  - Fechas y estado de la operación (ConfigurarActualizacion): ver
  *    setStart/setEnd/setVerdict/markChanged sobre el array de estado.
- * Números como CDbl de VB en español: coma decimal, punto de miles.
+ * Números con coma o punto decimal (el de la configuración regional de cada
+ * equipo que escribe en Veolab), sin separador de miles.
  */
 class VeolabResults
 {
@@ -308,6 +309,7 @@ class VeolabResults
         $inside = false;
         $syntaxError = false;
         $separator = str_contains($interval, ';') ? ';' : ',';
+        $decimal = self::decimalSeparator($value, $interval);
         // Posición del separador en la lista completa (VB no la recalcula).
         $separatorPos = self::instr($interval, $separator);
 
@@ -326,8 +328,8 @@ class VeolabResults
                 $inside = str_contains($list, '"'.$value.'"');
             } elseif (str_starts_with($trimmed, '<')) {
                 $max = (self::number(self::mid($value, 2)) ?? 0.0) - self::INFINITESIMAL;
-                $inMin = self::numberInInterval(0.0, $interval, $separator, $open, $close, $withValue, $limit);
-                $inMax = self::numberInInterval($max, $interval, $separator, $open, $close, $withValue, $limit);
+                $inMin = self::numberInInterval(0.0, $interval, $separator, $open, $close, $withValue, $limit, $decimal);
+                $inMax = self::numberInInterval($max, $interval, $separator, $open, $close, $withValue, $limit, $decimal);
                 if ($inMin && $inMax) {
                     $inside = true;
                 } elseif (! $inMin && ! $inMax) {
@@ -340,8 +342,8 @@ class VeolabResults
                 }
             } elseif (str_starts_with($trimmed, '>')) {
                 $min = (self::number(self::mid($value, 2)) ?? 0.0) + self::INFINITESIMAL;
-                $inMin = self::numberInInterval($min, $interval, $separator, $open, $close, $withValue, $limit);
-                $inMax = self::numberInInterval('&', $interval, $separator, $open, $close, $withValue, $limit);
+                $inMin = self::numberInInterval($min, $interval, $separator, $open, $close, $withValue, $limit, $decimal);
+                $inMax = self::numberInInterval('&', $interval, $separator, $open, $close, $withValue, $limit, $decimal);
                 if ($inMin && $inMax) {
                     $inside = true;
                 } elseif (! $inMin && ! $inMax) {
@@ -353,7 +355,7 @@ class VeolabResults
                     $notEvaluable = true;
                 }
             } else {
-                $inside = self::numberInInterval($value, $interval, $separator, $open, $close, $withValue, $limit);
+                $inside = self::numberInInterval($value, $interval, $separator, $open, $close, $withValue, $limit, $decimal);
             }
 
             $interval = self::mid($interval, $close + 1);
@@ -377,7 +379,7 @@ class VeolabResults
      * intervalo que empieza en $open y acaba en $close. Anota el límite
      * superado ("<a" / ">b", con el valor entre paréntesis si se pide).
      */
-    private static function numberInInterval($value, string $interval, string $separator, int $open, int $close, bool $withValue, string &$limit): bool
+    private static function numberInInterval($value, string $interval, string $separator, int $open, int $close, bool $withValue, string &$limit, string $decimal): bool
     {
         $infinite = $value === '&';
         $number = is_float($value) ? $value : (self::number((string) $value) ?? 0.0);
@@ -401,7 +403,7 @@ class VeolabResults
                     default => false,
                 };
                 if (! $okStart) {
-                    $limit = '<'.$start.($withValue ? ' ('.self::vbString($number).')' : '');
+                    $limit = '<'.$start.($withValue ? ' ('.self::vbString($number, $decimal).')' : '');
                 }
             } else {
                 $okStart = true; // no numérico: infinito
@@ -419,7 +421,7 @@ class VeolabResults
                     default => false,
                 };
                 if (! $okEnd) {
-                    $limit = '>'.$end.($withValue ? ' ('.self::vbString($number).')' : '');
+                    $limit = '>'.$end.($withValue ? ' ('.self::vbString($number, $decimal).')' : '');
                 }
             }
         } else {
@@ -548,16 +550,20 @@ class VeolabResults
         return self::$yesNo[$name];
     }
 
-    /** CDbl en español: punto de miles, coma decimal. Null si no es numérico. */
+    /**
+     * Número de un texto de Veolab. El separador decimal es el de la
+     * configuración regional de cada equipo, así que se admiten coma y punto
+     * (sin separador de miles). Null si no es numérico.
+     */
     public static function number(?string $value): ?float
     {
-        $text = str_replace(['.', ','], ['', '.'], trim((string) $value));
+        $text = str_replace(',', '.', trim((string) $value));
 
         return $text !== '' && is_numeric($text) ? (float) $text : null;
     }
 
-    /** CStr de un Double en español ("0,499999", "12", "1E-07"). */
-    public static function vbString(float $number): string
+    /** CStr de un Double con el separador decimal indicado ("0,499999", "12", "1E-07"). */
+    public static function vbString(float $number, string $decimal = ','): string
     {
         $text = sprintf('%.15G', $number);
         if (preg_match('/^(-?[\d.]+)E([+-])(\d+)$/', $text, $m)) {
@@ -565,7 +571,23 @@ class VeolabResults
             $text = $mantissa.'E'.$m[2].str_pad($m[3], 2, '0', STR_PAD_LEFT);
         }
 
-        return str_replace('.', ',', $text);
+        return str_replace('.', $decimal, $text);
+    }
+
+    /**
+     * Separador decimal con el que escribió el equipo: el del valor, o si no
+     * lleva, el de los extremos del intervalo; por defecto la coma.
+     */
+    private static function decimalSeparator(string $value, string $interval): string
+    {
+        if (str_contains($value, ',')) {
+            return ',';
+        }
+        if (str_contains($value, '.')) {
+            return '.';
+        }
+
+        return preg_match('/\d\.\d/', $interval) ? '.' : ',';
     }
 
     /** Letra de columna (1 = A, 27 = AA). */
