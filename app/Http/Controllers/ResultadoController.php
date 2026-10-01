@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Exceptions\BusinessRuleException;
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
+use App\Support\VeolabFormat;
+use App\Support\VeolabFormulas;
 use App\Support\VeolabLicense;
 use App\Support\VeolabResults;
 use Illuminate\Http\Request;
@@ -32,7 +34,9 @@ use Illuminate\Validation\ValidationException;
  *  - No se graba si algún informe de la operación está validado o tiene la
  *    firma total (InformesSinValidar); con la operación finalizada se borran
  *    las firmas de sus informes, que vuelven a pendientes.
- *  - Fórmulas (COTCFOM): todavía no se recalculan; la celda guarda el valor recibido.
+ *  - Formato de columna (COTCFOR) sobre los valores recibidos y fórmulas
+ *    (COTCFOM) recalculadas como al editar en la ficha (VeolabFormat,
+ *    VeolabFormulas); "recalcular" fuerza las de una técnica.
  *  - Cartas de control (módulo CDC): los resultados de control de una
  *    operación de control se graban en Veolab.
  */
@@ -105,6 +109,7 @@ class ResultadoController extends BaseController
         'analista_delegacion' => 'nullable|string|max:10',
         'analista_codigo'     => 'nullable|integer|min:0',
         'observaciones'       => 'nullable|string|max:255',
+        'recalcular'          => 'nullable|string|in:T,F',
     ];
 
     // ------------------------------------------------------------------
@@ -263,11 +268,13 @@ class ResultadoController extends BaseController
         [$del, $ser, $cod] = $operation;
         $db = DB::connection('dynamic');
         $now = (string) $db->selectOne('SELECT NOW() AS n')->n;
-        $config = $db->table('LABCON')->where('CON1COD', 1)->first(['CONBMAI', 'CONBMAF', 'CONCFIN', 'CONBDSL']);
+        $config = $db->table('LABCON')->where('CON1COD', 1)->first(['CONBMAI', 'CONBMAF', 'CONCFIN', 'CONBDSL', 'CONBEFD']);
 
         $techniques = VeolabResults::techniques($del, $ser, $cod);
         $cells = VeolabResults::cells($del, $ser, $cod);
         $marks = VeolabResults::marks();
+        $formulas = new VeolabFormulas($cells, $techniques, $operation, $marks, ($config->CONBEFD ?? '') === 'T');
+        $hasFormulas = $formulas->hasFormulas();
 
         $resChanges = [];       // técnica => [columna LABRES => valor]
         $valueRows = [];        // técnicas con valores modificados
@@ -285,6 +292,7 @@ class ResultadoController extends BaseController
                 throw new BusinessRuleException("La técnica {$label} está repetida");
             }
             $resChanges[$tec] = [];
+            $rowValuesChanged = false;
 
             foreach ($input['valores'] ?? [] as $letter => $value) {
                 $cell = &$this->cell($cells, $tec, (string) $letter, $label, true);
@@ -304,7 +312,12 @@ class ResultadoController extends BaseController
                 if (VeolabResults::applyRangeMark($cell, $marks, $del, $keepLimit)) {
                     $marksChanged = true;
                 }
+                if ($cell['formula'] !== '') {
+                    // Modificada a mano: su fórmula ya no se recalcula (salvo "recalcular").
+                    $formulas->markManual($tec, $cell['column']);
+                }
                 $valueRows[$tec] = true;
+                $rowValuesChanged = true;
                 unset($cell);
             }
 
@@ -326,6 +339,13 @@ class ResultadoController extends BaseController
                 unset($cell);
             }
 
+            // Fórmulas de la fila (y las de result() de toda la operación), como
+            // tras editar una celda en Veolab; "recalcular" fuerza todas.
+            $forced = ($input['recalcular'] ?? 'F') === 'T';
+            if ($hasFormulas && ($rowValuesChanged || $forced)) {
+                $formulas->recalculate($tec, $forced);
+            }
+
             if (array_key_exists('observaciones', $input)) {
                 $resChanges[$tec]['RESCOBS'] = (string) ($input['observaciones'] ?? '');
             }
@@ -344,6 +364,10 @@ class ResultadoController extends BaseController
                     $explicitDates[$tec][$column] = true;
                 }
             }
+        }
+
+        if ($formulas->marksChanged()) {
+            $marksChanged = true;
         }
 
         $this->assertNoControlResults($current, $cells);
@@ -414,7 +438,7 @@ class ResultadoController extends BaseController
             'fecha_fin'           => $op['end'],
             'dictamen_delegacion' => $op['verdict'][0] ?? null,
             'dictamen_codigo'     => $op['verdict'][1] ?? null,
-            'avisos'              => $warnings,
+            'avisos'              => array_merge($warnings, $formulas->warnings()),
         ];
     }
 
@@ -464,7 +488,7 @@ class ResultadoController extends BaseController
                 throw new BusinessRuleException("El valor de {$where} no es válido");
             }
 
-            return VeolabResults::numberText($value);
+            return $this->formatted(VeolabResults::numberText($value), $cell, $where);
         }
         if (! is_string($value)) {
             throw new BusinessRuleException("El valor de {$where} no es válido");
@@ -476,12 +500,11 @@ class ResultadoController extends BaseController
 
         switch ($cell['type']) {
             case 'N':
-                $number = VeolabResults::numberText($value);
-                if ($number === null) {
+                $value = VeolabResults::numberText($value);
+                if ($value === null) {
                     throw new BusinessRuleException("El valor de {$where} debe ser numérico");
                 }
-
-                return $number;
+                break;
             case 'F':
                 if (! preg_match('#^\s*(\d{1,2})/(\d{1,2})/(\d{2,4})(\s+\d{1,2}:\d{2}(:\d{2})?)?\s*$#', $value, $m)
                     || ! checkdate((int) $m[2], (int) $m[1], (int) $m[3])) {
@@ -495,7 +518,29 @@ class ResultadoController extends BaseController
                 break;
         }
 
-        return $value;
+        return $this->formatted($value, $cell, $where);
+    }
+
+    /**
+     * Formato de la columna (COTCFOR) sobre el valor introducido, como al
+     * confirmar la edición en la ficha (CAD_FormatoCondicional); en columnas
+     * numéricas el resultado debe seguir siendo un número.
+     */
+    private function formatted(string $value, array $cell, string $where): string
+    {
+        if ($cell['format'] === '' || $value === '') {
+            return $value;
+        }
+        try {
+            $formatted = VeolabFormat::conditional($value, $cell['format']);
+        } catch (\InvalidArgumentException) {
+            return $value; // formato condicional mal escrito: Veolab deja el valor sin formato
+        }
+        if ($cell['type'] === 'N' && trim($formatted) !== '' && ! VeolabFormat::isNumeric($formatted)) {
+            throw new BusinessRuleException("El valor de {$where} no es numérico con el formato de la columna");
+        }
+
+        return mb_substr($formatted, 0, 255);
     }
 
     private function date($value): ?string

@@ -648,10 +648,33 @@ de `FichaResultados` (`App\Support\VeolabResults`):
 - `422` si algún informe (no histórico) de la operación está validado o tiene la firma
   total. Al grabar una operación finalizada se **borran las firmas** de sus informes, que
   vuelven a pendientes (p. ej. corrección tras un rechazo).
-- **Pendiente**: el recálculo de **fórmulas** (`COTCFOM`; de momento la celda guarda lo que
-  llega) y los formatos de columna (`COTCFOR`). Con el módulo de **cartas de control**, los
-  resultados de control de una operación de control (`OPEBCON`) se graban en Veolab (`422`).
-  Tampoco: notificaciones de marcas, importación de equipos.
+- **Formato de columna** (`COTCFOR`, `App\Support\VeolabFormat`): se aplica al valor recibido
+  como al confirmar la edición en la ficha (`CAD_FormatoCondicional`/`CAD_Formato`/`Format`
+  de VB): numéricos `0 # . , % E+`, secciones con `;`, cifras significativas `SSS`,
+  condicionales `F(<0,5|0,000|0,00)`, fechas/horas `dd/mm/yyyy hh:nn` y `<`/`>` en textos.
+  Los números se leen como VB con el separador del laboratorio (con coma decimal, `"1.5"` en
+  una columna de texto con formato numérico es 15). En columnas numéricas el resultado debe
+  seguir siendo numérico (`422`). Un formato no reconocido deja el valor como está.
+- **Fórmulas** (`COTCFOM`, `App\Support\VeolabFormulas`): réplica del analizador de Veolab
+  (mismas prioridades por paréntesis añadidos, evaluación de izquierda a derecha y rarezas):
+  columnas por letra, números con el separador del laboratorio, literales entre comillas,
+  `^ * / \ + - : = <> < > <= >= & | #` y `ln log sin cos tan sqr exp abs round(x;n)
+  if(c;a;b) not(x) cross(x;"a#b";...) format(x;"fmt") field("campo")
+  result(delegación;técnica;columna)`. Al cambiar algún valor de una técnica se recalculan
+  sus fórmulas (dependencias primero) y las de `result()` de toda la operación; el resultado
+  toma el formato de la columna y recalcula su marca (y puede sustituirse por el límite).
+  Una celda con fórmula cuyo valor llega en la petición no se recalcula (modificada a mano,
+  como en la ficha); `"recalcular": "T"` en la técnica las recalcula todas (menú "Recalcular").
+  Errores: desbordamiento, división por cero y error de función dejan el texto de Veolab
+  (`MEN00252/253/254`); un error de sintaxis deja la celda como estaba y añade un aviso.
+  Sin `LABCON.CONBEFD`, un operando vacío deja la celda vacía. `field()` calcula los
+  autodefinibles (`"ªNombre"`) y los campos directos de la operación y de la técnica
+  (`referenciaoperacion`, `temperaturaoperacion`, `fechainiciooperacion`, `codigotecnica`,
+  `unidadestecnica`, `fechafintecnica`...); con otro campo la celda no se recalcula y se
+  devuelve un aviso. En `result()` una columna numérica es la posición en esa técnica.
+- **Pendiente**: con el módulo de **cartas de control**, los resultados de control de una
+  operación de control (`OPEBCON`) se graban en Veolab (`422`). Tampoco: notificaciones de
+  marcas, importación de equipos, "establecer predeterminados".
 
 **Presupuestos** (`/presupuestos`, `FACPRE`; clave `delegacion` + `serie` + `codigo`). Réplica
 de `FichaPresupuesto`/`Presupuestos` (`App\Support\VeolabBillingLines`):
@@ -822,10 +845,29 @@ relación y `DELETE` la quita (clave completa en query string).
   de precios: suceso `M` en la propia tabla (fila = servicio/técnica, campo =
   cliente/tarifa, valores "precio descuento"). Autodefinibles: campo `LABAUTSER2COD` de
   `LABAUT` con el servicio.
-- Pendientes: intervalos de columnas (`LABCYR`) con las columnas de técnica (`LABCOT`),
-  en la entrega de fórmulas (insertar o quitar columnas reescribe las letras de las
-  fórmulas); materias primas (`ALMMAT`) con las series/lotes de producto (`ALMSEL`), que
-  son una ficha de inventario con stock.
+
+**Estructura de resultados de una técnica** (`/parametros/columnas`, `LABCOT` + `LABCYR`;
+clave `tecnica_delegacion` + `tecnica_codigo` + `columna`): la plantilla con la que se crean
+las columnas de resultado (`LABCOR`) de cada operación, como la rejilla de formato de
+`FichaTecnica`.
+- Campos: `titulo`, `titulo2`, `titulo3`, `tipo` (`N` · `T` · `F` · `H` · `C`), `formato`,
+  `seleccionables`, `predeterminado`, `formula`, `es_activa`, `es_editable`,
+  `es_visible_informe`, `es_visible_resultados`, `es_control_exactitud`,
+  `es_control_precision`; en la lectura también `letra`.
+- `columna` es la posición (A = 1). `POST` añade al final (por defecto: texto, activa,
+  editable y visible, sin control); solo se borra la última columna (`422`; las demás se
+  desactivan). La API no inserta ni mueve columnas, así que no reescribe las letras de las
+  fórmulas (eso lo hace la ficha de Veolab al insertar).
+- `rangos`: `[{"rango_delegacion": "", "rango_codigo": 2, "intervalo": "[0;7,5]",
+  "marca_delegacion": "", "marca_codigo": 3}]` (rangos de la delegación de la técnica o
+  generales; marca de esa delegación o general). En `POST`/`PUT` sustituye los intervalos de
+  la columna; la lectura devuelve los rangos con intervalo o marca. Veolab carga los
+  intervalos por posición, así que se guarda una fila de `LABCYR` por cada rango y columna
+  (vacía si no se usa), como al grabar la ficha.
+- Los cambios no tocan las operaciones ya creadas, salvo fórmula, formato, tipo,
+  seleccionables y predeterminado, que los resultados leen de aquí.
+- Auditoría como la ficha: suceso de fila de la técnica (nivel 2) o de campo `LABCOT`
+  (nivel 3).
 
 **Subtablas** (`ChildController`): clave = la entidad padre (`{grupo}_delegacion` +
 `{grupo}_codigo`) + `codigo` de línea. Sin `codigo`, el siguiente dentro del padre (como

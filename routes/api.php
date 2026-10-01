@@ -69,6 +69,9 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     $resource('/festivos', 'FestivoController');
     $resource('/autodefinibles', 'AutodefinibleController');
 
+    // --- Estructura de resultados de una técnica (LABCOT + LABCYR; clave tecnica_* + columna) ---
+    $resource('/parametros/columnas', 'ParametroColumnaController');
+
     // --- Subtablas (clave = la entidad padre + codigo de línea) ---
     $resource('/cargos/tareas', 'CargoTareaController');
     $resource('/empleados/ausencias', 'EmpleadoAusenciaController');

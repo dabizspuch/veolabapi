@@ -99,6 +99,8 @@ class VeolabResults
                 'markBefore' => [(string) ($row->MAR2DEL ?? ''), (int) $row->MAR2COD],
                 'type'       => (string) ($row->COTCTIP ?? ''),
                 'formula'    => (string) ($row->COTCFOM ?? ''),
+                'format'     => (string) ($row->COTCFOR ?? ''),
+                'default'    => (string) ($row->COTCPRE ?? ''),
                 'title'      => (string) ($row->CORCTIT ?? ''),
                 'editable'   => $row->CORBACT === 'T' && $row->CORBEDI === 'T',
                 'control'    => $row->CORBCON === 'T' || $row->CORBCOP === 'T',
