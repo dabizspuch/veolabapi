@@ -273,12 +273,13 @@ class DocumentoController extends BaseController
         }
 
         $compress = VeolabDocuments::compressByDefault();
+        $zipName = VeolabDocuments::zipBaseName($name);
         $temporary = null;
         $db = DB::connection('dynamic');
 
         try {
             [$path, $size, $temporary] = VeolabDocuments::prepare(
-                $request->file('fichero')->getRealPath(), $compress, VeolabDocuments::fullName($name, $extension));
+                $request->file('fichero')->getRealPath(), $compress, VeolabDocuments::fullName($zipName, $extension));
 
             $code = VeolabDocuments::reserveDocumentCode($delegation);
             $firstBlock = VeolabDocuments::reserveBlockCodes($delegation, VeolabDocuments::blockCount($size));
@@ -302,7 +303,7 @@ class DocumentoController extends BaseController
                 'DIR2COD' => (int) $folder->DIR1COD,
             ];
             if ($compress) {
-                $document['FATCNOC'] = $name; // nombre de la entrada del ZIP
+                $document['FATCNOC'] = $zipName; // nombre (ASCII) de la entrada del ZIP
             }
             foreach ($table ? VeolabDocuments::ENTITIES[$table][2] : [] as $param) {
                 $document[$this->mapping[$param]] = $data[$param] ?? '';

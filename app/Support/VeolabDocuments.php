@@ -256,8 +256,24 @@ class VeolabDocuments
     // ------------------------------------------------------------------
 
     /**
+     * FATCNOC de un documento nuevo: el nombre en ASCII, sin caracteres no
+     * válidos en Windows. Veolab extrae el ZIP y busca FATCNOC.FATCTIP, así
+     * que un nombre sin acentos no depende de cómo el unzip32.dll de Veolab
+     * interprete la codificación de la entrada.
+     */
+    public static function zipBaseName(string $name): string
+    {
+        $ascii = trim(preg_replace('/[^\x20-\x7E]|[\\\\\/:*?"<>|]/', '_', Str::ascii($name)));
+
+        return $ascii === '' ? 'documento' : $ascii;
+    }
+
+    /**
      * Fichero a guardar: el subido o, si se comprime, un ZIP temporal con una
      * única entrada $entryName. Devuelve [ruta, tamaño, temporal a borrar].
+     * La entrada va en la página de códigos OEM (CP850) y sin la marca UTF-8,
+     * como la escribe Info-ZIP en Windows: el unzip32.dll de Veolab es
+     * anterior a los nombres UTF-8.
      */
     public static function prepare(string $path, bool $compress, string $entryName): array
     {
@@ -265,10 +281,15 @@ class VeolabDocuments
             return [$path, (int) filesize($path), null];
         }
 
+        $oemName = @iconv('UTF-8', 'CP850//TRANSLIT', $entryName);
+        if ($oemName === false || $oemName === '') {
+            $oemName = self::zipBaseName($entryName);
+        }
+
         $zipPath = tempnam(sys_get_temp_dir(), 'veozip');
         $zip = new \ZipArchive();
         if ($zip->open($zipPath, \ZipArchive::OVERWRITE) !== true
-            || ! $zip->addFile($path, $entryName)
+            || ! $zip->addFile($path, $oemName, 0, 0, \ZipArchive::FL_OVERWRITE | \ZipArchive::FL_ENC_CP437)
             || ! $zip->close()) {
             @unlink($zipPath);
             throw new \RuntimeException('No se ha podido comprimir el documento');
