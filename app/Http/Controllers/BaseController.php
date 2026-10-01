@@ -358,7 +358,7 @@ abstract class BaseController extends Controller
                 $query->whereIn($column, is_array($operand) ? $operand : $this->splitList((string) $operand));
                 break;
             case 'null':
-                filter_var($operand, FILTER_VALIDATE_BOOLEAN)
+                self::isTrue($operand)
                     ? $query->whereNull($column)
                     : $query->whereNotNull($column);
                 break;
@@ -378,7 +378,7 @@ abstract class BaseController extends Controller
         $column = $this->mapping["{$group}_codigo"];
         $empty = $this->foreignKeys[$group] === 'int' ? 0 : '';
 
-        if (filter_var($operand, FILTER_VALIDATE_BOOLEAN)) {
+        if (self::isTrue($operand)) {
             $query->where(function ($q) use ($column, $empty) {
                 $q->whereNull($column)->orWhere($column, $empty);
             });
@@ -611,6 +611,16 @@ abstract class BaseController extends Controller
         }
 
         return $type === 'int' && (int) $value === 0;
+    }
+
+    /**
+     * Valor verdadero de un filtro: T como los booleanos de Veolab, o
+     * true/1/yes/on (FILTER_VALIDATE_BOOLEAN no reconoce T).
+     */
+    private static function isTrue($value): bool
+    {
+        return is_string($value) && strtoupper(trim($value)) === 'T'
+            || filter_var($value, FILTER_VALIDATE_BOOLEAN);
     }
 
     private function splitList(string $value): array
