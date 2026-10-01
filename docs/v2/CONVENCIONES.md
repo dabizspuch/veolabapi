@@ -16,6 +16,7 @@
 9. [Formato de respuestas](#9-formato-de-respuestas)
 10. [Códigos de estado HTTP](#10-códigos-de-estado-http)
 11. [Gestión documental](#11-gestión-documental)
+    - [11 bis. Inventario](#11-bis-inventario)
 12. [Fixes de corrección a arrastrar de la v1](#12-fixes-de-corrección-a-arrastrar-de-la-v1)
 13. [Decisiones pendientes de confirmar](#13-decisiones-pendientes-de-confirmar)
 
@@ -330,6 +331,28 @@ propiedades.
 
 **Límite de tamaño:** lo marcan `upload_max_filesize` y `post_max_size` de
 PHP-FPM y `client_max_body_size` de Nginx; un cuerpo mayor da 413.
+
+## 11 bis. Inventario
+
+En Veolab el **producto** (`ALMPRD`, `/productos`) es el catálogo y los
+elementos reales del almacén son sus **series o lotes** (`ALMSEL`,
+`/inventario`, clave `producto_delegacion` + `producto_codigo` + `codigo`). Las
+existencias del producto son la suma de las de sus series y lotes que no están
+de baja, y se recalculan con cada cambio.
+
+| Recurso | Tabla | Notas |
+|---|---|---|
+| `/inventario` | `ALMSEL` | Como FichaInventario. Sin `codigo`, el siguiente numérico del producto. Alta: existencias del lote completo si no se indican, proveedor y precio del producto, movimiento `I`. Cambiar `existencias_cantidad` (o `existencias_unidades`, se calculan una de otra con `cantidad_unidad`) genera un ajuste `J`; dar de baja (`estado` B o `fecha_baja`) un movimiento `B` con la cantidad en negativo; reactivar, un `J`. No se borra si la usa una operación, un préstamo o es materia prima de otra (se da de baja). |
+| `/inventario/materias` | `ALMMAT` | Materias primas de una serie o lote (`materia_delegacion` + `materia_producto_codigo` + `materia_codigo`, `cantidad`). Alta: consumo `O` que descuenta existencias de la materia; cambio de cantidad: ajuste `J` con la diferencia; baja: ajuste que la devuelve. |
+| `/inventario/movimientos` | `ALMMOV` | Historial de movimientos (I inicial, E entrada, S salida, C compra, D devolución, P préstamo, B baja, O consumo, U uso, J ajuste, A anulación). Anotarlos a mano, como en Veolab, **no** cambia existencias. Los consumos y usos de las operaciones son de solo lectura. |
+
+**Consumos de operaciones.** Al crear una operación (también desde una
+planificación), por cada técnica: un uso `U` de 1 por equipo (`LABTYQ`) y un
+consumo `O` de `TYPNCON` por consumible (`LABTYP`) sobre la serie o lote
+predeterminado (vigente, con existencias; "en uso", después "límite de uso",
+después nuevos; para consumibles, si no hay ninguno con existencias, el mayor
+sin existencias). El consumo descuenta existencias sin bajar de cero (se reduce
+a lo disponible). Al borrar la operación se devuelven.
 
 ## 12. Fixes de corrección a arrastrar de la v1
 

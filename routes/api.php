@@ -117,6 +117,11 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     $resource('/tipos-operacion/matrices', 'TipoOperacionMatrizController');
     $resource('/proveedores/productos', 'ProveedorProductoController');
 
+    // --- Inventario: series y lotes (ALMSEL), materias primas (ALMMAT) y movimientos (ALMMOV) ---
+    $resource('/inventario', 'InventarioController');
+    $resource('/inventario/materias', 'InventarioMateriaController');
+    $resource('/inventario/movimientos', 'InventarioMovimientoController');
+
     // --- Gestión documental (DOCDIR, DOCFAT, DOCVER, DOCBLO, DOCDYP) ---
     // POST /documentos y POST /documentos/contenido van en multipart/form-data.
     $resource('/documentos', 'DocumentoController');

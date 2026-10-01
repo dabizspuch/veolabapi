@@ -820,7 +820,9 @@ class VeolabOperationServices
             ->where(fn ($q) => $q->where('SELDMAN', '>', $today)->orWhereNull('SELDMAN'))
             ->where(fn ($q) => $q->where('SELDVER', '>', $today)->orWhereNull('SELDVER'));
 
-        $lot = $base()->whereIn('SELCESA', ['U', 'L'])->where('SELNCAE', '>', 0)->min('SEL1COD')
+        // Como el VB (grupos por estado en orden): "en uso" antes que "límite de uso".
+        $lot = $base()->where('SELCESA', 'U')->where('SELNCAE', '>', 0)->min('SEL1COD')
+            ?? $base()->where('SELCESA', 'L')->where('SELNCAE', '>', 0)->min('SEL1COD')
             ?? $base()->where(fn ($q) => $q->whereIn('SELCESA', ['N', ''])->orWhereNull('SELCESA'))
                 ->where('SELNCAE', '>', 0)->min('SEL1COD');
 

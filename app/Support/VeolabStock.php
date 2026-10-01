@@ -10,8 +10,66 @@ use Illuminate\Support\Facades\DB;
  */
 class VeolabStock
 {
+    public const MOV_INICIAL = 'I';
+    public const MOV_AJUSTE = 'J';
+    public const MOV_BAJA = 'B';
     public const MOV_CONSUMO = 'O';
     public const MOV_USO = 'U';
+
+    /** Tipos de movimiento (ALMMOV.MOVCTIP). */
+    public const MOVEMENT_TYPES = ['I', 'E', 'S', 'C', 'D', 'P', 'B', 'O', 'U', 'J', 'A'];
+
+    /**
+     * ALM_GenerarMovimiento: movimiento de la serie/lote en la delegación del
+     * producto, sin operación, técnica ni usuario. Devuelve su código.
+     */
+    public static function movement(string $delegation, string $product, string $lot, float $quantity, string $type, ?string $date = null): int
+    {
+        $db = DB::connection('dynamic');
+        do {
+            $code = VeolabCodes::next('ALMMOV', '', $delegation);
+        } while ($db->table('ALMMOV')->where('DEL3COD', $delegation)->where('MOV1COD', $code)->exists());
+
+        $db->table('ALMMOV')->insert([
+            'DEL3COD' => $delegation,
+            'MOV1COD' => $code,
+            'MOVCTIP' => $type,
+            'MOVDFEC' => $date ?? DB::raw('NOW()'),
+            'MOVNCAN' => $quantity,
+            'PRD2DEL' => $delegation,
+            'PRD2COD' => $product,
+            'SEL2COD' => $lot,
+        ]);
+
+        return $code;
+    }
+
+    /**
+     * ALM_ActualizarExistenciasSerieLote con incremento: suma $delta a la
+     * cantidad en existencias y recalcula las unidades; nunca queda negativa.
+     */
+    public static function addToLot(string $delegation, string $product, string $lot, float $delta): void
+    {
+        $row = DB::connection('dynamic')->table('ALMSEL')
+            ->where('PRD3DEL', $delegation)->where('PRD3COD', $product)->where('SEL1COD', $lot)
+            ->lockForUpdate()->first(['SELNCAU', 'SELNCAE']);
+        if (! $row) {
+            return;
+        }
+
+        $quantity = (float) $row->SELNCAE + $delta;
+        DB::connection('dynamic')->table('ALMSEL')
+            ->where('PRD3DEL', $delegation)->where('PRD3COD', $product)->where('SEL1COD', $lot)
+            ->update($quantity > 0
+                ? ['SELNCAE' => $quantity, 'SELNUNE' => self::unitsFromQuantity((float) $row->SELNCAU, $quantity)]
+                : ['SELNCAE' => 0, 'SELNUNE' => 0]);
+    }
+
+    /** ALM_CalcularCantidadDeUnidades: cantidad por unidad × unidades (4 decimales). */
+    public static function quantityFromUnits(float $perUnit, float $units): float
+    {
+        return round($perUnit * $units, 4);
+    }
 
     /**
      * ALM_CancelarExistenciasOperaciones: devuelve a cada serie/lote la
