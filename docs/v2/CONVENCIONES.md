@@ -316,7 +316,10 @@ GET  /api/v2/documentos/contenido?delegacion=&codigo=[&version=][&inline=T]
 vez los códigos del fichero fuera de la transacción del alta (como Veolab). Si
 está comprimido (`FATBZIP`, o `VERBZIP` de la versión pedida) es un ZIP estándar
 (Info-ZIP) con una única entrada `FATCNOC.FATCTIP`: la API extrae esa única
-entrada sin fiarse del nombre (Veolab no lo actualiza al renombrar). La
+entrada sin fiarse del nombre (Veolab no lo actualiza al renombrar). Al
+escribir, el `unzip32.dll` de Veolab no entiende los nombres UTF-8: en las
+altas `FATCNOC` es el nombre en ASCII y la entrada va en CP850 sin la marca
+UTF-8, como Info-ZIP en Windows. La
 descarga se sirve en streaming bloque a bloque (`Content-Type` por la
 extensión, `Content-Disposition` con el nombre).
 
