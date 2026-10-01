@@ -186,9 +186,13 @@ abstract class BaseController extends Controller
                 }
             }
 
+            if (! $this->generatesCode && $this->keyQuery($this->keyColumnsFromData($validated))->exists()) {
+                throw new BusinessRuleException('El registro ya existe');
+            }
+
             DB::connection('dynamic')->table($this->table)->insert($this->toDb($validated, true));
 
-            VeolabAudit::record(VeolabAudit::INSERCION, $this->table, $this->auditRow($this->keyParamsFromData($validated)));
+            $this->auditCreated($validated, $this->keyParamsFromData($validated));
 
             $this->updateAdditionalData($validated, $this->keyParamsFromData($validated));
 
@@ -243,7 +247,7 @@ abstract class BaseController extends Controller
             $dbData = $this->toDb($validated);
             if ($dbData) {
                 $this->keyQuery($keyCols)->update($dbData);
-                $this->auditUpdate((array) $before, $dbData, $this->keyParamsFromRequest($request));
+                $this->auditUpdated((array) $before, $dbData, $this->keyParamsFromRequest($request));
             }
 
             $this->updateAdditionalData($validated, $this->keyParamsFromRequest($request));
@@ -272,7 +276,8 @@ abstract class BaseController extends Controller
     {
         $keyCols = $this->fullKeyColumns($request);
 
-        if (! $this->keyQuery($keyCols)->exists()) {
+        $before = $this->keyQuery($keyCols)->first();
+        if (! $before) {
             return response()->json(['message' => 'Registro no encontrado'], 404);
         }
 
@@ -283,7 +288,7 @@ abstract class BaseController extends Controller
             $this->keyQuery($keyCols)->delete();
             $this->deleteRelatedRecords($this->keyParamsFromRequest($request));
 
-            VeolabAudit::record(VeolabAudit::BORRADO, $this->table, $this->auditRow($this->keyParamsFromRequest($request)));
+            $this->auditDeleted((array) $before, $this->keyParamsFromRequest($request));
 
             DB::connection('dynamic')->commit();
 
@@ -667,11 +672,23 @@ abstract class BaseController extends Controller
         );
     }
 
+    /** Alta: suceso de inserción. */
+    protected function auditCreated(array $data, array $keyParams): void
+    {
+        VeolabAudit::record(VeolabAudit::INSERCION, $this->table, $this->auditRow($keyParams));
+    }
+
+    /** Borrado: suceso de borrado ($before = fila borrada). */
+    protected function auditDeleted(array $before, array $keyParams): void
+    {
+        VeolabAudit::record(VeolabAudit::BORRADO, $this->table, $this->auditRow($keyParams));
+    }
+
     /**
      * Modificación: con nivel 2 un suceso de fila; con nivel 3 uno por cada
      * campo que cambia (AUDCCAM = tabla+columna, valores nuevo y anterior).
      */
-    private function auditUpdate(array $before, array $dbData, array $keyParams): void
+    protected function auditUpdated(array $before, array $dbData, array $keyParams): void
     {
         $row = $this->auditRow($keyParams);
 

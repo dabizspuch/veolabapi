@@ -81,6 +81,26 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     Route::post('/planificaciones/generar', [$ns.'OperacionController', 'generateFromPlanning']);
     Route::put('/planificaciones/fechas', [$ns.'PlanificacionController', 'markDate']);
 
+    // --- Relaciones N:N (clave = las dos entidades: {grupo}_delegacion + {grupo}_codigo) ---
+    $resource('/servicios/tecnicas', 'ServicioTecnicaController');
+    $resource('/servicios/gastos', 'ServicioGastoController');
+    $resource('/servicios/precios-cliente', 'ServicioPrecioClienteController');
+    $resource('/servicios/precios-tarifa', 'ServicioPrecioTarifaController');
+    $resource('/servicios/autodefinibles', 'ServicioAutodefinibleController');
+    $resource('/parametros/matrices', 'ParametroMatrizController');
+    $resource('/parametros/normativas', 'ParametroNormativaController');
+    $resource('/parametros/precios-cliente', 'ParametroPrecioClienteController');
+    $resource('/parametros/precios-tarifa', 'ParametroPrecioTarifaController');
+    $resource('/parametros/empleados', 'ParametroEmpleadoController');
+    $resource('/parametros/equipos', 'ParametroEquipoController');
+    $resource('/parametros/consumibles', 'ParametroConsumibleController');
+    $resource('/empleados/clientes', 'EmpleadoClienteController');
+    $resource('/empleados/cargos', 'EmpleadoCargoController');
+    $resource('/cursos/alumnos', 'CursoAlumnoController');
+    $resource('/cursos/profesores', 'CursoProfesorController');
+    $resource('/tipos-operacion/matrices', 'TipoOperacionMatrizController');
+    $resource('/proveedores/productos', 'ProveedorProductoController');
+
     // Auditoría: solo lectura.
     Route::get('/auditorias', [$ns.'AuditoriaController', 'index']);
     Route::get('/auditorias-archivadas', [$ns.'AuditoriaArchivadaController', 'index']);

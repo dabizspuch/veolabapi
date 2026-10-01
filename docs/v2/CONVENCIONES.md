@@ -717,6 +717,45 @@ de `FichaPresupuesto`/`Presupuestos` (`App\Support\VeolabBillingLines`):
   impuesto 1 − impuesto 2 + suplidos (Veolab suma el impuesto 2), las líneas se guardan
   aunque no haya técnicas y los gastos agrupados con servicio no se repiten.
 
+**Relaciones N:N** (`RelationController`): la clave son las dos entidades, cada una con
+`{grupo}_delegacion` + `{grupo}_codigo`. `GET` con una entidad lista sus relaciones
+(p. ej. `GET /servicios/tecnicas?servicio_delegacion=&servicio_codigo=S01`), `POST` crea
+(las dos entidades deben existir; repetida → `422`), `PUT` cambia los datos de la
+relación y `DELETE` la quita (clave completa en query string).
+
+| Ruta | Tabla | Grupos | Datos |
+|---|---|---|---|
+| `/servicios/tecnicas` | `LABSYT` | `servicio`, `tecnica` | `posicion` |
+| `/servicios/gastos` | `LABSYE` | `servicio`, `gasto` | |
+| `/servicios/precios-cliente` | `LABSYC` | `servicio`, `cliente` | `precio`, `descuento`, `referencia` |
+| `/servicios/precios-tarifa` | `LABSYF` | `servicio`, `tarifa` | `precio`, `descuento` |
+| `/servicios/autodefinibles` | `LABAYS` | `autodefinible`, `servicio` | |
+| `/parametros/matrices` | `LABTYM` | `tecnica`, `matriz` | |
+| `/parametros/normativas` | `LABTYN` | `tecnica`, `normativa` | `valor`, `rango` |
+| `/parametros/precios-cliente` | `LABTYC` | `tecnica`, `cliente` | `precio`, `descuento`, `referencia` |
+| `/parametros/precios-tarifa` | `LABTYF` | `tecnica`, `tarifa` | `precio`, `descuento` |
+| `/parametros/empleados` | `LABTYE` | `tecnica`, `empleado` | `posicion` |
+| `/parametros/equipos` | `LABTYQ` | `tecnica`, `producto` | `formato_importacion`, `fichero`, `columna` |
+| `/parametros/consumibles` | `LABTYP` | `tecnica`, `producto` | `cantidad` |
+| `/empleados/clientes` | `GRHCLI` | `empleado`, `cliente` | |
+| `/empleados/cargos` | `GRHEYC` | `empleado`, `cargo` | `posicion` |
+| `/cursos/alumnos` | `GRHALU` | `curso`, `empleado` | `evaluacion`, `fecha_evaluacion`, `es_evidencia_adjunta`, `es_no_finalizado`, `comentarios`, `evaluador_*` |
+| `/cursos/profesores` | `GRHPRO` | `curso`, `empleado` | |
+| `/tipos-operacion/matrices` | `LABOYM` | `tipo_operacion`, `matriz` | |
+| `/proveedores/productos` | `ALMPYP` | `proveedor`, `producto` | `referencia`, `precio` |
+
+- `posicion` (orden en la ficha): sin indicarla, al final. Las técnicas de un servicio
+  empiezan en 2 (la ficha reserva la 1 para la fila del servicio).
+- Descuentos de precios: como en facturación, con el separador del laboratorio.
+- Auditoría como Veolab, que graba estas rejillas desde la ficha de una de las entidades:
+  suceso de fila (nivel 2) o de campo con la rejilla (nivel 3) sobre esa ficha (servicio,
+  técnica, normativa, empleado, curso, matriz o proveedor). Los precios, como la ventana
+  de precios: suceso `M` en la propia tabla (fila = servicio/técnica, campo =
+  cliente/tarifa, valores "precio descuento"). Autodefinibles: campo `LABAUTSER2COD` de
+  `LABAUT` con el servicio.
+- Pendientes, por depender de subtablas aún no expuestas: intervalos de columnas
+  (`LABCYR`, de `LABCOT`) y materias primas (`ALMMAT`, de `ALMSEL`).
+
 **Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
 al pasar a recibida (estado 1) o guardar en un estado posterior, los campos de la
 lista (columnas de `LABOPE` y autodefinibles `AU_<del>_<cod>.OYACVAL`) deben tener
