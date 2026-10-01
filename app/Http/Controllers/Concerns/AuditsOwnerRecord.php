@@ -21,6 +21,7 @@ trait AuditsOwnerRecord
         'GRHCAR' => 'CARCNOM',
         'LABMAT' => 'MATCDES',
         'LABNOR' => 'NORCDES',
+        'DOCDIR' => 'DIRCNOM',
     ];
 
     protected function recordOwnerChange(string $table, string $codeColumn, string $code, string $delegation, string $field): void

@@ -46,6 +46,49 @@ class VeolabCodes
         return $value;
     }
 
+    /**
+     * Reserva $count valores seguidos del contador y devuelve el ÚLTIMO, como
+     * DBS_Autoincremento con incremento (sin múltiplo): los reservados son
+     * [último - $count + 1, último]. Bloquea la fila hasta el commit.
+     */
+    public static function reserve(string $table, string $series, string $delegation, int $count): int
+    {
+        $table = substr($table, 0, 6);
+        $series = substr($series, 0, 15);
+        $delegation = substr($delegation, 0, 10);
+        $count = max($count, 1);
+
+        $where = ['DEL3COD' => $delegation, 'CLTCTAB' => $table, 'CLTCSER' => $series];
+        $row = DB::connection('dynamic')->table('ACCCLT')->where($where)->lockForUpdate()->first();
+
+        if (! $row) {
+            DB::connection('dynamic')->table('ACCCLT')->insert($where + ['CLTNVAL' => $count]);
+
+            return $count;
+        }
+
+        $value = (int) $row->CLTNVAL + $count;
+        DB::connection('dynamic')->table('ACCCLT')->where($where)->update(['CLTNVAL' => $value]);
+
+        return $value;
+    }
+
+    /**
+     * Recoloca el contador sobre el máximo real (DBS_RegistrarClaveTecnica),
+     * para cuando se ha quedado retrasado. Solo lo adelanta, nunca lo atrasa.
+     */
+    public static function realign(string $table, string $series, string $delegation, int $maximum): void
+    {
+        $where = ['DEL3COD' => substr($delegation, 0, 10), 'CLTCTAB' => substr($table, 0, 6), 'CLTCSER' => substr($series, 0, 15)];
+        $row = DB::connection('dynamic')->table('ACCCLT')->where($where)->lockForUpdate()->first();
+
+        if (! $row) {
+            DB::connection('dynamic')->table('ACCCLT')->insert($where + ['CLTNVAL' => $maximum]);
+        } elseif ((int) $row->CLTNVAL < $maximum) {
+            DB::connection('dynamic')->table('ACCCLT')->where($where)->update(['CLTNVAL' => $maximum]);
+        }
+    }
+
     /** Múltiplo configurado para la tabla (CFCNMUL), 1 si no hay. */
     public static function multiple(string $table): int
     {

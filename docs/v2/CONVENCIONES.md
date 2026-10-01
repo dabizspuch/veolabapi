@@ -259,35 +259,74 @@ Veolab guarda una FK vacía como `0` (código `int`) o `''` (código texto), no 
 
 ## 11. Gestión documental
 
-Endpoints nuevos (no rompen nada). El filtrado por privilegios de usuario final lo
-hace la app consumidora, no la API.
+Replica `Documentos.bas` y el explorador de Veolab. El filtrado por privilegios
+de usuario final (`DIRCCOM`, `DOCDYP`) lo hace la app consumidora, no la API.
 
-Modelo de datos:
+| Tabla | Rol | Recurso |
+|---|---|---|
+| `DOCDIR` | Carpetas (`DIRCTAB` = tabla de la funcionalidad, `DIRCCOM` = compartición, jerarquía `DIR2*`) | `/documentos/carpetas` |
+| `DOCDYP` | Perfiles con los que se comparte una carpeta (modo `P`) | `/documentos/carpetas/perfiles` (GET/POST/DELETE) |
+| `DOCFAT` | Documento: nombre, extensión, carpeta y entidad vinculada | `/documentos` |
+| `DOCVER` | Versiones | `/documentos/versiones` (GET/PUT/DELETE) |
+| `DOCBLO` | Contenido en trozos binarios | `/documentos/contenido` (GET descarga, POST sube) |
 
-| Tabla | Rol |
-|---|---|
-| `DOCDIR` | Carpetas (`DIRCTAB` = tabla asociada, `DIRCCOM` = modo de compartición, jerarquía por `DIR2*`) |
-| `DOCFAT` | Documento (metadatos): nombre `FATCNOM`, extensión `FATCTIP`, comprimido `FATBZIP`, versión actual `VER2COD`, + FKs a entidades (`CLI2COD`, `OPE2*`…) |
-| `DOCVER` | Versiones |
-| `DOCBLO` | Bloques binarios (`BLO1COD` orden, `BLONTAM` tamaño, `BLOLCON` contenido) |
+**Carpetas.** Las raíces (`carpeta_padre` vacía) las crea Veolab, una por
+funcionalidad (`SINCLI`, `LABOPE`… y `ZZZDIR` para las carpetas generales); no
+se modifican ni se borran. Una subcarpeta hereda la `tabla` de su padre, no se
+mueve, y una carpeta pública (delegación vacía) solo cuelga de otra pública.
+Solo se borran carpetas vacías. Las plantillas de exportación (`PLAPLA`) se
+gestionan desde Veolab.
 
-Recuperación del binario: leer `DOCFAT` → resolver versión (`VER2COD` o la pedida) →
-concatenar bloques `DOCBLO` **ordenados por `BLO1COD`** → si `FATBZIP='T'`,
-descomprimir (el binario es un ZIP que contiene un fichero llamado
-`FATCNOC.FATCTIP`).
+**Vínculo.** Un documento está en una carpeta (`carpeta_delegacion` +
+`carpeta_codigo`) y puede vincularse a **una** entidad de su misma delegación:
+`cliente_codigo`, `proveedor_codigo`, `tecnica_codigo`, `equipamiento_codigo`,
+`empleado_codigo`, `curso_codigo`, `operacion_serie`+`operacion_codigo`, orden,
+informe, lote, `planificacion_codigo`, `agenda_serie` (usuario)+`agenda_codigo`,
+contrato, presupuesto, factura, `producto_codigo` (+`producto_serie_lote_codigo`
+para una serie o lote), `carta_control_codigo`, `prestamo_codigo`. La carpeta
+debe ser de la tabla de la entidad (o `ZZZDIR` si no hay entidad); sin carpeta
+va a la raíz de esa tabla. En un PUT los parámetros de entidad sustituyen el
+vínculo entero; si cambia la tabla y no se indica carpeta, pasa a su raíz. El
+listado añade `tabla` (la de la entidad) y `en_papelera`.
 
-Endpoints previstos:
+**Papelera** = carpeta 0 (`?carpeta_codigo[null]=T`). `DELETE /documentos` la
+manda a la papelera; con `definitivo=T`, o si ya estaba en ella, se borra con
+sus versiones y bloques (Veolab no borra los bloques; la API sí). Para
+recuperarla, PUT con otra carpeta.
+
+**Alta y contenido (multipart/form-data, campo `fichero`):**
 ```
-GET /api/v2/documentos?tabla=SINCLI&delegacion=DEL001&codigo=5   → documentos de una entidad
-GET /api/v2/documentos/{delegacion}/{fat}                        → metadatos
-GET /api/v2/documentos/{delegacion}/{fat}/versiones              → histórico
-GET /api/v2/documentos/{delegacion}/{fat}/contenido[?version=]   → descarga (streaming)
+POST /api/v2/documentos                         → documento nuevo (versión 1)
+POST /api/v2/documentos/contenido?delegacion=&codigo=   → contenido nuevo
+GET  /api/v2/documentos/contenido?delegacion=&codigo=[&version=][&inline=T]
 ```
+- El alta acepta `delegacion`, la carpeta, la entidad, `nombre`/`extension`
+  (por defecto los del fichero), `descripcion`, `es_solo_lectura`,
+  `es_control_versiones`, `version_nombre`, `version_descripcion` y el autor
+  (`usuario_delegacion` + `usuario_codigo`). Se comprime si `ACCPAR.PARBZIP`.
+- Contenido nuevo, como al guardar en Veolab: con control de versiones, versión
+  nueva (`nueva_version=F` sobrescribe la actual); si no, con versión dual
+  (`PARBDUA`), versión nueva borrando la dual anterior; si no, se sobrescribe.
+  No se admite en documentos de solo lectura ni en la papelera.
+- `PUT /documentos/versiones` con `es_actual=T` restablece una versión; la
+  actual no se puede borrar.
 
-Puntos técnicos: usar `StreamedResponse` bloque a bloque (no cargar en memoria);
-**verificar el formato ZIP** que produce el módulo `ZIP.bas` de Veolab antes de
-implementar la descompresión (mayor riesgo técnico); `Content-Type` según `FATCTIP`,
-`Content-Disposition` con `FATCNOM`.
+**Almacenamiento.** Trozos de 65534 bytes (`DBS_MAX_BUFFER_BLOB`) ordenados por
+`BLO1COD`, del contador `ACCCLT 'DOCBLO'` de la delegación, reservando de una
+vez los códigos del fichero fuera de la transacción del alta (como Veolab). Si
+está comprimido (`FATBZIP`, o `VERBZIP` de la versión pedida) es un ZIP estándar
+(Info-ZIP) con una única entrada `FATCNOC.FATCTIP`: la API extrae esa única
+entrada sin fiarse del nombre (Veolab no lo actualiza al renombrar). La
+descarga se sirve en streaming bloque a bloque (`Content-Type` por la
+extensión, `Content-Disposition` con el nombre).
+
+**Auditoría** como Veolab: `I`/`B` de `DOCFAT` y `DOCDIR` con la fila
+"del-cod-nombre", `M` de `DOCBLO` al cambiar el contenido, `M` de `DOCVER` al
+restablecer una versión (fila "nombre.ext - del-versión"), `F`/`C` de las
+propiedades.
+
+**Límite de tamaño:** lo marcan `upload_max_filesize` y `post_max_size` de
+PHP-FPM y `client_max_body_size` de Nginx; un cuerpo mayor da 413.
 
 ## 12. Fixes de corrección a arrastrar de la v1
 

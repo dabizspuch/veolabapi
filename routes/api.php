@@ -117,6 +117,19 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     $resource('/tipos-operacion/matrices', 'TipoOperacionMatrizController');
     $resource('/proveedores/productos', 'ProveedorProductoController');
 
+    // --- Gestión documental (DOCDIR, DOCFAT, DOCVER, DOCBLO, DOCDYP) ---
+    // POST /documentos y POST /documentos/contenido van en multipart/form-data.
+    $resource('/documentos', 'DocumentoController');
+    Route::get('/documentos/contenido', [$ns.'DocumentoController', 'download']);
+    Route::post('/documentos/contenido', [$ns.'DocumentoController', 'upload']);
+    Route::get('/documentos/versiones', [$ns.'DocumentoVersionController', 'index']);
+    Route::put('/documentos/versiones', [$ns.'DocumentoVersionController', 'update']);
+    Route::delete('/documentos/versiones', [$ns.'DocumentoVersionController', 'destroy']);
+    $resource('/documentos/carpetas', 'CarpetaDocumentoController');
+    Route::get('/documentos/carpetas/perfiles', [$ns.'CarpetaPerfilController', 'index']);
+    Route::post('/documentos/carpetas/perfiles', [$ns.'CarpetaPerfilController', 'store']);
+    Route::delete('/documentos/carpetas/perfiles', [$ns.'CarpetaPerfilController', 'destroy']);
+
     // Auditoría: solo lectura.
     Route::get('/auditorias', [$ns.'AuditoriaController', 'index']);
     Route::get('/auditorias-archivadas', [$ns.'AuditoriaArchivadaController', 'index']);
