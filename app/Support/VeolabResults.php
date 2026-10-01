@@ -17,8 +17,8 @@ use Illuminate\Support\Facades\DB;
  *  - Dictamen (ObtenerDictamen) a partir de las marcas de la operación.
  *  - Fechas y estado de la operación (ConfigurarActualizacion): ver
  *    setStart/setEnd/setVerdict/markChanged sobre el array de estado.
- * Números con coma o punto decimal (el de la configuración regional de cada
- * equipo que escribe en Veolab), sin separador de miles.
+ * Números: se leen con coma o punto decimal (sin separador de miles) y se
+ * escriben con el separador del laboratorio (config veolab.decimal_separator).
  */
 class VeolabResults
 {
@@ -309,7 +309,6 @@ class VeolabResults
         $inside = false;
         $syntaxError = false;
         $separator = str_contains($interval, ';') ? ';' : ',';
-        $decimal = self::decimalSeparator($value, $interval);
         // Posición del separador en la lista completa (VB no la recalcula).
         $separatorPos = self::instr($interval, $separator);
 
@@ -328,8 +327,8 @@ class VeolabResults
                 $inside = str_contains($list, '"'.$value.'"');
             } elseif (str_starts_with($trimmed, '<')) {
                 $max = (self::number(self::mid($value, 2)) ?? 0.0) - self::INFINITESIMAL;
-                $inMin = self::numberInInterval(0.0, $interval, $separator, $open, $close, $withValue, $limit, $decimal);
-                $inMax = self::numberInInterval($max, $interval, $separator, $open, $close, $withValue, $limit, $decimal);
+                $inMin = self::numberInInterval(0.0, $interval, $separator, $open, $close, $withValue, $limit);
+                $inMax = self::numberInInterval($max, $interval, $separator, $open, $close, $withValue, $limit);
                 if ($inMin && $inMax) {
                     $inside = true;
                 } elseif (! $inMin && ! $inMax) {
@@ -342,8 +341,8 @@ class VeolabResults
                 }
             } elseif (str_starts_with($trimmed, '>')) {
                 $min = (self::number(self::mid($value, 2)) ?? 0.0) + self::INFINITESIMAL;
-                $inMin = self::numberInInterval($min, $interval, $separator, $open, $close, $withValue, $limit, $decimal);
-                $inMax = self::numberInInterval('&', $interval, $separator, $open, $close, $withValue, $limit, $decimal);
+                $inMin = self::numberInInterval($min, $interval, $separator, $open, $close, $withValue, $limit);
+                $inMax = self::numberInInterval('&', $interval, $separator, $open, $close, $withValue, $limit);
                 if ($inMin && $inMax) {
                     $inside = true;
                 } elseif (! $inMin && ! $inMax) {
@@ -355,7 +354,7 @@ class VeolabResults
                     $notEvaluable = true;
                 }
             } else {
-                $inside = self::numberInInterval($value, $interval, $separator, $open, $close, $withValue, $limit, $decimal);
+                $inside = self::numberInInterval($value, $interval, $separator, $open, $close, $withValue, $limit);
             }
 
             $interval = self::mid($interval, $close + 1);
@@ -379,7 +378,7 @@ class VeolabResults
      * intervalo que empieza en $open y acaba en $close. Anota el límite
      * superado ("<a" / ">b", con el valor entre paréntesis si se pide).
      */
-    private static function numberInInterval($value, string $interval, string $separator, int $open, int $close, bool $withValue, string &$limit, string $decimal): bool
+    private static function numberInInterval($value, string $interval, string $separator, int $open, int $close, bool $withValue, string &$limit): bool
     {
         $infinite = $value === '&';
         $number = is_float($value) ? $value : (self::number((string) $value) ?? 0.0);
@@ -403,7 +402,7 @@ class VeolabResults
                     default => false,
                 };
                 if (! $okStart) {
-                    $limit = '<'.$start.($withValue ? ' ('.self::vbString($number, $decimal).')' : '');
+                    $limit = '<'.$start.($withValue ? ' ('.self::vbString($number).')' : '');
                 }
             } else {
                 $okStart = true; // no numérico: infinito
@@ -421,7 +420,7 @@ class VeolabResults
                     default => false,
                 };
                 if (! $okEnd) {
-                    $limit = '>'.$end.($withValue ? ' ('.self::vbString($number, $decimal).')' : '');
+                    $limit = '>'.$end.($withValue ? ' ('.self::vbString($number).')' : '');
                 }
             }
         } else {
@@ -551,9 +550,9 @@ class VeolabResults
     }
 
     /**
-     * Número de un texto de Veolab. El separador decimal es el de la
-     * configuración regional de cada equipo, así que se admiten coma y punto
-     * (sin separador de miles). Null si no es numérico.
+     * Número de un texto de Veolab. Se admiten coma y punto decimal (lo
+     * guardado puede venir de equipos o clientes con otro separador), sin
+     * separador de miles. Null si no es numérico.
      */
     public static function number(?string $value): ?float
     {
@@ -562,8 +561,8 @@ class VeolabResults
         return $text !== '' && is_numeric($text) ? (float) $text : null;
     }
 
-    /** CStr de un Double con el separador decimal indicado ("0,499999", "12", "1E-07"). */
-    public static function vbString(float $number, string $decimal = ','): string
+    /** CStr de un Double con el separador del laboratorio ("0,499999", "12", "1E-07"). */
+    public static function vbString(float $number): string
     {
         $text = sprintf('%.15G', $number);
         if (preg_match('/^(-?[\d.]+)E([+-])(\d+)$/', $text, $m)) {
@@ -571,23 +570,29 @@ class VeolabResults
             $text = $mantissa.'E'.$m[2].str_pad($m[3], 2, '0', STR_PAD_LEFT);
         }
 
-        return str_replace('.', $decimal, $text);
+        return str_replace('.', self::decimalSeparator(), $text);
+    }
+
+    /** Separador decimal de los equipos Veolab del servidor (config veolab.decimal_separator). */
+    public static function decimalSeparator(): string
+    {
+        return config('veolab.decimal_separator') === '.' ? '.' : ',';
     }
 
     /**
-     * Separador decimal con el que escribió el equipo: el del valor, o si no
-     * lleva, el de los extremos del intervalo; por defecto la coma.
+     * Número (JSON, o texto con coma o punto decimal) como texto con el
+     * separador del laboratorio. Null si no es un número.
      */
-    private static function decimalSeparator(string $value, string $interval): string
+    public static function numberText($value): ?string
     {
-        if (str_contains($value, ',')) {
-            return ',';
+        if (is_int($value) || is_float($value)) {
+            return self::vbString((float) $value);
         }
-        if (str_contains($value, '.')) {
-            return '.';
+        if (! is_string($value) || ! preg_match('/^\s*([+-]?)(\d+)(?:[.,](\d+))?\s*$/', $value, $m)) {
+            return null;
         }
 
-        return preg_match('/\d\.\d/', $interval) ? '.' : ',';
+        return $m[1].$m[2].(isset($m[3]) ? self::decimalSeparator().$m[3] : '');
     }
 
     /** Letra de columna (1 = A, 27 = AA). */

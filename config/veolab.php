@@ -21,4 +21,19 @@ return [
         'encriptan'         => env('VEOLAB_ENC_ENCRIPTAN'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Separador decimal
+    |--------------------------------------------------------------------------
+    |
+    | Veolab escribe los números de los campos de texto (resultados, rangos,
+    | descuentos...) con la configuración regional de cada equipo; dentro de
+    | un laboratorio es la misma para todos. La API lo toma de aquí (uno por
+    | servidor: los laboratorios de cada VPS comparten país) para guardar los
+    | números que recibe y los textos que genera. "," o ".".
+    |
+    */
+
+    'decimal_separator' => env('VEOLAB_SEPARADOR_DECIMAL', ',') === '.' ? '.' : ',',
+
 ];

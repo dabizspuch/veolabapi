@@ -436,10 +436,10 @@ class ResultadoController extends BaseController
     }
 
     /**
-     * Valor de celda como lo guarda Veolab: texto tal cual llega; en las
-     * columnas numéricas con el separador decimal del laboratorio (coma o
-     * punto, según la configuración regional de sus equipos); en las casillas
-     * Sí/No (también T/F o booleano).
+     * Valor de celda como lo guarda Veolab (texto). Los números (JSON, o
+     * texto con coma o punto en las columnas numéricas) se escriben con el
+     * separador decimal del laboratorio (config veolab.decimal_separator),
+     * el mismo para todos sus equipos. Casillas: Sí/No (también T/F o booleano).
      */
     private function cellValue($value, array $cell, string $label): string
     {
@@ -460,9 +460,11 @@ class ResultadoController extends BaseController
             return '';
         }
         if (is_int($value) || is_float($value)) {
-            // El separador decimal depende de la configuración regional de cada
-            // equipo: la API no puede elegirlo, así que el número llega como texto.
-            throw new BusinessRuleException("El valor de {$where} debe enviarse como texto, con el separador decimal del laboratorio");
+            if (in_array($cell['type'], ['F', 'H'], true)) {
+                throw new BusinessRuleException("El valor de {$where} no es válido");
+            }
+
+            return VeolabResults::numberText($value);
         }
         if (! is_string($value)) {
             throw new BusinessRuleException("El valor de {$where} no es válido");
@@ -474,10 +476,12 @@ class ResultadoController extends BaseController
 
         switch ($cell['type']) {
             case 'N':
-                if (! preg_match('/^\s*[+-]?\d+([.,]\d+)?\s*$/', $value)) {
+                $number = VeolabResults::numberText($value);
+                if ($number === null) {
                     throw new BusinessRuleException("El valor de {$where} debe ser numérico");
                 }
-                break;
+
+                return $number;
             case 'F':
                 if (! preg_match('#^\s*(\d{1,2})/(\d{1,2})/(\d{2,4})(\s+\d{1,2}:\d{2}(:\d{2})?)?\s*$#', $value, $m)
                     || ! checkdate((int) $m[2], (int) $m[1], (int) $m[3])) {

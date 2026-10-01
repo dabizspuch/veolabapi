@@ -552,11 +552,14 @@ de `FichaResultados` (`App\Support\VeolabResults`):
   `&tecnica_delegacion=&tecnica_codigo=` el cuerpo son los campos de esa técnica (y el
   usuario). Respuesta: `estado`, fechas y dictamen de la operación y `avisos` de las marcas.
 - **Valores** por letra de columna, solo en celdas activas y editables, como texto
-  (máx. 255), **guardado tal cual llega**: los números con el separador decimal de los
-  equipos del laboratorio (Veolab usa la configuración regional de cada equipo; como en
-  presupuestos, quien llama debe escribirlos igual), siempre como texto (`"7,2"`; un
-  número JSON da `422`); la API entiende coma y punto al comparar con los rangos. Fechas
-  `dd/mm/aaaa`, horas `hh:mm`, casillas `T`/`F` (se guardan `Sí`/`No`). `null` vacía.
+  (máx. 255). **Números**: como número JSON (`7.2`) o como texto con coma o punto
+  (`"7,2"`, `"7.2"`), sin separador de miles; se guardan con el **separador decimal del
+  laboratorio** (`VEOLAB_SEPARADOR_DECIMAL` del `.env`, `,` por defecto: Veolab usa la
+  configuración regional de los equipos, la misma en todo el laboratorio y, por ahora,
+  en todos los de cada servidor). En columnas de texto, un número JSON se escribe igual
+  y un texto se guarda tal cual. Los rangos se comparan entendiendo coma y punto, y los
+  límites que escribe la API usan el separador del laboratorio. Fechas `dd/mm/aaaa`,
+  horas `hh:mm`, casillas `T`/`F` (se guardan `Sí`/`No`). `null` vacía.
 - **Marcas por rangos** (`LABCYR`/`LABRAN`, y los de normativa con el rango `LABTYN` de la
   normativa del servicio): al cambiar el valor de una celda con rangos se recalcula su
   marca (la primera concluyente; "no evaluable" `-2` si no la hay) y el valor puede
