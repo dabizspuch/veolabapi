@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class CursoController extends BaseController
 {
     protected string $table = 'GRHPAF';
+    protected ?string $auditDescription = 'PAFCDES';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'PAF1COD',

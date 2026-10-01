@@ -14,6 +14,7 @@ class RangoController extends BaseController
     use ChecksVeolabReferences;
 
     protected string $table = 'LABRAN';
+    protected ?string $auditDescription = 'RANCNOM';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'RAN1COD',

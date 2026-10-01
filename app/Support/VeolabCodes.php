@@ -82,13 +82,21 @@ class VeolabCodes
      * Código formateado para mostrar/auditar (PAR_FormatoCodigo). Sin
      * configuración para la tabla usa el formato de reserva de VB: del-ser-cod.
      * $info = ':SINFORMATO' (OPECINF de la operación) deja el código sin formato.
+     * $description solo se usa en el formato de reserva (tablas sin formato
+     * configurable): "del-ser-cod-descripción", como el ControlError de VB.
      */
-    public static function format(string $table, string $code, string $delegation = '', string $series = '', string $info = ''): string
+    public static function format(string $table, string $code, string $delegation = '', string $series = '', string $info = '', string $description = ''): string
     {
-        $config = self::config($table);
+        $config = $table === '' ? false : self::config($table);
 
         if (! $config) {
-            return implode('-', array_filter([$delegation, $series, $code], fn ($p) => $p !== ''));
+            $parts = array_filter([$delegation, $series], fn ($p) => $p !== '');
+            $parts[] = $code;
+            if ($description !== '') {
+                $parts[] = $description;
+            }
+
+            return implode('-', $parts);
         }
 
         $separator = (string) $config->CFCCSEP;

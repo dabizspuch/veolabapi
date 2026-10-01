@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class TipoOperacionController extends BaseController
 {
     protected string $table = 'LABTIO';
+    protected ?string $auditDescription = 'TIOCNOM';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'TIO1COD',

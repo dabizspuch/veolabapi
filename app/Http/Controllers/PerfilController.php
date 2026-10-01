@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class PerfilController extends BaseController
 {
     protected string $table = 'ACCPER';
+    protected ?string $auditDescription = 'PERCDES';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'PER1COD',

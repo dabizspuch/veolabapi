@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class DepartamentoController extends BaseController
 {
     protected string $table = 'GRHDEP';
+    protected ?string $auditDescription = 'DEPCNOM';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'DEP1COD',

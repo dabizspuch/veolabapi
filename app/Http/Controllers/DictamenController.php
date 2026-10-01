@@ -15,6 +15,7 @@ class DictamenController extends BaseController
     use ChecksVeolabReferences;
 
     protected string $table = 'LABDIC';
+    protected ?string $auditDescription = 'DICCDES';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'DIC1COD',

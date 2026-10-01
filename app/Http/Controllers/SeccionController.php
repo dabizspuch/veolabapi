@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class SeccionController extends BaseController
 {
     protected string $table = 'LABSEC';
+    protected ?string $auditDescription = 'SECCDES';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'SEC1COD',

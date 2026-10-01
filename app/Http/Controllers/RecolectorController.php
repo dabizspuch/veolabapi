@@ -10,6 +10,7 @@ class RecolectorController extends BaseController
     use ChecksVeolabReferences;
 
     protected string $table = 'LABREC';
+    protected ?string $auditDescription = 'RECCVAL';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'REC1COD',

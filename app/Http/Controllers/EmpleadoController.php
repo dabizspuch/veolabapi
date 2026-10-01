@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class EmpleadoController extends BaseController
 {
     protected string $table = 'GRHEMP';
+    protected ?string $auditDescription = 'EMPCNOM';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'EMP1COD',

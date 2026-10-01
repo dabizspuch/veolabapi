@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class TipoClienteController extends BaseController
 {
     protected string $table = 'SINTIC';
+    protected ?string $auditDescription = 'TICCDES';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'TIC1COD',

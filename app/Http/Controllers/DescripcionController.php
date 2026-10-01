@@ -10,6 +10,7 @@ class DescripcionController extends BaseController
     use ChecksVeolabReferences;
 
     protected string $table = 'LABDES';
+    protected ?string $auditDescription = 'DESCVAL';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'DES1COD',

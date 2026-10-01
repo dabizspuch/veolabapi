@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class CargoController extends BaseController
 {
     protected string $table = 'GRHCAR';
+    protected ?string $auditDescription = 'CARCNOM';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'CAR1COD',

@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class FormaEnvioController extends BaseController
 {
     protected string $table = 'LABFDE';
+    protected ?string $auditDescription = 'FDECDES';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'FDE1COD',

@@ -15,6 +15,7 @@ class TipoResiduoController extends BaseController
     use ChecksVeolabReferences;
 
     protected string $table = 'LABTDR';
+    protected ?string $auditDescription = 'TDRCDES';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'TDR1COD',

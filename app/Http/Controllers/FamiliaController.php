@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class FamiliaController extends BaseController
 {
     protected string $table = 'ALMFAM';
+    protected ?string $auditDescription = 'FAMCDES';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'FAM1COD',

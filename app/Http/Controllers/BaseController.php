@@ -49,6 +49,13 @@ abstract class BaseController extends Controller
      */
     protected array $foreignKeys = [];
 
+    /**
+     * Columna cuyo valor acompaña al código en la fila auditada (AUDCFIL)
+     * cuando la tabla no tiene formato configurable, como las fichas de
+     * Veolab que llaman a PAR_FormatoCodigo con la descripción.
+     */
+    protected ?string $auditDescription = null;
+
     /** Columna que marca baja/anulación, para el atajo ?is_deleted= (opcional). */
     protected ?string $inactiveField = null;
 
@@ -659,16 +666,27 @@ abstract class BaseController extends Controller
     // ------------------------------------------------------------------
 
     /**
-     * Fila auditada (AUDCFIL): el código formateado como en Veolab. Las tablas
+     * Fila auditada (AUDCFIL): el código formateado como en Veolab, con la
+     * descripción de $auditDescription (la vigente si no se pasa). Las tablas
      * cuya clave no sea delegación/serie/código deben sobreescribirlo.
      */
-    protected function auditRow(array $keyParams): string
+    protected function auditRow(array $keyParams, ?string $description = null): string
     {
+        if ($description === null && $this->auditDescription) {
+            $columns = [];
+            foreach ($this->keys as $param => $column) {
+                $columns[$column] = $keyParams[$param] ?? '';
+            }
+            $description = (string) $this->keyQuery($columns)->value($this->auditDescription);
+        }
+
         return VeolabCodes::format(
             $this->table,
             (string) ($keyParams[$this->codeKey] ?? ''),
             $this->delegationKey ? (string) ($keyParams[$this->delegationKey] ?? '') : '',
-            $this->seriesKey ? (string) ($keyParams[$this->seriesKey] ?? '') : ''
+            $this->seriesKey ? (string) ($keyParams[$this->seriesKey] ?? '') : '',
+            '',
+            (string) $description
         );
     }
 
@@ -681,7 +699,8 @@ abstract class BaseController extends Controller
     /** Borrado: suceso de borrado ($before = fila borrada). */
     protected function auditDeleted(array $before, array $keyParams): void
     {
-        VeolabAudit::record(VeolabAudit::BORRADO, $this->table, $this->auditRow($keyParams));
+        $description = $this->auditDescription ? (string) ($before[$this->auditDescription] ?? '') : null;
+        VeolabAudit::record(VeolabAudit::BORRADO, $this->table, $this->auditRow($keyParams, $description));
     }
 
     /**

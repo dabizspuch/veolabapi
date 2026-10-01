@@ -120,7 +120,7 @@ abstract class ChildController extends BaseController
 
     private function auditParent(array $keyParams): void
     {
-        $this->recordOwnerChange($this->parentEntity[0],
+        $this->recordOwnerChange($this->parentEntity[0], $this->parentEntity[1],
             (string) $keyParams["{$this->parentGroup}_codigo"],
             (string) $keyParams["{$this->parentGroup}_delegacion"],
             $this->auditField);

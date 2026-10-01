@@ -185,7 +185,7 @@ class AutodefinibleController extends BaseController
 
     // Auditoría: la configuración identifica el autodefinible por su nombre.
 
-    protected function auditRow(array $keyParams): string
+    protected function auditRow(array $keyParams, ?string $description = null): string
     {
         return (string) DB::connection('dynamic')->table('LABAUT')
             ->where('DEL3COD', (string) $keyParams['delegacion'])

@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class NormativaController extends BaseController
 {
     protected string $table = 'LABNOR';
+    protected ?string $auditDescription = 'NORCDES';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'NOR1COD',

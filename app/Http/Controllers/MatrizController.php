@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class MatrizController extends BaseController
 {
     protected string $table = 'LABMAT';
+    protected ?string $auditDescription = 'MATCDES';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'MAT1COD',

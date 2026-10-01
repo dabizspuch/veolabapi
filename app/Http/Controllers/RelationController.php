@@ -128,7 +128,7 @@ abstract class RelationController extends BaseController
     /** Suceso de la ficha de la entidad que mantiene la relación. */
     protected function auditOwnerChange(array $keyParams): void
     {
-        $this->recordOwnerChange($this->entities[$this->auditOwner][0],
+        $this->recordOwnerChange($this->entities[$this->auditOwner][0], $this->entities[$this->auditOwner][1],
             (string) $keyParams["{$this->auditOwner}_codigo"],
             (string) $keyParams["{$this->auditOwner}_delegacion"],
             $this->auditField);

@@ -321,7 +321,11 @@ Se aplican dentro del rediseño (no son parte del diseño nuevo, son fallos):
 | `DELETE` | `B` | ≥ 2 |
 
 - `AUDCFIL` = código formateado como `PAR_FormatoCodigo` (config. de `ACCCFC`;
-  sin ella, `del-ser-cod`). Tablas con otra forma de clave sobreescriben `auditRow()`.
+  sin ella, el formato de reserva `del-ser-cod[-descripción]`). Las tablas que Veolab
+  audita con su descripción (empleados, cargos, cursos, matrices, normativas, marcas,
+  rangos, dictámenes, secciones, tipos…) la declaran en `$auditDescription`; solo
+  aparece si la tabla no tiene formato configurable, como en VB. Tablas con otra forma
+  de clave sobreescriben `auditRow()`.
 - Cada token es una sesión de Veolab en `ACCSES` (`SESCOBS = 'API REST v2 (token N)'`,
   delegación y usuario vacíos): en Veolab se ve que el cambio vino de la API.
 - Cabecera opcional `X-Veolab-Sesion: <texto>` → `SESCOBS = 'API REST v2 (token N) - <texto>'`

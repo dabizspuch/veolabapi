@@ -19,6 +19,7 @@ class MarcaController extends BaseController
     use ChecksVeolabReferences;
 
     protected string $table = 'LABMAR';
+    protected ?string $auditDescription = 'MARCDES';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'MAR1COD',

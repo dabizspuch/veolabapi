@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class TipoEvaluacionController extends BaseController
 {
     protected string $table = 'SINTIE';
+    protected ?string $auditDescription = 'TIECDES';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'TIE1COD',

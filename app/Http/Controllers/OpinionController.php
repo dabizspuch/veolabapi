@@ -15,6 +15,7 @@ class OpinionController extends BaseController
     use ChecksVeolabReferences;
 
     protected string $table = 'LABOEI';
+    protected ?string $auditDescription = 'OEICVAL';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'OEI1COD',

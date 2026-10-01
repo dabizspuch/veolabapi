@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 class GastosController extends BaseController
 {
     protected string $table = 'LABESC';
+    protected ?string $auditDescription = 'ESCCDES';
     protected array $keys = [
         'delegacion' => 'DEL3COD',
         'codigo'     => 'ESC1COD',
