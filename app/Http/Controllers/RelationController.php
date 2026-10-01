@@ -3,8 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
-use App\Support\VeolabAudit;
-use App\Support\VeolabCodes;
+use App\Http\Controllers\Concerns\AuditsOwnerRecord;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -21,6 +20,8 @@ use Illuminate\Support\Facades\DB;
  */
 abstract class RelationController extends BaseController
 {
+    use AuditsOwnerRecord;
+
     /**
      * Entidades enlazadas, en el orden de la clave:
      * grupo => [tabla, columna de código, 'int' | longitud máxima del código, mensaje].
@@ -127,12 +128,9 @@ abstract class RelationController extends BaseController
     /** Suceso de la ficha de la entidad que mantiene la relación. */
     protected function auditOwnerChange(array $keyParams): void
     {
-        $table = $this->entities[$this->auditOwner][0];
-        $row = VeolabCodes::format($table,
+        $this->recordOwnerChange($this->entities[$this->auditOwner][0],
             (string) $keyParams["{$this->auditOwner}_codigo"],
-            (string) $keyParams["{$this->auditOwner}_delegacion"]);
-
-        VeolabAudit::record(VeolabAudit::MODIFICACION_FILA, $table, $row);
-        VeolabAudit::record(VeolabAudit::MODIFICACION_CAMPO, $table, $row, $this->auditField);
+            (string) $keyParams["{$this->auditOwner}_delegacion"],
+            $this->auditField);
     }
 }

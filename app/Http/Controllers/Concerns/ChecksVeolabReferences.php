@@ -33,6 +33,8 @@ trait ChecksVeolabReferences
             'forma_envio'         => ['LABFDE', 'FDE1COD', 'La forma de envío no existe'],
             'normativa'           => ['LABNOR', 'NOR1COD', 'La normativa no existe'],
             'usuario_validacion'  => ['ACCUSU', 'USU1COD', 'El usuario que valida no existe'],
+            'marca'               => ['LABMAR', 'MAR1COD', 'La marca no existe'],
+            'cargo'               => ['GRHCAR', 'CAR1COD', 'El cargo no existe'],
         ];
     }
 

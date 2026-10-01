@@ -59,6 +59,22 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     $resource('/productos', 'ProductoController');
     $resource('/proveedores', 'ProveedorController');
     $resource('/servicios', 'ServicioController');
+    $resource('/marcas', 'MarcaController');
+    $resource('/rangos', 'RangoController');
+    $resource('/dictamenes', 'DictamenController');
+    $resource('/opiniones', 'OpinionController');
+    $resource('/descripciones', 'DescripcionController');
+    $resource('/recolectores', 'RecolectorController');
+    $resource('/tipos-residuo', 'TipoResiduoController');
+    $resource('/festivos', 'FestivoController');
+    $resource('/autodefinibles', 'AutodefinibleController');
+
+    // --- Subtablas (clave = la entidad padre + codigo de línea) ---
+    $resource('/cargos/tareas', 'CargoTareaController');
+    $resource('/empleados/ausencias', 'EmpleadoAusenciaController');
+    $resource('/empleados/curriculum', 'EmpleadoCurriculumController');
+    $resource('/empleados/formacion', 'EmpleadoFormacionController');
+    $resource('/clientes/puntos-muestreo', 'ClientePuntoMuestreoController');
 
     // --- Tablas con serie (3 claves: delegacion + serie + codigo) ---
     $resource('/operaciones', 'OperacionController');

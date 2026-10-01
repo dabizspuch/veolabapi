@@ -753,8 +753,53 @@ relación y `DELETE` la quita (clave completa en query string).
   de precios: suceso `M` en la propia tabla (fila = servicio/técnica, campo =
   cliente/tarifa, valores "precio descuento"). Autodefinibles: campo `LABAUTSER2COD` de
   `LABAUT` con el servicio.
-- Pendientes, por depender de subtablas aún no expuestas: intervalos de columnas
-  (`LABCYR`, de `LABCOT`) y materias primas (`ALMMAT`, de `ALMSEL`).
+- Pendientes: intervalos de columnas (`LABCYR`) con las columnas de técnica (`LABCOT`),
+  en la entrega de fórmulas (insertar o quitar columnas reescribe las letras de las
+  fórmulas); materias primas (`ALMMAT`) con las series/lotes de producto (`ALMSEL`), que
+  son una ficha de inventario con stock.
+
+**Subtablas** (`ChildController`): clave = la entidad padre (`{grupo}_delegacion` +
+`{grupo}_codigo`) + `codigo` de línea. Sin `codigo`, el siguiente dentro del padre (como
+las rejillas de Veolab, no el contador `ACCCLT`). Auditoría sobre la ficha del padre, como
+las relaciones.
+
+| Ruta | Tabla | Padre | Datos |
+|---|---|---|---|
+| `/cargos/tareas` | `GRHTAR` | `cargo` | `descripcion` |
+| `/empleados/ausencias` | `GRHAUS` | `empleado` | `fecha_inicio`, `fecha_fin`, `descripcion` |
+| `/empleados/curriculum` | `GRHCUR` | `empleado` | `fecha_inicio`, `fecha_fin`, `cargo_*`, `departamento_*` |
+| `/empleados/formacion` | `GRHFOR` | `empleado` | `descripcion`, `observaciones`, fechas, `es_evidencia_adjunta`, `es_plan_empresa` |
+| `/clientes/puntos-muestreo` | `LABPUM` | `cliente` | `descripcion`, `referencia`, `es_baja`, `es_categoria`, `categoria_codigo`, ubicación, campos `sinac_*`… |
+
+- Puntos de muestreo: árbol de un nivel; un punto cuelga de la raíz (`categoria_codigo`
+  vacío) o de una categoría del mismo cliente. Una categoría no se da de baja ni cuelga de
+  otra. No se borra un punto usado en operaciones, planificaciones o líneas de factura
+  (`422`, se da de baja); borrar una categoría borra sus puntos.
+
+**Maestros de configuración** (delegación + código, código automático):
+
+| Ruta | Tabla | Notas |
+|---|---|---|
+| `/marcas` | `LABMAR` | `tipo` al crear: `normal`, `predeterminada` (código -1) o `no_evaluable` (-2), una de cada por delegación. Usada en intervalos o resultados → no se borra (`422`, se da de baja; Veolab lo permite preguntando); al borrar, los dictámenes que la usaban quedan sin marca. |
+| `/rangos` | `LABRAN` | Al borrar se borran sus intervalos (`LABCYR`). |
+| `/dictamenes` | `LABDIC` | Con `marca_*`. Usado en operaciones → `422`. |
+| `/opiniones` | `LABOEI` | `automatica`: C con normativa, S sin normativa, M por marca (con `marca_*`), I sin marcas. |
+| `/descripciones` | `LABDES` | `texto`. |
+| `/recolectores` | `LABREC` | `nombre`. |
+| `/tipos-residuo` | `LABTDR` | Descripción única en la delegación y las generales; usado en residuos → `422`. |
+| `/festivos` | `AGEFES` | `fecha` obligatoria. |
+| `/autodefinibles` | `LABAUT` | Ver abajo. |
+
+- **Autodefinibles** (definición): `ambito` O operaciones / L lotes (obligatorio, no se
+  cambia), `tipo_dato` (N, D, V, T, E, S, F, I), `formato` (opciones de S, tabla de F),
+  `orden` (al final si no se indica), categoría, editable desde resultados / con la
+  operación validada, baja y códigos de exportación. Nombre: empieza por letra, sin los
+  símbolos que rechaza Veolab y no repetido (las operaciones los identifican por nombre).
+  Al crear se añade a los campos de operación (`PERCCAO`) de los perfiles de su
+  delegación; al borrar se quita, y se borran sus servicios y valores. Con valor en alguna
+  operación o lote no se borra (`422`). Auditoría con el nombre como fila.
+- Fuera de la API por ahora: cartas de control (se rehacen), estadísticas, plantillas de
+  exportación, agenda, mensajes, movimientos/préstamos/residuos y tablas de sistema.
 
 **Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
 al pasar a recibida (estado 1) o guardar en un estado posterior, los campos de la
