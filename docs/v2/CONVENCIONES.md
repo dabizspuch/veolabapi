@@ -596,11 +596,12 @@ de `FichaPresupuesto`/`Presupuestos` (`App\Support\VeolabBillingLines`):
 - **Calculados** (solo lectura): `subtotal`, `base_imponible`, `importe_impuesto_1/2`,
   `suplidos`, `total` y `precios_modificados`. Base = subtotal − descuento; total =
   base + impuesto 1 − impuesto 2 (retención) + suplidos. Descuentos e impuestos son texto:
-  porcentaje (`"21%"`) o importe (`"15"`). **Se guardan tal cual llegan**, como en
-  Veolab, que los lee con el separador decimal de cada equipo: quien llama debe
-  escribir los decimales como los equipos del laboratorio (con configuración regional
-  española, `"10,5%"`; un `"10.5%"` Veolab lo leería allí como 105 %). La API entiende
-  coma y punto al calcular. Sin desglose (`N`) el `subtotal` se puede indicar a mano.
+  porcentaje (`"21%"`) o importe (`"15"`). Se aceptan con coma o punto decimal y
+  **se guardan con el separador del laboratorio** (`VEOLAB_SEPARADOR_DECIMAL`, ver
+  resultados), porque Veolab los lee con la configuración regional de sus equipos: con
+  coma, un `"10.5%"` guardado tal cual lo leería como 105 %. Lo mismo para los
+  descuentos de las líneas y para los que se copian del cliente, la tarifa o el
+  presupuesto. Sin desglose (`N`) el `subtotal` se puede indicar a mano.
 - **Al crear**, lo que no se indique: pendiente, fecha de hoy, desglose de
   `LABCON.CONCTID`; del cliente, su descuento, impuestos, tarifa y el vencimiento
   (fecha + días de vencimiento de presupuestos). Lo mismo al **cambiar de cliente**.

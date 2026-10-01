@@ -92,7 +92,7 @@ class ContratoController extends BaseController
 
     private const DATES = ['fecha_inicio', 'fecha_fin', 'fecha_ultima_facturacion', 'fecha_proxima_facturacion'];
 
-    /** Importe o porcentaje en texto: se guarda tal cual (ver PresupuestoController). */
+    /** Importe o porcentaje en texto: coma o punto, se guarda con el separador del laboratorio (ver PresupuestoController). */
     private const AMOUNT = 'regex:/^\d+([.,]\d+)?\s?%?$/';
 
     /**

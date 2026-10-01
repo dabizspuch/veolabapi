@@ -450,6 +450,17 @@ class VeolabBillingLines
         return round($amount, 2);
     }
 
+    /**
+     * Descuento o impuesto en texto ("10,5%", "3.20") con el separador
+     * decimal del laboratorio, para que Veolab lo lea igual que la API.
+     */
+    public static function localized(string $value): string
+    {
+        $separator = VeolabResults::decimalSeparator();
+
+        return strtr($value, ['.' => $separator, ',' => $separator]);
+    }
+
     // ------------------------------------------------------------------
     // Grabación y lectura
     // ------------------------------------------------------------------
@@ -472,7 +483,7 @@ class VeolabBillingLines
                 "{$p}CDES" => mb_substr($line['desc'], 0, 255),
                 "{$p}NCAN" => $line['qty'],
                 "{$p}NPRE" => $line['price'],
-                "{$p}CDTO" => mb_substr($line['discount'], 0, 15),
+                "{$p}CDTO" => mb_substr(self::localized($line['discount']), 0, 15),
                 "{$p}NTOT" => $line['total'],
                 "{$p}BAGR" => $line['collapsed'] ? 'T' : 'F',
                 "{$p}BDES" => $line['highlighted'] ? 'T' : '',

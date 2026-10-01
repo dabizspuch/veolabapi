@@ -157,7 +157,7 @@ class FacturaController extends BaseController
     /** Textos que Veolab guarda como '' cuando están vacíos. */
     private const EMPTY_AS_BLANK = ['descuento', 'tipo_impuesto_1', 'valor_impuesto_1', 'tipo_impuesto_2', 'valor_impuesto_2'];
 
-    /** Importe o porcentaje en texto: se guarda tal cual (ver PresupuestoController). */
+    /** Importe o porcentaje en texto: coma o punto, se guarda con el separador del laboratorio (ver PresupuestoController). */
     private const AMOUNT = 'regex:/^\d+([.,]\d+)?\s?%?$/';
 
     protected function rules(): array
@@ -372,6 +372,11 @@ class FacturaController extends BaseController
         if ($isNew) {
             foreach (self::EMPTY_AS_BLANK as $param) {
                 $data[$param] ??= '';
+            }
+        }
+        foreach (['descuento', 'valor_impuesto_1', 'valor_impuesto_2'] as $param) {
+            if (isset($data[$param])) {
+                $data[$param] = VeolabBillingLines::localized((string) $data[$param]);
             }
         }
         $data = $this->regenerateName($data, $value);

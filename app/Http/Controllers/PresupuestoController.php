@@ -95,10 +95,9 @@ class PresupuestoController extends BaseController
     ];
 
     /**
-     * Importe o porcentaje: "10", "10,5", "21%". Es texto y se guarda tal
-     * cual llega: Veolab lo lee con el separador decimal del equipo, así que
-     * quien llama debe escribirlo como los equipos del laboratorio. La API
-     * entiende coma y punto al calcular.
+     * Importe o porcentaje: "10", "10,5", "21%". Es texto: se acepta con coma
+     * o punto y se guarda con el separador decimal del laboratorio
+     * (VeolabBillingLines::localized), que es como lo lee Veolab.
      */
     private const AMOUNT = 'regex:/^\d+([.,]\d+)?\s?%?$/';
 
@@ -242,6 +241,11 @@ class PresupuestoController extends BaseController
         if ($isNew) {
             foreach (self::EMPTY_AS_BLANK as $param) {
                 $data[$param] ??= '';
+            }
+        }
+        foreach (['descuento', 'valor_impuesto_1', 'valor_impuesto_2'] as $param) {
+            if (isset($data[$param])) {
+                $data[$param] = VeolabBillingLines::localized((string) $data[$param]);
             }
         }
 
