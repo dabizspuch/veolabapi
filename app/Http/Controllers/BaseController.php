@@ -630,7 +630,18 @@ abstract class BaseController extends Controller
 
     private function validateData(array $data): array
     {
-        $validator = Validator::make($data, $this->rules());
+        $rules = $this->rules();
+
+        // Un número JSON en un campo de texto (p. ej. un código de producto
+        // generado, que la API devuelve como número) se toma como texto.
+        foreach ($rules as $field => $rule) {
+            $isString = is_array($rule) ? in_array('string', $rule, true) : in_array('string', explode('|', (string) $rule), true);
+            if ($isString && isset($data[$field]) && (is_int($data[$field]) || is_float($data[$field]))) {
+                $data[$field] = (string) $data[$field];
+            }
+        }
+
+        $validator = Validator::make($data, $rules);
         if ($validator->fails()) {
             throw new ValidationException($validator);
         }
