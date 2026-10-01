@@ -665,6 +665,14 @@ de `FichaResultados` (`App\Support\VeolabResults`):
   toma el formato de la columna y recalcula su marca (y puede sustituirse por el límite).
   Una celda con fórmula cuyo valor llega en la petición no se recalcula (modificada a mano,
   como en la ficha); `"recalcular": "T"` en la técnica las recalcula todas (menú "Recalcular").
+  Veolab no guarda esa marca de "modificada a mano" (solo vive mientras la rejilla está
+  cargada): igual que en Veolab tras recargar, una petición posterior que cambie otra celda
+  de la técnica vuelve a calcularla.
+  Las letras leen la rejilla de la ficha, no la base de datos: las celdas desactivadas
+  (`CORBACT`) cuentan como vacías (su fórmula sí se calcula y se graba si da algo, como en
+  Veolab). La API ve todas las técnicas de la operación, como la ficha en la vista por
+  operación con acceso total (en Veolab, con acceso restringido o en la vista por técnica,
+  `result()` de una técnica que no está en pantalla da vacío).
   Errores: desbordamiento, división por cero y error de función dejan el texto de Veolab
   (`MEN00252/253/254`); un error de sintaxis deja la celda como estaba y añade un aviso.
   Sin `LABCON.CONBEFD`, un operando vacío deja la celda vacía. `field()` calcula los

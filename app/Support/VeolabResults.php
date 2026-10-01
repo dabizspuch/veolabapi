@@ -102,6 +102,7 @@ class VeolabResults
                 'format'     => (string) ($row->COTCFOR ?? ''),
                 'default'    => (string) ($row->COTCPRE ?? ''),
                 'title'      => (string) ($row->CORCTIT ?? ''),
+                'active'     => $row->CORBACT === 'T',
                 'editable'   => $row->CORBACT === 'T' && $row->CORBEDI === 'T',
                 'control'    => $row->CORBCON === 'T' || $row->CORBCOP === 'T',
                 'ranges'     => $cellRanges,

@@ -78,6 +78,20 @@ class VeolabFormulas
         $this->cells = &$cells;
         $this->techniques = $techniques;
         $this->order = array_keys($techniques);
+
+        // Las fórmulas leen la rejilla de la ficha, no la base de datos, y la
+        // ficha no carga el valor de las celdas desactivadas (CORBACT): para
+        // las fórmulas están vacías (aunque su fórmula sí se calcula y se graba
+        // si da algo). El valor leído queda en 'original'.
+        foreach ($this->cells as &$columns) {
+            foreach ($columns as &$cell) {
+                if (! $cell['active']) {
+                    $cell['value'] = '';
+                }
+            }
+            unset($cell);
+        }
+        unset($columns);
     }
 
     /** Celda modificada a mano (no se recalcula salvo forzando). */
@@ -208,7 +222,7 @@ class VeolabFormulas
 
         $cell = &$this->cells[$tec][$column];
         [$yes, $no] = VeolabResults::yesNo();
-        if ($cell['type'] === 'C') {
+        if ($cell['type'] === 'C' && $cell['active']) {
             $new = $value === $yes ? $yes : $no;
             $distinct = ($cell['value'] === $yes) !== ($new === $yes);
         } else {
@@ -543,8 +557,8 @@ class VeolabFormulas
     private function cellText(string $tec, int $column): string
     {
         $cell = $this->cells[$tec][$column] ?? null;
-        if ($cell === null) {
-            return '';
+        if ($cell === null || ! $cell['active']) {
+            return ''; // celda inexistente o desactivada: vacía en la rejilla
         }
         if ($cell['type'] === 'C') {
             [$yes, $no] = VeolabResults::yesNo();
