@@ -439,6 +439,13 @@ PUT: `{ "permisos": [ { "funcionalidad": "LAB_OPE", "acceso": "E", "especial": 2
 
 - Solo **BMP, JPG o GIF** (Veolab la carga con `LoadPicture`, que no admite PNG), hasta
   2 MB; se comprueba por la cabecera del fichero.
+- Como mucho **2000 píxeles por lado**, y los JPG deben ser estándar (baseline) y en
+  RGB/grises: `LoadPicture` no abre JPG progresivos ni CMYK, y descomprime la imagen
+  entera; además la ficha del usuario la vuelve a grabar con `SavePicture` como BMP
+  sin comprimir. Una foto grande (aunque el JPG pese poco) hace fallar Veolab.
+- **Error de Veolab, no replicado:** `FichaUsuario.Grabar` borra `ACCFIR` solo si la
+  firma cambió, pero la vuelve a insertar (ya como BMP) en **cada** grabación de la
+  ficha, así que se va duplicando; al leerla se concatenan todos los trozos.
 - Se guarda como Veolab: trozos de 65534 bytes con `FIR1COD` del contador de
   `ACCFIR` (`ACCCLT`), en orden. Se audita el campo `ACCUSUUSUCBFI`.
 

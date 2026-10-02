@@ -19,11 +19,18 @@ use Illuminate\Support\Facades\Validator;
  *
  * GET descarga la imagen, POST (multipart, campo "fichero") la sustituye y
  * DELETE la quita. Se audita como FichaUsuario: campo ACCUSUUSUCBFI.
+ *
+ * LoadPicture descomprime la imagen entera en memoria y FichaUsuario.Grabar la
+ * vuelve a guardar con SavePicture, que la convierte en BMP sin comprimir: una
+ * foto grande hace fallar la ficha del usuario en Veolab aunque el fichero
+ * pese poco. Por eso se limitan también las dimensiones y se rechazan los JPG
+ * progresivos y CMYK, que LoadPicture no abre ("Imagen no válida").
  */
 class UsuarioFirmaController extends Controller
 {
     private const CHUNK = 65534;            // DBS_MAX_BUFFER_BLOB
     private const MAX_KB = 2048;
+    private const MAX_PX = 2000;            // por lado; 2000x2000 en BMP de 24 bits = 12 MB
 
     private const TYPES = [
         'bmp' => 'image/bmp',
@@ -74,8 +81,13 @@ class UsuarioFirmaController extends Controller
         }
 
         $content = (string) file_get_contents($request->file('fichero')->getRealPath());
-        if ($this->type($content) === null) {
+        $type = $this->type($content);
+        if ($type === null) {
             return response()->json(['message' => 'La firma debe ser una imagen BMP, JPG o GIF (Veolab no admite otros formatos)'], 422);
+        }
+        $error = $this->loadable($content, $type);
+        if ($error !== null) {
+            return response()->json(['message' => $error], 422);
         }
 
         $db = DB::connection('dynamic');
@@ -169,6 +181,57 @@ class UsuarioFirmaController extends Controller
             str_starts_with($content, 'GIF8')         => 'gif',
             default                                   => null,
         };
+    }
+
+    /** Motivo por el que LoadPicture no podría cargar la imagen; null si puede. */
+    private function loadable(string $content, string $type): ?string
+    {
+        $info = @getimagesizefromstring($content);
+        if ($info === false || $info[0] < 1 || $info[1] < 1) {
+            return 'La imagen de la firma está dañada o no se puede leer';
+        }
+        if ($info[0] > self::MAX_PX || $info[1] > self::MAX_PX) {
+            return 'La imagen de la firma mide '.$info[0].'x'.$info[1].' píxeles; el máximo es '
+                .self::MAX_PX.' por lado (Veolab no puede cargar imágenes tan grandes). Redúzcala y vuelva a subirla';
+        }
+        if ($type === 'jpg') {
+            if (($info['channels'] ?? 3) === 4) {
+                return 'La imagen JPG de la firma está en CMYK; Veolab solo admite JPG en RGB o escala de grises';
+            }
+            $sof = $this->jpegFrame($content);
+            if ($sof !== null && $sof !== 0xC0 && $sof !== 0xC1) {
+                return 'La imagen JPG de la firma es progresiva; Veolab solo admite JPG estándar (baseline). Guárdela de nuevo sin la opción progresiva';
+            }
+        }
+
+        return null;
+    }
+
+    /** Marcador SOFn (0xC0-0xCF) del JPG: 0xC0/0xC1 estándar, 0xC2 progresivo...; null si no aparece. */
+    private function jpegFrame(string $content): ?int
+    {
+        $pos = 2;
+        $len = strlen($content);
+        while ($pos + 4 <= $len) {
+            if (ord($content[$pos]) !== 0xFF) {
+                return null;
+            }
+            $marker = ord($content[$pos + 1]);
+            if ($marker === 0xFF) {             // relleno entre marcadores
+                $pos++;
+
+                continue;
+            }
+            if ($marker >= 0xC0 && $marker <= 0xCF && ! in_array($marker, [0xC4, 0xC8, 0xCC], true)) {
+                return $marker;
+            }
+            if ($marker === 0xD9 || $marker === 0xDA) { // fin de imagen o datos sin SOF antes
+                return null;
+            }
+            $pos += 2 + ((ord($content[$pos + 2]) << 8) | ord($content[$pos + 3]));
+        }
+
+        return null;
     }
 
     /** Suceso de fila del usuario y de campo ACCUSUUSUCBFI (FichaUsuario.Grabar). */
