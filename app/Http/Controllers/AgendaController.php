@@ -169,6 +169,10 @@ class AgendaController extends BaseController
 
             // Inicio: el indicado; si no, el de la periodicidad o el de la primera fecha.
             $start = $data['inicio'] ?? (($repeat && $before && $before->AGEDINI) ? $before->AGEDINI : ($current->FECTINI ?? null));
+            if (! isset($data['inicio']) && $repeat && $before && $before->AGEDINI && $current) {
+                // AGEDINI puede guardar solo el día: la hora es la de sus fechas (como la ficha).
+                $start = substr((string) $before->AGEDINI, 0, 10).' '.substr((string) $current->FECTINI, 11, 8);
+            }
             if ($start === null) {
                 throw new BusinessRuleException('La fecha de inicio es obligatoria');
             }

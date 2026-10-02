@@ -281,6 +281,16 @@ class PlanificacionController extends BaseController
             ];
         }
         $start = array_key_exists('fecha_inicio', $data) ? $data['fecha_inicio'] : ($before->PLODINI ?? null);
+        if (! array_key_exists('fecha_inicio', $data) && $start && in_array(substr((string) $start, 11, 8), ['', '00:00:00'], true)) {
+            // Veolab guarda en PLODINI solo el día: la hora es la de sus fechas
+            // (la ficha la carga de la fecha planificada).
+            $first = DB::connection('dynamic')->table('LABFEP')
+                ->where('PLO3DEL', $before->DEL3COD)->where('PLO3COD', $before->PLO1COD)
+                ->whereNotNull('FEPTINI')->orderBy('FEPTINI')->value('FEPTINI');
+            if ($first) {
+                $start = substr((string) $start, 0, 10).' '.substr((string) $first, 11, 8);
+            }
+        }
         unset($data['repeticion']);
 
         if (empty($start)) {
