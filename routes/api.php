@@ -153,6 +153,12 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     Route::post('/documentos/carpetas/perfiles', [$ns.'CarpetaPerfilController', 'store']);
     Route::delete('/documentos/carpetas/perfiles', [$ns.'CarpetaPerfilController', 'destroy']);
 
+    // --- Agenda: eventos (AGEAGE + AGEFEC + AGEASI), sus fechas por usuario y catálogos ---
+    Route::get('/agenda/fechas', [$ns.'AgendaController', 'dates']);
+    $resource('/agenda/estados', 'AgendaEstadoController');
+    $resource('/agenda/clasificaciones', 'AgendaClasificacionController');
+    $resource('/agenda', 'AgendaController');
+
     // --- Comunicaciones: notificaciones (ACCNOT), mensajes (MENMEN) y avisos pendientes (ACCAVI) ---
     Route::get('/notificaciones', [$ns.'NotificacionController', 'index']);
     Route::delete('/notificaciones', [$ns.'NotificacionController', 'destroy']);

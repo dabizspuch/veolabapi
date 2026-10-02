@@ -22,6 +22,7 @@
     - [11 quinquies. Configuración](#11-quinquies-configuración-solo-lectura)
     - [11 sexies. Cartas de control](#11-sexies-cartas-de-control)
     - [11 septies. Notificaciones, mensajes y avisos](#11-septies-notificaciones-mensajes-y-avisos)
+    - [11 octies. Agenda](#11-octies-agenda)
 12. [Fixes de corrección a arrastrar de la v1](#12-fixes-de-corrección-a-arrastrar-de-la-v1)
 13. [Decisiones pendientes de confirmar](#13-decisiones-pendientes-de-confirmar)
 
@@ -540,6 +541,34 @@ La API no tiene sesión de usuario: estas rutas trabajan sobre el usuario que se
 Tipos de notificación: B muestra recibida, C fecha de compromiso, A analista asignado, F firma
 pendiente, R resultado rechazado, I nuevo informe, M marca en resultados, S stock mínimo,
 O/V/N error, aviso y nueva carta de control.
+
+## 11 octies. Agenda
+
+Como FichaCalendario y Calendario de Veolab. Fase 1: eventos de una sola fecha; la
+**periodicidad es de solo lectura** (los eventos periódicos se crean en Veolab y aquí no
+cambian sus fechas, `422`). Fase 2 pendiente: portar `AGE_ColeccionPeriodicidad`, que
+servirá también para las planificaciones.
+
+| Recurso | Tabla | Notas |
+|---|---|---|
+| `/agenda` | `AGEAGE` (+ `AGEFEC`, `AGEASI`) | Clave `usuario_delegacion` + `usuario_codigo` (dueño) + `codigo` (contador por usuario). CRUD. |
+| `GET /agenda/fechas?usuario_*&desde=&hasta=` | `AGEFEC` | Fechas de los eventos del usuario o a los que asiste, en orden (para un calendario); `es_propio`. |
+| `/agenda/estados` | `AGEEST` | `descripcion` (50), `color` (entero de color de VB). |
+| `/agenda/clasificaciones` | `AGECLA` | Igual. |
+
+- **Evento**: `asunto`, `ubicacion`, `duracion` (0 0 min, 1 30 min, 2 1 h, 3 90 min, 4 2 h,
+  5 todo el día, 6 personalizada), `aviso_numero` + `aviso_unidad` (M, H, D, S), `es_privado`,
+  `notas`, `estado_*`, `clasificacion_*`, `planificacion_*` (solo lectura) y la periodicidad
+  (solo lectura: `frecuencia` 0 no, 1 diaria, 2 semanal, 3 mensual, 4 anual, y `periodicidad_*`).
+  La lectura trae `fechas` [{codigo, inicio, fin}] y `asistentes`.
+- **Escritura**: `inicio` (obligatorio al crear) y `fin` (por defecto el inicio; si solo cambia el
+  inicio se conserva la duración); `asistentes` [{usuario_delegacion, usuario_codigo}] sustituye la
+  lista (usuarios existentes, sin repetir ni el dueño).
+- **Avisos** (`ACCAVI` tipo A, ver §11 septies): para el dueño y cada asistente, uno al inicio de
+  cada fecha y otro antes según el aviso. Al cambiar las fechas se rehacen todos (como Veolab);
+  al cambiar asistentes o aviso se rehacen los de las fechas que no han empezado (Veolab no lo hace).
+- **Borrado**: fechas, asistentes y avisos; los documentos del evento van a la papelera (Veolab los
+  deja huérfanos). Borrar un estado o clasificación deja sin él a los eventos que lo usan.
 
 ## 12. Fixes de corrección a arrastrar de la v1
 
@@ -1106,8 +1135,8 @@ las relaciones.
   Al crear se añade a los campos de operación (`PERCCAO`) de los perfiles de su
   delegación; al borrar se quita, y se borran sus servicios y valores. Con valor en alguna
   operación o lote no se borra (`422`). Auditoría con el nombre como fila.
-- Fuera de la API por ahora: estadísticas, plantillas de exportación, agenda,
-  préstamos/residuos y tablas de sistema.
+- Fuera de la API por ahora: estadísticas, plantillas de exportación, periodicidad de la
+  agenda y las planificaciones, préstamos/residuos y tablas de sistema.
 
 **Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
 al pasar a recibida (estado 1) o guardar en un estado posterior, los campos de la
