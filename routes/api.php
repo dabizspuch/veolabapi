@@ -155,6 +155,7 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
 
     // --- Agenda: eventos (AGEAGE + AGEFEC + AGEASI), sus fechas por usuario y catálogos ---
     Route::get('/agenda/fechas', [$ns.'AgendaController', 'dates']);
+    Route::post('/periodicidad/fechas', [$ns.'PeriodicidadController', 'dates']);
     $resource('/agenda/estados', 'AgendaEstadoController');
     $resource('/agenda/clasificaciones', 'AgendaClasificacionController');
     $resource('/agenda', 'AgendaController');

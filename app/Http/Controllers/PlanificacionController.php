@@ -8,6 +8,7 @@ use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
 use App\Support\VeolabCustomFields;
 use App\Support\VeolabOperationServices;
+use App\Support\VeolabPeriodicity;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -18,9 +19,10 @@ use Illuminate\Support\Facades\Validator;
  * operación, sus servicios (LABPYS, LABPYT, LABPYG), autodefinibles (LABPYA)
  * y fechas planificadas (LABFEP). Réplica de FichaPlanificacion/Planificaciones.
  *
- *  - Periodicidad: de solo lectura (se configura en Veolab). La API admite
- *    planificaciones sin fecha (PLONFRE = -1) o con una sola fecha
- *    (fecha_inicio, PLONFRE = 0); las periódicas no cambian su fecha aquí.
+ *  - Fechas: sin fecha (PLONFRE = -1), fecha única (fecha_inicio,
+ *    PLONFRE = 0) o periódica (fecha_inicio + 'repeticion', ver
+ *    VeolabPeriodicity), como FichaPlanificacion: las fechas se generan
+ *    hasta el horizonte de periodicidades y se omiten las ya completadas.
  *  - Aviso en la agenda (PLOBAVI...): de solo lectura.
  *  - Al cambiar la fecha, las fechas no completadas se desactivan
  *    (FEPTINI = NULL, se conservan por el vínculo de códigos de barras) y se
@@ -140,10 +142,12 @@ class PlanificacionController extends BaseController
     ];
 
     /**
-     * Sin regla (solo lectura, se mantienen en Veolab): periodicidad_* y el
-     * aviso en la agenda; precios_modificados.
+     * Sin regla (solo lectura): periodicidad_* (se escriben con 'repeticion'),
+     * el aviso en la agenda y precios_modificados.
      *
-     * 'fecha_inicio': fecha única de la planificación (null = sin fecha).
+     * 'fecha_inicio': fecha (o inicio de la periodicidad; null = sin fecha).
+     * 'repeticion': {frecuencia, opcion, repetir, ordinal, dias | dias_semana |
+     * meses, fecha_fin, repeticiones, trasladar_laborable}.
      * 'servicios' solo al crear. 'autodefinibles': {"nombre": valor}.
      */
     protected function rules(): array
@@ -213,7 +217,7 @@ class PlanificacionController extends BaseController
             'servicios.*.delegacion'         => 'nullable|string|max:10',
             'servicios.*.codigo'             => 'required|string|max:20',
             'autodefinibles'                 => 'nullable|array',
-        ];
+        ] + VeolabPeriodicity::rules('repeticion');
     }
 
     protected function validateRelationships(array $data): void
@@ -242,18 +246,15 @@ class PlanificacionController extends BaseController
             $data['aviso_numero'] = 0;
             $data = $this->applyClientTariff($data);
             $this->checkServicesExist($data['servicios'] ?? []);
-            $data = $this->applyDate($data, array_key_exists('fecha_inicio', $data));
+            $data = $this->applyDate($data, $delegation, null);
         } else {
             if (array_key_exists('servicios', $data)) {
                 throw new BusinessRuleException('Los servicios solo se indican al crear la planificación');
             }
-            if (array_key_exists('fecha_inicio', $data)) {
-                $frequency = (int) DB::connection('dynamic')->table('LABPLO')
-                    ->where('DEL3COD', $keys['delegacion'])->where('PLO1COD', $keys['codigo'])->value('PLONFRE');
-                if ($frequency > self::SINGLE_DATE) {
-                    throw new BusinessRuleException('La planificación es periódica: su fecha se cambia en Veolab');
-                }
-                $data = $this->applyDate($data, true);
+            if (array_key_exists('fecha_inicio', $data) || array_key_exists('repeticion', $data)) {
+                $before = DB::connection('dynamic')->table('LABPLO')
+                    ->where('DEL3COD', $keys['delegacion'])->where('PLO1COD', $keys['codigo'])->first();
+                $data = $this->applyDate($data, $delegation, $before);
             }
         }
 
@@ -264,22 +265,59 @@ class PlanificacionController extends BaseController
     }
 
     /**
-     * Campos de periodicidad de una planificación sin fecha o con fecha única
-     * (FichaPlanificacion.Grabar sin periodicidad).
+     * Fecha y periodicidad (FichaPlanificacion.Grabar): sin fecha, fecha única
+     * o periódica. Sin 'repeticion' se conserva la periodicidad que tenía (al
+     * cambiar solo la fecha de una periódica, se regenera desde la nueva).
+     * Deja en '_fechas' la lista de fechas a generar.
      */
-    private function applyDate(array $data, bool $dateChanged): array
+    private function applyDate(array $data, string $delegation, ?object $before): array
     {
-        $single = ! empty($data['fecha_inicio']);
-        $data['periodicidad'] = $single ? self::SINGLE_DATE : self::NO_DATE;
-        $data['periodicidad_opcion'] = 0;
-        $data['periodicidad_repetir'] = 0;
-        $data['periodicidad_ordinal'] = 0;
-        $data['periodicidad_dia_semana'] = 0;
-        $data['periodicidad_fecha_fin'] = null;
-        $data['periodicidad_repeticiones'] = 0;
-        $data['periodicidad_laborable'] = 'F';
-        $data['fecha_inicio'] = $single ? (new \DateTime($data['fecha_inicio']))->format('Y-m-d H:i:s') : null;
-        $data['_fechas'] = $dateChanged;
+        $repeat = ! empty($data['repeticion']) ? VeolabPeriodicity::normalize($data['repeticion']) : null;
+        if ($repeat === null && ! array_key_exists('repeticion', $data) && $before && (int) $before->PLONFRE > self::SINGLE_DATE) {
+            $repeat = [
+                'frecuencia' => (int) $before->PLONFRE, 'opcion' => (int) $before->PLONOPC, 'repetir' => (int) $before->PLONREP,
+                'ordinal' => (int) $before->PLONORD, 'dias' => (int) $before->PLONSEM,
+                'fecha_fin' => $before->PLODFIN, 'repeticiones' => (int) $before->PLONINR, 'trasladar' => $before->PLOBLAB === 'T',
+            ];
+        }
+        $start = array_key_exists('fecha_inicio', $data) ? $data['fecha_inicio'] : ($before->PLODINI ?? null);
+        unset($data['repeticion']);
+
+        if (empty($start)) {
+            if ($repeat && $repeat['frecuencia'] > 0) {
+                throw new BusinessRuleException('La periodicidad necesita la fecha de inicio');
+            }
+            $repeat = null;
+            $data['periodicidad'] = self::NO_DATE;
+            $data['fecha_inicio'] = null;
+            $dates = [];
+        } else {
+            $startDate = new \DateTimeImmutable($start);
+            $data['fecha_inicio'] = $startDate->format('Y-m-d H:i:s');
+            if ($repeat && $repeat['frecuencia'] > 0) {
+                $dates = (new VeolabPeriodicity($delegation))->dates($startDate, $repeat['frecuencia'], $repeat['opcion'],
+                    $repeat['repetir'], $repeat['ordinal'], $repeat['dias'], $repeat['fecha_fin'], $repeat['repeticiones'],
+                    $repeat['trasladar'], VeolabPeriodicity::horizon());
+                if (! $dates) {
+                    throw new BusinessRuleException('La periodicidad no genera ninguna fecha');
+                }
+                $dates = array_map(fn ($d) => $d->format('Y-m-d H:i:s'), $dates);
+                $data['periodicidad'] = $repeat['frecuencia'];
+            } else {
+                $repeat = null;
+                $data['periodicidad'] = self::SINGLE_DATE;
+                $dates = [$data['fecha_inicio']];
+            }
+        }
+
+        $data['periodicidad_opcion'] = $repeat['opcion'] ?? 0;
+        $data['periodicidad_repetir'] = $repeat['repetir'] ?? 0;
+        $data['periodicidad_ordinal'] = $repeat['ordinal'] ?? 0;
+        $data['periodicidad_dia_semana'] = $repeat['dias'] ?? 0;
+        $data['periodicidad_fecha_fin'] = $repeat['fecha_fin'] ?? null;
+        $data['periodicidad_repeticiones'] = $repeat['repeticiones'] ?? 0;
+        $data['periodicidad_laborable'] = ($repeat['trasladar'] ?? false) ? 'T' : 'F';
+        $data['_fechas'] = $dates;
 
         return $data;
     }
@@ -293,8 +331,8 @@ class PlanificacionController extends BaseController
             VeolabOperationServices::addToPlanning($del, $cod, $data['servicios'], $data);
         }
 
-        if (! empty($data['_fechas'])) {
-            $this->regenerateDates($del, $cod, $data['fecha_inicio'] ?? null, $data['_nueva']);
+        if (isset($data['_fechas'])) {
+            $this->regenerateDates($del, $cod, $data['_fechas'], $data['_nueva']);
         }
 
         VeolabCustomFields::save('LABPLO', [$del, $cod], $data['_autodefinibles'] ?? [], $this->auditRow($keys), $data['_nueva']);
@@ -304,10 +342,11 @@ class PlanificacionController extends BaseController
 
     /**
      * Fechas planificadas (FichaPlanificacion.Grabar, "Periodicidad"): se
-     * desactivan las no completadas y se crea la nueva fecha, salvo que ya
-     * haya una completada con esa misma fecha.
+     * desactivan las no completadas (FEPTINI = NULL, se conservan por el
+     * vínculo de códigos de barras) y se crean las nuevas, salvo las que ya
+     * están completadas en esa misma fecha.
      */
-    private function regenerateDates(string $del, int $cod, ?string $date, bool $isNew): void
+    private function regenerateDates(string $del, int $cod, array $dates, bool $isNew): void
     {
         $db = DB::connection('dynamic');
         $plan = ['PLO3DEL' => $del, 'PLO3COD' => $cod];
@@ -317,20 +356,20 @@ class PlanificacionController extends BaseController
                 ->where(fn ($q) => $q->whereNull('FEPBCOM')->orWhere('FEPBCOM', 'F'))
                 ->update(['FEPTINI' => null]);
         }
-        if ($date === null) {
-            return;
+
+        $completed = $db->table('LABFEP')->where($plan)->where('FEPBCOM', 'T')->whereNotNull('FEPTINI')
+            ->pluck('FEPTINI')->map(fn ($d) => substr((string) $d, 0, 19))->flip()->all();
+
+        foreach ($dates as $date) {
+            if (isset($completed[$date])) {
+                continue;
+            }
+            do {
+                $code = VeolabCodes::next('LABFEP', '', $del);
+            } while ($db->table('LABFEP')->where($plan)->where('FEP1COD', $code)->exists());
+
+            $db->table('LABFEP')->insert($plan + ['FEP1COD' => $code, 'FEPTINI' => $date]);
         }
-
-        $completed = $db->table('LABFEP')->where($plan)->where('FEPBCOM', 'T')->where('FEPTINI', $date)->exists();
-        if ($completed) {
-            return;
-        }
-
-        do {
-            $code = VeolabCodes::next('LABFEP', '', $del);
-        } while ($db->table('LABFEP')->where($plan)->where('FEP1COD', $code)->exists());
-
-        $db->table('LABFEP')->insert($plan + ['FEP1COD' => $code, 'FEPTINI' => $date]);
     }
 
     /**
@@ -365,6 +404,9 @@ class PlanificacionController extends BaseController
         foreach ($rows as &$row) {
             $key = $row['delegacion']."\x1B".$row['codigo'];
             $row['fechas'] = $dates[$key] ?? [];
+            $row['repeticion'] = VeolabPeriodicity::describe((int) $row['periodicidad'], (int) $row['periodicidad_opcion'],
+                (int) $row['periodicidad_repetir'], (int) $row['periodicidad_ordinal'], (int) $row['periodicidad_dia_semana'],
+                $row['periodicidad_fecha_fin'], (int) $row['periodicidad_repeticiones'], $row['periodicidad_laborable'] === 'T');
             $row['autodefinibles'] = (object) ($values[$key] ?? []);
         }
 

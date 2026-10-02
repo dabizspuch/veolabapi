@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Exceptions\BusinessRuleException;
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
+use App\Support\VeolabPeriodicity;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -14,9 +15,10 @@ use Illuminate\Support\Facades\Validator;
  * FichaCalendario y Calendario de Veolab. Clave: usuario dueño
  * (usuario_delegacion + usuario_codigo) + codigo (contador por usuario).
  *
- *  - Fechas: 'inicio' y 'fin' crean un evento de una sola fecha. La
- *    periodicidad (frecuencia...) es de solo lectura por ahora: los eventos
- *    periódicos se crean en Veolab y aquí no cambian sus fechas (422).
+ *  - Fechas: 'inicio' y 'fin' (la duración de cada fecha) y opcionalmente
+ *    'repeticion' (ver VeolabPeriodicity) generan las fechas hasta el
+ *    horizonte de periodicidades, como FichaCalendario. Sin 'repeticion' se
+ *    conserva la periodicidad que tenía el evento.
  *  - Avisos (ACCAVI tipo A), como la ficha: para el dueño y cada asistente,
  *    uno al inicio de cada fecha y otro antes según aviso_numero/aviso_unidad
  *    (M minutos, H horas, D días, S semanas). Al cambiar las fechas se
@@ -104,7 +106,7 @@ class AgendaController extends BaseController
             'asistentes'                       => 'nullable|array',
             'asistentes.*.usuario_delegacion'  => 'nullable|string|max:10',
             'asistentes.*.usuario_codigo'      => 'required|string|max:15',
-        ];
+        ] + VeolabPeriodicity::rules('repeticion');
     }
 
     protected function validateRelationships(array $data): void
@@ -149,33 +151,65 @@ class AgendaController extends BaseController
             throw new BusinessRuleException('Falta la unidad del aviso (M, H, D o S)');
         }
 
-        // Fechas: solo eventos sin periodicidad.
+        // Fechas y periodicidad (FichaCalendario.Grabar).
         $dates = null;
-        if (array_key_exists('inicio', $data) || array_key_exists('fin', $data)) {
-            if (! $isNew && (int) $before->AGENFRE !== 0) {
-                throw new BusinessRuleException('Las fechas de un evento periódico se cambian en Veolab');
-            }
+        if (array_key_exists('inicio', $data) || array_key_exists('fin', $data) || array_key_exists('repeticion', $data)) {
             $current = $isNew ? null : $db->table('AGEFEC')
                 ->where('USU3DEL', $owner[0])->where('USU3COD', $owner[1])->where('AGE3COD', $keys['codigo'])
-                ->orderBy('FEC1COD')->first();
-            $start = $data['inicio'] ?? $current->FECTINI ?? null;
+                ->orderBy('FECTINI')->first();
+
+            $repeat = ! empty($data['repeticion']) ? VeolabPeriodicity::normalize($data['repeticion']) : null;
+            if ($repeat === null && ! array_key_exists('repeticion', $data) && $before && (int) $before->AGENFRE > 0) {
+                $repeat = [
+                    'frecuencia' => (int) $before->AGENFRE, 'opcion' => (int) $before->AGENOPC, 'repetir' => (int) $before->AGENREP,
+                    'ordinal' => (int) $before->AGENORD, 'dias' => (int) $before->AGENSEM,
+                    'fecha_fin' => $before->AGEDFIN, 'repeticiones' => (int) $before->AGENINR, 'trasladar' => $before->AGEBLAB === 'T',
+                ];
+            }
+
+            // Inicio: el indicado; si no, el de la periodicidad o el de la primera fecha.
+            $start = $data['inicio'] ?? (($repeat && $before && $before->AGEDINI) ? $before->AGEDINI : ($current->FECTINI ?? null));
             if ($start === null) {
                 throw new BusinessRuleException('La fecha de inicio es obligatoria');
             }
-            $start = new \DateTime($start);
+            $start = new \DateTimeImmutable($start);
             if (! empty($data['fin'])) {
-                $end = new \DateTime($data['fin']);
+                $end = new \DateTimeImmutable($data['fin']);
             } elseif ($current) {
-                // Solo cambia el inicio: se conserva la duración.
+                // Sin fin: se conserva la duración.
                 $length = (new \DateTime($current->FECTFIN))->getTimestamp() - (new \DateTime($current->FECTINI))->getTimestamp();
-                $end = (clone $start)->modify(($length >= 0 ? '+' : '').$length.' seconds');
+                $end = $start->modify(($length >= 0 ? '+' : '').$length.' seconds');
             } else {
-                $end = clone $start;
+                $end = $start;
             }
             if ($end < $start) {
                 throw new BusinessRuleException('La fecha de fin es anterior a la de inicio');
             }
-            $dates = [$start->format('Y-m-d H:i:s'), $end->format('Y-m-d H:i:s')];
+            $length = $end->getTimestamp() - $start->getTimestamp();
+
+            if ($repeat && $repeat['frecuencia'] > 0) {
+                $starts = (new VeolabPeriodicity($owner[0]))->dates($start, $repeat['frecuencia'], $repeat['opcion'],
+                    $repeat['repetir'], $repeat['ordinal'], $repeat['dias'], $repeat['fecha_fin'], $repeat['repeticiones'],
+                    $repeat['trasladar'], VeolabPeriodicity::horizon());
+                if (! $starts) {
+                    throw new BusinessRuleException('La periodicidad no genera ninguna fecha');
+                }
+                $data['periodicidad_inicio'] = $start->format('Y-m-d H:i:s');
+            } else {
+                $repeat = null;
+                $starts = [$start];
+                $data['periodicidad_inicio'] = null;
+            }
+            $data['frecuencia'] = $repeat['frecuencia'] ?? 0;
+            $data['periodicidad_opcion'] = $repeat['opcion'] ?? 0;
+            $data['periodicidad_repetir'] = $repeat['repetir'] ?? 0;
+            $data['periodicidad_ordinal'] = $repeat['ordinal'] ?? 0;
+            $data['periodicidad_dias'] = $repeat['dias'] ?? 0;
+            $data['periodicidad_fin'] = $repeat['fecha_fin'] ?? null;
+            $data['periodicidad_repeticiones'] = $repeat['repeticiones'] ?? 0;
+            $data['trasladar_laborable'] = ($repeat['trasladar'] ?? false) ? 'T' : 'F';
+
+            $dates = array_map(fn ($d) => [$d->format('Y-m-d H:i:s'), $d->modify("+{$length} seconds")->format('Y-m-d H:i:s')], $starts);
         }
 
         // Asistentes: usuarios existentes, sin repetir ni el propio dueño.
@@ -198,7 +232,7 @@ class AgendaController extends BaseController
             (array_key_exists('aviso_numero', $data) && (int) $data['aviso_numero'] !== (int) $before->AGENAVI)
             || (array_key_exists('aviso_unidad', $data) && (string) $data['aviso_unidad'] !== (string) $before->AGECAVI));
 
-        unset($data['inicio'], $data['fin'], $data['asistentes'], $data['codigo']);
+        unset($data['inicio'], $data['fin'], $data['asistentes'], $data['codigo'], $data['repeticion']);
         $data['_fechas'] = $dates;
         $data['_asistentes'] = $attendees;
         $data['_aviso'] = $warningChanged;
@@ -241,9 +275,11 @@ class AgendaController extends BaseController
             // Como la ficha: nueva lista de fechas y todos los avisos de nuevo.
             $db->table('AGEFEC')->where('USU3DEL', $del)->where('USU3COD', $usu)->where('AGE3COD', $cod)->delete();
             $db->table('ACCAVI')->where('AGE2DEL', $del)->where('AGE2USU', $usu)->where('AGE2COD', $cod)->delete();
-            $fec = VeolabCodes::reserve('AGEFEC', $usu, $del, 1);
-            $db->table('AGEFEC')->insert(['USU3DEL' => $del, 'USU3COD' => $usu, 'AGE3COD' => $cod, 'FEC1COD' => $fec,
-                'FECTINI' => $data['_fechas'][0], 'FECTFIN' => $data['_fechas'][1]]);
+            $last = VeolabCodes::reserve('AGEFEC', $usu, $del, count($data['_fechas']));
+            foreach (array_values($data['_fechas']) as $i => [$ini, $fin]) {
+                $db->table('AGEFEC')->insert(['USU3DEL' => $del, 'USU3COD' => $usu, 'AGE3COD' => $cod,
+                    'FEC1COD' => $last - count($data['_fechas']) + 1 + $i, 'FECTINI' => $ini, 'FECTFIN' => $fin]);
+            }
             $this->createWarnings($event, null);
             if (! $isNew) {
                 $auditField('AGEFEC');
@@ -301,6 +337,9 @@ class AgendaController extends BaseController
             $row['fechas'] = $db->table('AGEFEC')->where('USU3DEL', $del)->where('USU3COD', $usu)->where('AGE3COD', $cod)
                 ->orderBy('FECTINI')->get()
                 ->map(fn ($f) => ['codigo' => (int) $f->FEC1COD, 'inicio' => $f->FECTINI, 'fin' => $f->FECTFIN])->all();
+            $row['repeticion'] = VeolabPeriodicity::describe((int) $row['frecuencia'], (int) $row['periodicidad_opcion'],
+                (int) $row['periodicidad_repetir'], (int) $row['periodicidad_ordinal'], (int) $row['periodicidad_dias'],
+                $row['periodicidad_fin'], (int) $row['periodicidad_repeticiones'], $row['trasladar_laborable'] === 'T');
             $row['asistentes'] = $db->table('AGEASI')->where('USU3DEL', $del)->where('USU3COD', $usu)->where('AGE3COD', $cod)
                 ->get()->map(fn ($a) => ['usuario_delegacion' => $a->USA3DEL, 'usuario_codigo' => $a->USA3COD])->all();
         }

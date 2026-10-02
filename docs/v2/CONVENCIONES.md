@@ -23,6 +23,7 @@
     - [11 sexies. Cartas de control](#11-sexies-cartas-de-control)
     - [11 septies. Notificaciones, mensajes y avisos](#11-septies-notificaciones-mensajes-y-avisos)
     - [11 octies. Agenda](#11-octies-agenda)
+    - [11 nonies. Periodicidad](#11-nonies-periodicidad)
 12. [Fixes de corrección a arrastrar de la v1](#12-fixes-de-corrección-a-arrastrar-de-la-v1)
 13. [Decisiones pendientes de confirmar](#13-decisiones-pendientes-de-confirmar)
 
@@ -544,10 +545,8 @@ O/V/N error, aviso y nueva carta de control.
 
 ## 11 octies. Agenda
 
-Como FichaCalendario y Calendario de Veolab. Fase 1: eventos de una sola fecha; la
-**periodicidad es de solo lectura** (los eventos periódicos se crean en Veolab y aquí no
-cambian sus fechas, `422`). Fase 2 pendiente: portar `AGE_ColeccionPeriodicidad`, que
-servirá también para las planificaciones.
+Como FichaCalendario y Calendario de Veolab, con eventos de una fecha o periódicos
+(`repeticion`, ver §11 nonies).
 
 | Recurso | Tabla | Notas |
 |---|---|---|
@@ -558,17 +557,45 @@ servirá también para las planificaciones.
 
 - **Evento**: `asunto`, `ubicacion`, `duracion` (0 0 min, 1 30 min, 2 1 h, 3 90 min, 4 2 h,
   5 todo el día, 6 personalizada), `aviso_numero` + `aviso_unidad` (M, H, D, S), `es_privado`,
-  `notas`, `estado_*`, `clasificacion_*`, `planificacion_*` (solo lectura) y la periodicidad
-  (solo lectura: `frecuencia` 0 no, 1 diaria, 2 semanal, 3 mensual, 4 anual, y `periodicidad_*`).
-  La lectura trae `fechas` [{codigo, inicio, fin}] y `asistentes`.
-- **Escritura**: `inicio` (obligatorio al crear) y `fin` (por defecto el inicio; si solo cambia el
-  inicio se conserva la duración); `asistentes` [{usuario_delegacion, usuario_codigo}] sustituye la
-  lista (usuarios existentes, sin repetir ni el dueño).
+  `notas`, `estado_*`, `clasificacion_*`, `planificacion_*` (solo lectura) y los campos guardados
+  de la periodicidad (`frecuencia`, `periodicidad_*`, solo lectura). La lectura trae `fechas`
+  [{codigo, inicio, fin}], `asistentes` y `repeticion` (el objeto de §11 nonies, o null).
+- **Escritura**: `inicio` (obligatorio al crear; con periodicidad es su comienzo) y `fin` (la
+  duración de cada fecha; por defecto la que tenía, o ninguna); `repeticion` genera las fechas
+  (`null` o frecuencia 0 = fecha única; sin indicarla se conserva la del evento). Cualquier
+  cambio de fechas rehace la lista entera. `asistentes` [{usuario_delegacion, usuario_codigo}]
+  sustituye la lista (usuarios existentes, sin repetir ni el dueño).
 - **Avisos** (`ACCAVI` tipo A, ver §11 septies): para el dueño y cada asistente, uno al inicio de
   cada fecha y otro antes según el aviso. Al cambiar las fechas se rehacen todos (como Veolab);
   al cambiar asistentes o aviso se rehacen los de las fechas que no han empezado (Veolab no lo hace).
 - **Borrado**: fechas, asistentes y avisos; los documentos del evento van a la papelera (Veolab los
   deja huérfanos). Borrar un estado o clasificación deja sin él a los eventos que lo usan.
+
+## 11 nonies. Periodicidad
+
+`AGE_ColeccionPeriodicidad` de Veolab (`VeolabPeriodicity`), para la agenda y las
+planificaciones. Se escribe con el objeto `repeticion`:
+
+| Campo | Significado |
+|---|---|
+| `frecuencia` | 0 sin periodicidad, 1 diaria, 2 semanal, 3 mensual, 4 anual. |
+| `opcion` | Diaria: 0 cada `repetir` días, 1 todos los laborables. Mensual: 0 el día `ordinal`, 1 el `ordinal` `dias`. Anual: 0 el `ordinal` `dias` del mes `repetir`, 1 los meses de `meses`. |
+| `repetir` | Intervalo (días, semanas, meses). En la anual opción 0, el mes (0 enero .. 11 diciembre). |
+| `ordinal` | Mensual opción 0: día del mes (1..31). Si no: 0 primer, 1 segundo, 2 tercer, 3 cuarto, 4 último. |
+| `dias` | Semanal: producto de L 2, M 3, X 5, J 7, V 11, S 13, D 17 (0 = todos), o `dias_semana: ["L","X"]`. Mensual opción 1: 0 día, 1 día laborable, 2..8 lunes..domingo. Anual opción 0: 0 día, 1..7 lunes..domingo. Anual opción 1: máscara de meses (enero 1 .. diciembre 2048), o `meses: [1, 6]`. |
+| `fecha_fin` | Fin de la periodicidad (no cuenta si hay `repeticiones`). |
+| `repeticiones` | Número de vueltas (días, semanas, meses o años), 0 = sin límite. |
+| `trasladar_laborable` | T: cada fecha pasa al siguiente laborable (sábados, domingos y festivos de la delegación, si el módulo de agenda está activo). |
+
+- Las fechas se generan hasta el **horizonte** de periodicidades: `LABCON.CONDPER`, y al menos
+  hoy + 180 días (lo que fija Veolab al arrancar). Veolab amplía el horizonte y regenera las
+  periódicas por su cuenta; la API no cambia `CONDPER`.
+- Como Veolab, el límite es un día a las 00:00: una fecha con hora ese mismo día queda fuera.
+- Correcciones respecto a Veolab: no se repiten fechas al trasladar en la diaria, el "último
+  lunes..domingo" anual se calcula bien (Veolab resta 7 días de más) y en la anual enero
+  (`repetir` 0) no pasa a febrero.
+- `POST /periodicidad/fechas` `{inicio, repeticion, delegacion, horizonte}`: las fechas que
+  saldrían, sin grabar nada (vista previa).
 
 ## 12. Fixes de corrección a arrastrar de la v1
 
@@ -700,12 +727,12 @@ parámetro), `serie_operaciones` (serie de las operaciones que genera),
 - **Autodefinibles**: mismas definiciones y reglas que en la operación; valores
   propios en `LABPYA` (se auditan solo al modificar, como Veolab).
 - **Fechas** (`LABFEP`): la respuesta incluye `fechas: [{codigo, fecha, completada}]`
-  (solo las activas). La **periodicidad es de solo lectura** (se configura en
-  Veolab): la API admite planificaciones sin fecha (`fecha_inicio: null`,
-  `PLONFRE = -1`) o de fecha única (`fecha_inicio`, `PLONFRE = 0`); cambiar la fecha
-  de una periódica → `422`. Al cambiar la fecha, las no completadas se desactivan
-  (`FEPTINI = NULL`, se conservan por el vínculo de códigos de barras) y se crea la
-  nueva salvo que ya haya una completada en esa fecha.
+  (solo las activas) y `repeticion` (§11 nonies, o null). Sin fecha (`fecha_inicio: null`,
+  `PLONFRE = -1`), fecha única (`fecha_inicio`, `PLONFRE = 0`) o periódica (`fecha_inicio`
+  + `repeticion`; sin indicarla se conserva la que tenía). Al cambiar fecha o periodicidad,
+  las no completadas se desactivan (`FEPTINI = NULL`, se conservan por el vínculo de
+  códigos de barras) y se crean las nuevas, salvo las que ya están completadas en esa
+  fecha; si la periodicidad no genera ninguna fecha → `422`.
 - `PUT /planificaciones/fechas?delegacion=&codigo=&fecha=` con `{"completada": "T"|"F"}`
   marca una fecha como generada o pendiente (suceso `M` en la auditoría).
 - Aviso en la agenda (`es_aviso`, `aviso_*`): solo lectura.
@@ -1135,8 +1162,8 @@ las relaciones.
   Al crear se añade a los campos de operación (`PERCCAO`) de los perfiles de su
   delegación; al borrar se quita, y se borran sus servicios y valores. Con valor en alguna
   operación o lote no se borra (`422`). Auditoría con el nombre como fila.
-- Fuera de la API por ahora: estadísticas, plantillas de exportación, periodicidad de la
-  agenda y las planificaciones, préstamos/residuos y tablas de sistema.
+- Fuera de la API por ahora: estadísticas, plantillas de exportación, préstamos/residuos
+  y tablas de sistema.
 
 **Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
 al pasar a recibida (estado 1) o guardar en un estado posterior, los campos de la
