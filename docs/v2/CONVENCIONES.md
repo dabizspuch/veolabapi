@@ -1,7 +1,8 @@
 # Veolab API REST v2 — Convenciones de diseño
 
-> Documento de referencia para la construcción de la v2. Recoge las decisiones
-> tomadas en la fase de análisis. Implementado en la rama `v2` (tablas sencillas).
+> Documento técnico de diseño de la v2: decisiones, convenciones y reglas de negocio
+> replicadas de Veolab, recurso por recurso. La guía de uso está en el
+> [README](../../README.md). Estado: v2 completa y en producción (octubre de 2026).
 
 ## Índice
 
@@ -27,7 +28,8 @@
     - [11 decies. Préstamos](#11-decies-préstamos)
     - [11 undecies. Residuos](#11-undecies-residuos)
 12. [Fixes de corrección a arrastrar de la v1](#12-fixes-de-corrección-a-arrastrar-de-la-v1)
-13. [Decisiones pendientes de confirmar](#13-decisiones-pendientes-de-confirmar)
+    - [12 bis. Auditoría, códigos y Verifactu](#12-bis-auditoría-códigos-y-verifactu) (incluye operaciones, planificaciones, lotes, órdenes, informes, resultados, facturación, relaciones, subtablas y maestros)
+13. [Decisiones tomadas y pendientes](#13-decisiones-tomadas-y-pendientes)
 
 ---
 
@@ -43,9 +45,9 @@
   (`Route::prefix('v2')`). Motivo: la v1 no tenía versión y eso obligó a este
   rediseño; versionar desde ahora evita repetir la encrucijada en el próximo
   cambio rompedor.
-- Las rutas v1 (`/api/...` sin versión) se dejan como *deprecated* durante una
-  ventana corta y luego se retiran. Cortesía opcional: avisar a los dueños de los
-  tokens externos.
+- Las rutas v1 (`/api/...` sin versión) ya no existen en el servidor: la v1 queda
+  archivada en la etiqueta git `v1.0.0`. Solo `login`, `logout` y `refresh` siguen
+  sin versión.
 
 ## 2. Arquitectura y modelo de acceso
 
@@ -118,7 +120,7 @@ segunda entidad, p. ej. `tecnica_delegacion`, `tecnica_codigo`).
 
 **Regla única (decidida — Opción X):** el endpoint de colección **siempre devuelve
 `{data, meta}`**.
-- **clave completa presente →** `data` con 1 elemento (o `data` vacío si no existe; **nunca `404`**),
+- **clave completa presente →** `data` con 1 elemento (o `data` vacío si no existe; **nunca `404`** en la lectura),
 - **clave parcial o ausente →** listado filtrado.
 
 Direccionar es, por tanto, un caso particular de filtrar: mismo endpoint, misma forma
@@ -126,10 +128,10 @@ de respuesta. No hay endpoint "show" aparte ni segunda semántica.
 
 ```
 GET /api/v2/operaciones?delegacion=DEL001&serie=25            → listado de la serie 25
-GET /api/v2/operaciones?delegacion=DEL001&serie=25&codigo=1   → una operación (o 404)
+GET /api/v2/operaciones?delegacion=DEL001&serie=25&codigo=1   → una operación (o data vacío)
 GET /api/v2/clientes?delegacion=DEL001&codigo=5               → un cliente (tabla de 2 claves)
-GET /api/v2/operaciones-resultados?ope_delegacion=DEL001&ope_serie=25&ope_codigo=1
-                                   &tec_delegacion=DEL001&tec_codigo=7   → un resultado (5 claves)
+GET /api/v2/resultados?operacion_delegacion=DEL001&operacion_serie=25&operacion_codigo=1
+                      &tecnica_delegacion=DEL001&tecnica_codigo=PH   → una técnica de la operación (5 claves)
 ```
 
 Ventajas para Veolab: la **delegación vacía** (labs sin delegaciones) se resuelve
@@ -152,12 +154,16 @@ las lecturas.
 | Rango | `?fecha_registro[gte]=2025-01-01&fecha_registro[lte]=2025-01-31` | `>= AND <=` |
 | Texto parcial | `?descripcion[like]=agua` | `LIKE '%agua%'` |
 | Distinto | `?estado[ne]=7` | `<> 7` |
-| Nulo / no nulo | `?fecha_baja[null]=true` | `IS NULL` |
+| Nulo / no nulo | `?fecha_baja[null]=T` | `IS NULL` (`F`: `IS NOT NULL`) |
+| Mayor / menor estricto | `?precio[gt]=10&precio[lt]=50` | `> AND <` |
 
 - **Booleanos:** Veolab usa `'T'`/`'F'` (no true/false). Los filtros aceptan `T`/`F`
   (`?es_urgente=T`), coherente con la validación `in:T,F`.
-- **Fechas:** ISO `yyyy-mm-dd`, rangos inclusivos. Cuidado con columnas datetime
-  (`OPETREC`): un `[lte]` sin hora puede excluir ese día — fijar semántica.
+- **Fechas:** ISO `yyyy-mm-dd` (o `yyyy-mm-dd hh:mm:ss`), rangos inclusivos. En
+  columnas con hora (`OPETREC`), `[lte]=2026-01-31` es hasta las 00:00 de ese día:
+  usar `[lt]=2026-02-01` para incluirlo entero.
+- Un valor imposible para la columna (p. ej. una fecha mal escrita) → `422`
+  "Parámetros de consulta no válidos". Un operador desconocido o con lista se ignora.
 - **Coma = IN** solo para campos sin comas (códigos, estados). Para texto, usar
   `[in]` explícito o no permitir IN.
 - `is_deleted` y `search` de la v1 pasan a ser casos particulares de este mecanismo
@@ -174,15 +180,16 @@ las lecturas.
 
 ## 8. Paginación
 
-Dos modos.
+Implementada la paginación por páginas (8.1). La de cursor (8.2) está **diseñada pero
+pospuesta**: hoy cada página cuenta el total y recorre las anteriores, suficiente con
+filtros; si una tabla crece mucho, se añadirá `after` (ya reservado) y `total=F`.
 
 ### 8.1 Offset (por defecto, para UI y uso normal)
 
 - Parámetros `page` (1‑based) y `limit`.
 - **`ORDER BY` obligatorio por la clave compuesta** (corrige el bug de la v1, que
   paginaba sin orden → páginas inconsistentes).
-- `limit`: **casteo a entero**, rechazo de negativos y **tope máximo** (p. ej.
-  100–200). Con el envoltorio de respuesta, el recorte es seguro: `meta` revela que
+- `limit`: **casteo a entero**, mínimo 1, por defecto **25** y **tope de 100**. Con el envoltorio de respuesta, el recorte es seguro: `meta` revela que
   hay más páginas, así que el cliente nunca se queda a ciegas.
 - Con clave múltiple no hay complicación: solo alarga el `ORDER BY`.
 
@@ -190,7 +197,7 @@ Dos modos.
 GET /api/v2/operaciones?limit=200&page=2
 ```
 
-### 8.2 Keyset / cursor (para lectura masiva / exportación de tablas grandes)
+### 8.2 Keyset / cursor (pospuesto: diseño para lectura masiva de tablas grandes)
 
 - El cursor es la **tupla completa de la clave** de la última fila, entregada al
   cliente como **token opaco** (`after=...`); él solo lo reenvía. Oculta la
@@ -231,7 +238,7 @@ ORDER BY ope_delegacion, ope_serie, ope_codigo, tec_delegacion, tec_codigo LIMIT
   "meta": { "total": 342, "page": 2, "per_page": 50, "last_page": 7 }
 }
 ```
-Con keyset, `meta` lleva `next_cursor` (y `per_page`) en lugar de `total/last_page`.
+(Con keyset, cuando se implemente, `meta` llevará `next_cursor` y `per_page`.)
 
 - **Registro único:** no hay forma aparte (Opción X); se pide con la clave completa y
   llega como `{data, meta}` con `data` de 1 elemento. `data` vacío = no existe.
@@ -269,13 +276,14 @@ Veolab guarda una FK vacía como `0` (código `int`) o `''` (código texto), no 
 |---|---|
 | `200` | OK (lectura, actualización, borrado) |
 | `201` | Creado |
-| `400` | Petición mal formada (JSON inválido, parámetro imposible) |
+| `400` | Falta una parte de la clave en la query string (`PUT`/`DELETE` y rutas con clave obligatoria) |
 | `401` | Token ausente o inválido |
 | `404` | Recurso no encontrado |
 | `405` | Método no permitido en esa ruta |
-| `422` | **Validación** o reglas de negocio (relación inexistente, código duplicado…) |
+| `413` | Fichero demasiado grande (límite del servidor web/PHP) |
+| `422` | **Validación**, reglas de negocio (relación inexistente, código duplicado…) o filtro imposible |
 | `429` | Demasiados intentos de login |
-| `500` | Error inesperado del servidor |
+| `500` | Error inesperado del servidor, o sin conexión con la BD del laboratorio |
 
 - **No se usa `403`** (no hay capa de permisos en la API).
 - **Nunca** se filtran mensajes internos de excepción al cliente. Errores de
@@ -1208,8 +1216,8 @@ las relaciones.
   Al crear se añade a los campos de operación (`PERCCAO`) de los perfiles de su
   delegación; al borrar se quita, y se borran sus servicios y valores. Con valor en alguna
   operación o lote no se borra (`422`). Auditoría con el nombre como fila.
-- Fuera de la API por ahora: estadísticas, plantillas de exportación, préstamos/residuos
-  y tablas de sistema.
+- Fuera de la API por ahora: estadísticas, plantillas de exportación y tablas de
+  sistema (idiomas, licencias, semáforos, registros internos).
 
 **Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
 al pasar a recibida (estado 1) o guardar en un estado posterior, los campos de la
@@ -1239,14 +1247,25 @@ Restricciones (hechas en presupuestos, contratos y facturas):
   `tipo|tabla|fila|campo|mod|ant|hashAnterior` con los valores ya recortados a su
   columna, en UTF-8 y hexadecimal en minúsculas (`HashLibrary.HashFunctions`).
 
-## 13. Decisiones pendientes de confirmar
+## 13. Decisiones tomadas y pendientes
 
-- **Set exacto de operadores de filtro** a soportar en la primera versión (mínimo
-  propuesto: `=`, `in`, `gte`/`lte`, `like`; ampliar `ne`/`null` si hacen falta).
-- **Valor del tope de `limit`** (100 vs 200 vs otro).
-- **¿Generar controladores/rutas desde `modelo.sql`** (aprovechando que la PK es
-  deducible) o mantenerlos a mano?
-- **Estrategia de sincronización de la app web:** al no existir columna de última
-  modificación en casi ninguna tabla, el sync incremental por fecha no es fiable;
-  asumir relectura filtrada, o valorar (con cuidado, es esquema compartido con
-  Veolab escritorio) añadir columna/trigger de modificación.
+Tomadas:
+
+- **Operadores de filtro:** `=`, lista con coma (`in`), `gte`, `lte`, `gt`, `lt`, `ne`,
+  `like` y `null` (§6).
+- **Tope de `limit`:** 100 (por defecto 25).
+- **Controladores a mano**, uno por tabla, con el motor común (`BaseController`,
+  `RelationController`, `ChildController`): cada tabla de Veolab tiene reglas propias.
+- **Paginación por cursor:** pospuesta (§8).
+- **Limpieza de avisos antiguos (`ACCAVI`):** la API no tiene tareas programadas; si hace
+  falta, será una tarea del servidor o un filtro de la aplicación cliente.
+- **Escritura de la configuración:** aplazada hasta que la necesite la app web.
+
+Pendientes:
+
+- **Sincronización de la app web:** al no existir columna de última modificación en casi
+  ninguna tabla, el sync incremental por fecha no es fiable; asumir relectura filtrada, o
+  valorar (con cuidado, es esquema compartido con Veolab escritorio) añadir
+  columna/trigger de modificación.
+- **Avisos que Veolab crea al grabar** (`ACCNOT` al analista, de fecha de compromiso, de
+  marcas en resultados, de firmas): la API aún no los genera.
