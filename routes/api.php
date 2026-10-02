@@ -70,6 +70,12 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     $resource('/festivos', 'FestivoController');
     $resource('/autodefinibles', 'AutodefinibleController');
 
+    // --- Permisos de perfil (ACCPYF) y catálogos de solo lectura (ACCFUN, ACCMOD) ---
+    Route::get('/perfiles/permisos', [$ns.'PerfilPermisoController', 'index']);
+    Route::put('/perfiles/permisos', [$ns.'PerfilPermisoController', 'update']);
+    Route::get('/funcionalidades', [$ns.'FuncionalidadController', 'index']);
+    Route::get('/modulos', [$ns.'ModuloController', 'index']);
+
     // --- Estructura de resultados de una técnica (LABCOT + LABCYR; clave tecnica_* + columna) ---
     $resource('/parametros/columnas', 'ParametroColumnaController');
 

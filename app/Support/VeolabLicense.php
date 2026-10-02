@@ -62,6 +62,19 @@ class VeolabLicense
             return false;
         }
 
+        return self::moduleLicensed($connection, $database, $module);
+    }
+
+    /**
+     * LIC_ModuloLicenciado: la licencia incluye el módulo (sin mirar ACCMOD).
+     * Las funcionalidades sin módulo ('') son genéricas y siempre cuentan.
+     */
+    public static function moduleLicensed(string $connection, string $database, string $module): bool
+    {
+        if ($module === '') {
+            return true;
+        }
+
         $type = self::type($connection, $database);
         if ($type === null || ! isset(self::MODULES[$type])) {
             return $module !== 'FAC' && $module !== 'VFU';

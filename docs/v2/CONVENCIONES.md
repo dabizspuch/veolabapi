@@ -17,6 +17,7 @@
 10. [Códigos de estado HTTP](#10-códigos-de-estado-http)
 11. [Gestión documental](#11-gestión-documental)
     - [11 bis. Inventario](#11-bis-inventario)
+    - [11 ter. Permisos de perfil](#11-ter-permisos-de-perfil)
 12. [Fixes de corrección a arrastrar de la v1](#12-fixes-de-corrección-a-arrastrar-de-la-v1)
 13. [Decisiones pendientes de confirmar](#13-decisiones-pendientes-de-confirmar)
 
@@ -370,6 +371,44 @@ predeterminado (vigente, con existencias; "en uso", después "límite de uso",
 después nuevos; para consumibles, si no hay ninguno con existencias, el mayor
 sin existencias). El consumo descuenta existencias sin bajar de cero (se reduce
 a lo disponible). Al borrar la operación se devuelven.
+
+## 11 ter. Permisos de perfil
+
+La API no aplica privilegios (el token tiene acceso total), pero mantiene los
+permisos de los perfiles de usuario de Veolab (`ACCPYF`) para la futura app web,
+como la pestaña de funcionalidades de FichaPerfil.
+
+| Recurso | Tabla | Notas |
+|---|---|---|
+| `/perfiles/permisos` (GET/PUT) | `ACCPYF` | Clave `perfil_delegacion` + `perfil_codigo`. GET devuelve **todas** las funcionalidades visibles (sin paginar) con el acceso del perfil. PUT cambia solo las indicadas. |
+| `/funcionalidades` (GET) | `ACCFUN` + `ACCMYF` | Catálogo fijo: nivel 1 = grupo (código de 3 letras), nivel 2 = funcionalidad. `ambito` E escritorio / W web. |
+| `/modulos` (GET) | `ACCMOD` | `es_activo` (se activa en Veolab) y `es_licenciado` (la licencia del laboratorio lo incluye). |
+
+Cada fila del GET de permisos: `funcionalidad`, `descripcion`, `grupo`,
+`grupo_descripcion`, `modulo`, `ambito`, `acceso` (`E` escritura, `L` lectura,
+`null` sin acceso), `especial` (privilegio especial elegido, 0-7; `null` sin
+acceso), `valor` (la máscara `PYFNACC` tal cual) y `especiales` (opciones de
+privilegio especial de esa funcionalidad: `[{especial, descripcion}]`, de los
+textos `ESP_<funcionalidad>0n`). Las descripciones son las de Veolab en español
+(`IDICAD`).
+
+PUT: `{ "permisos": [ { "funcionalidad": "LAB_OPE", "acceso": "E", "especial": 2 } ] }`.
+
+- Funcionalidades **visibles**: sin módulo, o de un módulo activo y licenciado, y
+  cuyo grupo también lo sea. Una funcionalidad no visible, inexistente o un grupo
+  dan `422`. Las filas de funcionalidades no visibles se conservan.
+- `acceso: null` quita el acceso. Sin `acceso` se conserva el que tenía (para
+  cambiar solo el especial). Sin `especial` se conserva el que tenía, o el 1.
+- `especial` debe ser una de las opciones de la funcionalidad (0 o 1 si no tiene).
+  Como en Veolab, el 0 se graba igual que el 1 (siempre hay un especial con acceso),
+  así que se lee como 1.
+- Máscara `PYFNACC` (Sesiones.bas): 1 acceso, 2 escritura, 4·2^(n-1) especial n.
+  Lectura = 1, escritura = 3. El **grupo** se graba con 3 si alguna de sus
+  funcionalidades tiene acceso, y se quita si no.
+- Se graba con DELETE+INSERT de las filas visibles, como Veolab, y se audita sobre
+  el perfil (suceso de fila y de campo `ACCPYF`) solo si algo cambia. La respuesta
+  trae la lista completa resultante.
+- Un perfil nuevo no tiene permisos; al borrarlo se borran sus `ACCPYF`.
 
 ## 12. Fixes de corrección a arrastrar de la v1
 

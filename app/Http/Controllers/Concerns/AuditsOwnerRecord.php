@@ -22,6 +22,7 @@ trait AuditsOwnerRecord
         'LABMAT' => 'MATCDES',
         'LABNOR' => 'NORCDES',
         'DOCDIR' => 'DIRCNOM',
+        'ACCPER' => 'PERCDES',
     ];
 
     protected function recordOwnerChange(string $table, string $codeColumn, string $code, string $delegation, string $field): void
