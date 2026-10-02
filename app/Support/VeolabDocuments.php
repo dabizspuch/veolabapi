@@ -438,7 +438,7 @@ class VeolabDocuments
     }
 
     /** Nombre alternativo ASCII para Content-Disposition (sin % ni barras). */
-    private static function asciiName(string $fileName): string
+    public static function asciiName(string $fileName): string
     {
         $ascii = preg_replace('/[^\x20-\x7E]|[%\/\\\\"]/', '_', Str::ascii($fileName));
 

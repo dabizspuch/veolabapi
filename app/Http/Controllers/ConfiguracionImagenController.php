@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 
 /**
  * Imagen de acreditación de los informes (LABIMG), la de Configurar
@@ -43,7 +44,10 @@ class ConfiguracionImagenController extends Controller
         return response($content, 200, [
             'Content-Type'        => $mime,
             'Content-Length'      => strlen($content),
-            'Content-Disposition' => ($request->query('inline') === 'T' ? 'inline' : 'attachment').'; filename="'.$name.'"',
+            'Content-Disposition' => HeaderUtils::makeDisposition(
+                $request->query('inline') === 'T' ? HeaderUtils::DISPOSITION_INLINE : HeaderUtils::DISPOSITION_ATTACHMENT, $name
+            ),
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 }

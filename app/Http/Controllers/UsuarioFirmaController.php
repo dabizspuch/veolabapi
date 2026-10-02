@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
+use App\Support\VeolabDocuments;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 
 /**
  * Firma digitalizada de un usuario (ACCFIR), la imagen que Veolab pone en
@@ -64,7 +66,11 @@ class UsuarioFirmaController extends Controller
         return response($content, 200, [
             'Content-Type'        => $mime,
             'Content-Length'      => strlen($content),
-            'Content-Disposition' => ($request->query('inline') === 'T' ? 'inline' : 'attachment').'; filename="'.addslashes($name).'"',
+            'Content-Disposition' => HeaderUtils::makeDisposition(
+                $request->query('inline') === 'T' ? HeaderUtils::DISPOSITION_INLINE : HeaderUtils::DISPOSITION_ATTACHMENT,
+                str_replace(['/', '\\'], '_', $name), VeolabDocuments::asciiName($name)
+            ),
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 

@@ -6,6 +6,7 @@ use App\Exceptions\BusinessRuleException;
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -131,7 +132,15 @@ abstract class BaseController extends Controller
         $perPage = min(max((int) $request->query('limit', (string) $this->defaultPerPage), 1), $this->maxPerPage);
         $page = max((int) $request->query('page', '1'), 1);
 
-        $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+        try {
+            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+        } catch (QueryException $e) {
+            // Un filtro con un valor imposible para la columna (p. ej. una
+            // fecha mal escrita) hace fallar la consulta en MySQL.
+            Log::warning("v2 index {$this->table}: ".$e->getMessage());
+
+            return response()->json(['message' => 'Parámetros de consulta no válidos'], 422);
+        }
 
         $data = $this->appendRelatedData(
             collect($paginator->items())->map(fn ($row) => $this->fromDb((array) $row))->all()
@@ -350,6 +359,10 @@ abstract class BaseController extends Controller
 
     private function applyOperator($query, string $column, string $op, $operand): void
     {
+        if (is_array($operand) && $op !== 'in') {
+            return; // campo[op][]=...: no tiene sentido salvo en 'in'
+        }
+
         switch ($op) {
             case 'like':
                 $query->where($column, 'like', '%'.$operand.'%');
@@ -415,6 +428,9 @@ abstract class BaseController extends Controller
         }
 
         $term = $request->query('search');
+        if (! is_string($term) || $term === '') {
+            return;
+        }
         $query->where(function ($q) use ($term) {
             foreach ($this->searchFields as $field) {
                 $q->orWhere($field, 'like', '%'.$term.'%');
