@@ -390,7 +390,8 @@ Cada fila del GET de permisos: `funcionalidad`, `descripcion`, `grupo`,
 acceso), `valor` (la máscara `PYFNACC` tal cual) y `especiales` (opciones de
 privilegio especial de esa funcionalidad: `[{especial, descripcion}]`, de los
 textos `ESP_<funcionalidad>0n`). Las descripciones son las de Veolab en español
-(`IDICAD`).
+(`IDICAD`). `meta.grupos` lista los grupos visibles con su acceso grabado
+(`E` si alguna de sus funcionalidades tiene acceso); el PUT también lo devuelve.
 
 PUT: `{ "permisos": [ { "funcionalidad": "LAB_OPE", "acceso": "E", "especial": 2 } ] }`.
 

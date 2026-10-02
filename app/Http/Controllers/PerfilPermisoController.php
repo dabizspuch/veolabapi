@@ -38,9 +38,11 @@ class PerfilPermisoController extends Controller
             return response()->json(['message' => 'Registro no encontrado'], 404);
         }
 
-        $data = $this->permissions(VeolabPermissions::tree(), VeolabPermissions::values(...$profile));
+        $tree = VeolabPermissions::tree();
+        $values = VeolabPermissions::values(...$profile);
+        $data = $this->permissions($tree, $values);
 
-        return response()->json(['data' => $data, 'meta' => ['total' => count($data)]]);
+        return response()->json(['data' => $data, 'meta' => ['total' => count($data), 'grupos' => $this->groups($tree, $values)]]);
     }
 
     public function update(Request $request)
@@ -91,6 +93,7 @@ class PerfilPermisoController extends Controller
             return response()->json([
                 'message' => 'Permisos actualizados correctamente',
                 'data'    => $this->permissions($tree, $after),
+                'meta'    => ['grupos' => $this->groups($tree, $after)],
             ]);
         } catch (ValidationException $e) {
             if ($db->transactionLevel() > 0) {
@@ -194,6 +197,22 @@ class PerfilPermisoController extends Controller
         if ($rows) {
             DB::connection('dynamic')->table('ACCPYF')->insert($rows);
         }
+    }
+
+    /** Grupos visibles con su acceso grabado (E si alguna funcionalidad tiene acceso). */
+    private function groups(array $tree, array $values): array
+    {
+        $out = [];
+        foreach ($tree['groups'] as $code => $item) {
+            $out[] = [
+                'grupo'       => $code,
+                'descripcion' => $item['descripcion'],
+                'modulo'      => $item['modulo'],
+                'acceso'      => VeolabPermissions::access($values[$code] ?? 0),
+            ];
+        }
+
+        return $out;
     }
 
     /** Filas de respuesta: una por funcionalidad visible, en el orden del árbol. */
