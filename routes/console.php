@@ -3,6 +3,7 @@
 use App\Support\VeolabLicense;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -20,3 +21,6 @@ Artisan::command('veolab:licencia {bd : Nombre de la BD del laboratorio}', funct
     $this->line('Tipo de licencia: '.($type === null ? 'no determinado' : ($names[$type] ?? "desconocido ({$type})")));
     $this->line('Restricciones Verifactu: '.(VeolabLicense::isVerifactu('dynamic', $bd) ? 'SÍ' : 'no'));
 })->purpose('Muestra el tipo de licencia Veolab de un laboratorio');
+
+// Borra los tokens caducados (requiere el cron de "php artisan schedule:run").
+Schedule::command('sanctum:prune-expired --hours=24')->daily();

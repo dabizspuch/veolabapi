@@ -15,7 +15,9 @@ class UsuarioController extends BaseController
     protected ?string $inactiveField = 'USUBBAJ';
     protected array $searchFields = ['USUCNOM', 'USUCOBS'];
 
-    protected bool $generatesCode = true;
+    // El código es el nombre de inicio de sesión: se indica siempre (como en
+    // FichaUsuario), no se genera.
+    protected bool $generatesCode = false;
 
     protected array $foreignKeys = [
         'perfil'   => 'int',
@@ -23,6 +25,8 @@ class UsuarioController extends BaseController
         'cliente'  => 'string',
     ];
 
+    // es_conectado, sid_windows y fecha_ultimo_acceso los mantiene Veolab:
+    // se leen pero no se escriben (no tienen regla de validación).
     protected array $mapping = [
         'delegacion'              => 'DEL3COD',
         'codigo'                  => 'USU1COD',
@@ -37,6 +41,7 @@ class UsuarioController extends BaseController
         'tipo'                    => 'USUNTIP',
         'fecha_alta'              => 'USUDALT',
         'fecha_baja'              => 'USUDBAJ',
+        'es_baja'                 => 'USUBBAJ',
         'fecha_ultimo_acceso'     => 'USUTULT',
         'perfil_delegacion'       => 'PER2DEL',
         'perfil_codigo'           => 'PER2COD',
@@ -46,23 +51,26 @@ class UsuarioController extends BaseController
         'cliente_codigo'          => 'CLI2COD',
     ];
 
+    /** Tipos de usuario (USUNTIP; 2 = otro). */
+    private const TIPO_EMPLEADO = 0;
+    private const TIPO_CLIENTE = 1;
+
     protected function rules(): array
     {
         return [
             'delegacion'              => 'nullable|string|max:10',
-            'codigo'                  => 'nullable|string|max:15',
+            // Sin puntos ni el carácter reservado ¶ (FichaUsuario.CamposValidos).
+            'codigo'                  => ['nullable', 'string', 'max:15', 'not_regex:/[.¶]/u'],
             'nombre'                  => 'nullable|string|max:100',
-            'es_conectado'            => 'nullable|string|in:T,F|max:1',
             'idioma'                  => 'nullable|integer|min:0',
             'certificado'             => 'nullable|string|max:100',
             'usuario_windows'         => 'nullable|string|max:50',
-            'sid_windows'             => 'nullable|string|max:50',
             'ocultar_aviso_minimizar' => 'nullable|string|in:T,F|max:1',
             'observaciones'           => 'nullable|string',
-            'tipo'                    => 'nullable|integer',
+            'tipo'                    => 'nullable|integer|in:0,1,2',
             'fecha_alta'              => 'nullable|date',
             'fecha_baja'              => 'nullable|date',
-            'fecha_ultimo_acceso'     => 'nullable|date',
+            'es_baja'                 => 'nullable|string|in:T,F|max:1',
             'perfil_delegacion'       => 'nullable|string|max:10',
             'perfil_codigo'           => 'nullable|integer',
             'empleado_delegacion'     => 'nullable|string|max:10',
@@ -113,11 +121,39 @@ class UsuarioController extends BaseController
     protected function validateAdditionalCriteria(array $data, array $keys = []): array
     {
         $isCreating = empty($keys);
-        $code = $keys['codigo'] ?? null;
-        $delegation = $keys['delegacion'] ?? '';
+        $before = null;
 
+        if ($isCreating) {
+            $data['delegacion'] = $data['delegacion'] ?? '';
+            if (trim((string) ($data['codigo'] ?? '')) === '') {
+                throw new BusinessRuleException('El código del usuario es obligatorio');
+            }
+            if (trim((string) ($data['nombre'] ?? '')) === '') {
+                throw new BusinessRuleException('El nombre del usuario es obligatorio');
+            }
+            $delegation = $data['delegacion'];
+            $code = $data['codigo'];
+
+            $exists = DB::connection('dynamic')->table('ACCUSU')
+                ->where('DEL3COD', $delegation)->where('USU1COD', $code)->exists();
+            if ($exists) {
+                throw new BusinessRuleException('El código del usuario ya está en uso');
+            }
+        } else {
+            $delegation = $keys['delegacion'] ?? '';
+            $code = $keys['codigo'] ?? null;
+            if (array_key_exists('nombre', $data) && trim((string) $data['nombre']) === '') {
+                throw new BusinessRuleException('El nombre del usuario es obligatorio');
+            }
+            $before = DB::connection('dynamic')->table('ACCUSU')
+                ->where('DEL3COD', $delegation)->where('USU1COD', $code)->first();
+        }
+
+        // Nombre único en la delegación del usuario y en la común (''), como FichaUsuario.
         if (! empty($data['nombre'])) {
-            $query = DB::connection('dynamic')->table('ACCUSU')->where('USUCNOM', $data['nombre']);
+            $query = DB::connection('dynamic')->table('ACCUSU')
+                ->where('USUCNOM', $data['nombre'])
+                ->whereIn('DEL3COD', array_unique(['', $delegation]));
             if (! $isCreating) {
                 $query->where(function ($q) use ($code, $delegation) {
                     $q->where('USU1COD', '!=', $code)->orWhere('DEL3COD', '!=', $delegation);
@@ -128,13 +164,48 @@ class UsuarioController extends BaseController
             }
         }
 
-        if ($isCreating && ! empty($data['codigo'])) {
-            $exists = DB::connection('dynamic')->table('ACCUSU')
-                ->where('DEL3COD', $data['delegacion'] ?? '')
-                ->where('USU1COD', $data['codigo'])->exists();
-            if ($exists) {
-                throw new BusinessRuleException('El código del usuario ya está en uso');
+        if ($isCreating) {
+            $data['tipo'] = $data['tipo'] ?? self::TIPO_EMPLEADO;
+            $data['fecha_alta'] = $data['fecha_alta'] ?? date('Y-m-d 00:00:00');
+        }
+
+        // Como FichaUsuario: el empleado solo se guarda en usuarios de tipo
+        // empleado y el cliente solo en los de tipo cliente.
+        $type = (int) ($data['tipo'] ?? $before->USUNTIP ?? self::TIPO_EMPLEADO);
+        if ($type !== self::TIPO_EMPLEADO) {
+            if (! empty($data['empleado_codigo'])) {
+                throw new BusinessRuleException('Solo los usuarios de tipo empleado pueden tener empleado');
             }
+            $data['empleado_delegacion'] = null;
+            $data['empleado_codigo'] = null;
+        }
+        if ($type !== self::TIPO_CLIENTE) {
+            if (! empty($data['cliente_codigo'])) {
+                throw new BusinessRuleException('Solo los usuarios de tipo cliente pueden tener cliente');
+            }
+            $data['cliente_delegacion'] = null;
+            $data['cliente_codigo'] = null;
+        }
+
+        // Baja: la marca y la fecha van juntas (T con fecha, F sin ella).
+        if (($data['es_baja'] ?? null) === 'T') {
+            $data['fecha_baja'] = $data['fecha_baja'] ?? $before->USUDBAJ ?? date('Y-m-d 00:00:00');
+        } elseif (($data['es_baja'] ?? null) === 'F') {
+            $data['fecha_baja'] = null;
+        } else {
+            unset($data['es_baja']);
+            if (array_key_exists('fecha_baja', $data)) {
+                $data['es_baja'] = empty($data['fecha_baja']) ? 'F' : 'T';
+            } elseif ($isCreating) {
+                $data['es_baja'] = 'F';
+            }
+        }
+
+        // El SID es el de la cuenta de Windows anterior: si la cuenta cambia
+        // se vacía (Veolab lo vuelve a tomar al iniciar sesión con ella).
+        if (array_key_exists('usuario_windows', $data)
+            && ($isCreating || (string) $data['usuario_windows'] !== (string) ($before->USUCWIN ?? ''))) {
+            $data['sid_windows'] = '';
         }
 
         return $data;

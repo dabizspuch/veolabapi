@@ -74,10 +74,18 @@ class PerfilController extends BaseController
     {
         $isCreating = empty($keys);
         $code = $keys['codigo'] ?? null;
-        $delegation = $keys['delegacion'] ?? '';
+        $delegation = $isCreating ? ($data['delegacion'] ?? '') : ($keys['delegacion'] ?? '');
 
+        if ($isCreating ? trim((string) ($data['descripcion'] ?? '')) === ''
+            : array_key_exists('descripcion', $data) && trim((string) $data['descripcion']) === '') {
+            throw new BusinessRuleException('La descripción del perfil es obligatoria');
+        }
+
+        // Descripción única en la delegación del perfil y en la común (''), como FichaPerfil.
         if (! empty($data['descripcion'])) {
-            $query = DB::connection('dynamic')->table('ACCPER')->where('PERCDES', $data['descripcion']);
+            $query = DB::connection('dynamic')->table('ACCPER')
+                ->where('PERCDES', $data['descripcion'])
+                ->whereIn('DEL3COD', array_unique(['', $delegation]));
             if (! $isCreating) {
                 $query->where(function ($q) use ($code, $delegation) {
                     $q->where('PER1COD', '!=', $code)->orWhere('DEL3COD', '!=', $delegation);

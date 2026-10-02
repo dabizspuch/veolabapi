@@ -54,10 +54,23 @@ por permisos.
 
 ## 3. Autenticación
 
-- `POST /api/v2/login` — cuerpo `{ "name": "<bd_laboratorio>", "password": "..." }` → `{ "token": "..." }`
-- `POST /api/v2/logout` — revoca el token actual (requiere Bearer)
-- `POST /api/v2/refresh` — revoca el actual y emite uno nuevo (requiere Bearer)
+Las rutas de autenticación van sin versión (`/api/login`, no `/api/v2/login`).
+
+- `POST /api/login` — cuerpo `{ "name": "<bd_laboratorio>", "password": "..." }` →
+  `{ "token": "...", "expires_at": "2026-11-01T10:00:00+00:00" }`. Credenciales
+  incorrectas: `401`. Límite de **5 intentos por minuto** por laboratorio e IP (y 20
+  por IP): al superarlo, `429` con cabecera `Retry-After`.
+- `POST /api/logout` — revoca el token actual (requiere Bearer)
+- `POST /api/refresh` — revoca el actual y emite uno nuevo con la misma respuesta que
+  el login (requiere Bearer)
+- **Caducidad:** los tokens caducan a los 30 días (`SANCTUM_EXPIRATION` en minutos en
+  el `.env`; vacío = sin caducidad). Un token caducado da `401`; el cliente debe
+  renovarlo con `/refresh` antes de `expires_at` o volver a hacer login. Los tokens
+  caducados se borran a diario (`sanctum:prune-expired`, requiere el cron de
+  `schedule:run`).
 - El resto de endpoints requieren cabecera `Authorization: Bearer <token>`.
+- La API responde **siempre en JSON** aunque el cliente no envíe
+  `Accept: application/json` (sin token: `401 {"message": "No autenticado"}`).
 - El middleware conmuta la conexión `dynamic` a la BD cuyo nombre es `users.name`.
 
 ## 4. El modelo de claves de Veolab
@@ -215,6 +228,8 @@ Con keyset, `meta` lleva `next_cursor` (y `per_page`) en lugar de `total/last_pa
   llega como `{data, meta}` con `data` de 1 elemento. `data` vacío = no existe.
 - **Creación (`POST`):** `{ "message": "...", "data": { <clave del nuevo registro> } }`
   (`201`). Si no se envía código, la API genera el siguiente y lo devuelve.
+  Excepción: en **usuarios** el código es el nombre de inicio de sesión y es
+  obligatorio (sin puntos ni `¶`), como en Veolab.
 - **Actualización/borrado:** `{ "message": "..." }` (`200`).
 - Los nombres de campo son siempre los "humanos" del mapping, nunca los internos
   (`OPE1COD` → `codigo`).
@@ -248,7 +263,9 @@ Veolab guarda una FK vacía como `0` (código `int`) o `''` (código texto), no 
 | `400` | Petición mal formada (JSON inválido, parámetro imposible) |
 | `401` | Token ausente o inválido |
 | `404` | Recurso no encontrado |
+| `405` | Método no permitido en esa ruta |
 | `422` | **Validación** o reglas de negocio (relación inexistente, código duplicado…) |
+| `429` | Demasiados intentos de login |
 | `500` | Error inesperado del servidor |
 
 - **No se usa `403`** (no hay capa de permisos en la API).

@@ -8,7 +8,8 @@ use Illuminate\Support\Facades\Route;
 | Autenticación
 |--------------------------------------------------------------------------
 */
-Route::post('/login', [AuthController::class, 'login']);
+// Máximo 5 intentos por minuto y nombre de laboratorio + IP (fuerza bruta).
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
 Route::post('/refresh', [AuthController::class, 'refresh'])->middleware('auth:sanctum');
 

@@ -2,51 +2,56 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use App\Models\User;
+use Illuminate\Support\Facades\Validator;
 
 class AuthController extends Controller
 {
-
     public function login(Request $request)
     {
-
-        $request->validate([
-            'name' => 'required|string',
+        $validator = Validator::make($request->all(), [
+            'name'     => 'required|string',
             'password' => 'required|string',
         ]);
-       
-        // Buscar usuario
-        $user = User::where('name', $request->name)->first();
-
-        if (! $user || ! Hash::check($request->password, $user->password)) {
-            return response()->json(['message' => 'Invalid credentials'], 401);
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Datos no válidos', 'errors' => $validator->errors()], 422);
         }
 
-        // Generar token si la autenticación es correcta
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $user = User::where('name', $request->input('name'))->first();
 
-        return response()->json(['token' => $token]);
+        if (! $user || ! Hash::check($request->input('password'), $user->password)) {
+            return response()->json(['message' => 'Credenciales no válidas'], 401);
+        }
+
+        return response()->json($this->issueToken($user));
     }
 
     public function logout(Request $request)
     {
-        // Revocar el token del usuario autenticado
         $request->user()->currentAccessToken()->delete();
 
-        return response()->json(['message' => 'Logged out successfully']);
+        return response()->json(['message' => 'Sesión cerrada correctamente']);
     }
 
     public function refresh(Request $request)
     {
-        // Eliminar el token actual
-        $request->user()->currentAccessToken()->delete();
+        $user = $request->user();
+        $user->currentAccessToken()->delete();
 
-        // Generar un nuevo token
-        $newToken = $request->user()->createToken('auth_token')->plainTextToken;
+        return response()->json($this->issueToken($user));
+    }
 
-        return response()->json(['token' => $newToken]);
-    }    
+    /** Emite un token; expires_at es null si los tokens no caducan. */
+    private function issueToken(User $user): array
+    {
+        $minutes = config('sanctum.expiration');
+        $expiresAt = $minutes ? now()->addMinutes((int) $minutes) : null;
 
+        return [
+            'token'      => $user->createToken('auth_token', ['*'], $expiresAt)->plainTextToken,
+            'expires_at' => $expiresAt?->toIso8601String(),
+        ];
+    }
 }

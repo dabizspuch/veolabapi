@@ -46,7 +46,8 @@ return [
     |
     */
 
-    'expiration' => null,
+    // Veolab: 30 días por defecto (SANCTUM_EXPIRATION en minutos; vacío = sin caducidad).
+    'expiration' => env('SANCTUM_EXPIRATION', 43200) ?: null,
 
     /*
     |--------------------------------------------------------------------------
