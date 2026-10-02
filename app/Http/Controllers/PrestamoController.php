@@ -218,7 +218,7 @@ class PrestamoController extends BaseController
                     ->where('OPE1COD', $row['operacion_codigo'])
                     ->first(['CLI2DEL', 'CLI2COD'])
                 : null;
-            $hasClient = $client && (int) $client->CLI2COD > 0;
+            $hasClient = $client && (string) $client->CLI2COD !== '';
             $row['cliente_delegacion'] = $hasClient ? $client->CLI2DEL : null;
             $row['cliente_codigo'] = $hasClient ? $client->CLI2COD : null;
         }
