@@ -2,9 +2,11 @@
 
 namespace App\Providers;
 
+use App\Support\ApiValidator;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -28,5 +30,9 @@ class AppServiceProvider extends ServiceProvider
             Limit::perMinute(5)->by(mb_strtolower((string) $request->input('name')).'|'.$request->ip()),
             Limit::perMinute(20)->by($request->ip()),
         ]);
+
+        // Mensajes de validación con el nombre del campo tal como se envía.
+        Validator::resolver(fn ($translator, $data, $rules, $messages, $attributes) =>
+            new ApiValidator($translator, $data, $rules, $messages, $attributes));
     }
 }

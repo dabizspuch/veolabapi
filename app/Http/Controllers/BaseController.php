@@ -124,7 +124,11 @@ abstract class BaseController extends Controller
     {
         $query = DB::connection('dynamic')->table($this->table);
 
-        $this->applyFilters($request, $query);
+        try {
+            $this->applyFilters($request, $query);
+        } catch (BusinessRuleException $e) {
+            return response()->json(['message' => 'Parámetros de consulta no válidos', 'errors' => ['filtro' => [$e->getMessage()]]], 422);
+        }
         $this->applyIsDeleted($request, $query);
         $this->applySearch($request, $query);
         $this->applyOrder($request, $query);
@@ -341,9 +345,13 @@ abstract class BaseController extends Controller
                         $this->applyForeignKeyNull($query, $group, $operand);
                         continue;
                     }
+                    if (! in_array($op, ['null', 'like'], true)) {
+                        $this->checkFilterValue($param, $column, $operand);
+                    }
                     $this->applyOperator($query, $column, (string) $op, $operand);
                 }
             } elseif (is_string($value) && str_contains($value, ',')) {
+                $this->checkFilterValue($param, $column, $this->splitList($value));
                 $query->whereIn($column, $this->splitList($value));
             } elseif ($value === null) {
                 // ?campo= llega como null (ConvertEmptyStringsToNull): es vacío.
@@ -352,7 +360,31 @@ abstract class BaseController extends Controller
                     $q->where($column, '')->orWhereNull($column);
                 });
             } else {
+                $this->checkFilterValue($param, $column, $value);
                 $query->where($column, '=', $value);
+            }
+        }
+    }
+
+    /**
+     * Comprueba el valor de un filtro según el tipo de la columna (4º carácter
+     * de Veolab: D fecha, T fecha y hora, N número). MySQL compara sin error
+     * una fecha o un número imposibles y devolvería resultados sin sentido.
+     */
+    private function checkFilterValue(string $param, string $column, $value): void
+    {
+        $type = $column[3] ?? '';
+        foreach ((array) $value as $v) {
+            if (! is_string($v) || $v === '') {
+                continue;
+            }
+            if (in_array($type, ['D', 'T'], true)) {
+                $parsed = date_parse($v);
+                if ($parsed['error_count'] > 0 || $parsed['warning_count'] > 0 || $parsed['year'] === false) {
+                    throw new BusinessRuleException("El filtro {$param} no es una fecha válida: {$v}");
+                }
+            } elseif ($type === 'N' && ! is_numeric($v)) {
+                throw new BusinessRuleException("El filtro {$param} no es un número: {$v}");
             }
         }
     }
