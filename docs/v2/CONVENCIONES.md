@@ -24,6 +24,8 @@
     - [11 septies. Notificaciones, mensajes y avisos](#11-septies-notificaciones-mensajes-y-avisos)
     - [11 octies. Agenda](#11-octies-agenda)
     - [11 nonies. Periodicidad](#11-nonies-periodicidad)
+    - [11 decies. Préstamos](#11-decies-préstamos)
+    - [11 undecies. Residuos](#11-undecies-residuos)
 12. [Fixes de corrección a arrastrar de la v1](#12-fixes-de-corrección-a-arrastrar-de-la-v1)
 13. [Decisiones pendientes de confirmar](#13-decisiones-pendientes-de-confirmar)
 
@@ -596,6 +598,41 @@ planificaciones. Se escribe con el objeto `repeticion`:
   (`repetir` 0) no pasa a febrero.
 - `POST /periodicidad/fechas` `{inicio, repeticion, delegacion, horizonte}`: las fechas que
   saldrían, sin grabar nada (vista previa).
+
+## 11 decies. Préstamos
+
+Módulo **ALM** (sin él activo y licenciado, las escrituras dan `422`). `/prestamos` (clave
+`delegacion` + `codigo`, código de `ACCCFC`; CRUD estándar), como FichaPrestamo:
+
+| Campo | Notas |
+|---|---|
+| `estado` | `R` registrado (por defecto), `E` entregado, `P` parcialmente devuelto, `D` devuelto, `C` cancelado. |
+| `fecha_registro`, `fecha_entrega`, `fecha_devolucion` | Al cambiar el estado se completan con la hora actual: `R` solo registro (borra entrega y devolución), `E` registro y entrega (borra devolución), `P`/`D` las tres; `C` no las toca. Sin estado en la petición, dar la entrega a uno registrado lo pasa a `E` y la devolución a uno entregado, a `D`. |
+| `referencia` (50), `observaciones`, `es_archivado` (T/F), `operacion_*` | |
+| `lineas` | `[{producto_delegacion, producto_codigo, serie_lote_codigo, cantidad_prestada, cantidad_devuelta}]`; en escritura sustituye la lista (series o lotes existentes, sin repetir; la API exige devuelta ≤ prestada). La lectura añade `cantidad_pendiente`. |
+| `cliente_*` | Solo lectura: el cliente de la operación. |
+
+- **Movimientos y existencias**: al crear, cambiar `lineas` o cambiar el estado se borran los
+  movimientos del préstamo y se devuelve a cada serie/lote lo que tenía fuera; en `E`, `P` y `D`
+  se genera por línea un movimiento `P` (+prestada) y otro `D` (−devuelta) y se descuenta lo no
+  devuelto. Si una serie o lote no tiene existencias suficientes no se graba (`422` con la lista).
+  Los movimientos no llevan usuario (la API no tiene sesión).
+- **Borrado**: devuelve las existencias, borra líneas y movimientos y manda los documentos a la
+  papelera.
+
+## 11 undecies. Residuos
+
+Módulo **GDR**. `/residuos` (clave `delegacion` + `codigo`; CRUD estándar), como FichaResiduo:
+`descripcion` (100), `fecha_registro` (por defecto ahora), `unidades`, `valor_unitario`,
+`valor_total` (lo indica el usuario, no se calcula), `observaciones`, `tipo_residuo_*`
+(`/tipos-residuo`), `operacion_*`, `tecnica_*` y `empleado_*` (responsable).
+
+- `fecha_baja` y `es_baja` van juntas: con fecha está de baja; `es_baja: "T"` sin fecha toma la
+  actual; `F` borra la fecha.
+- `POST /residuos/registro` (RegistroResiduos): los datos comunes más `lineas`
+  `[{tipo_residuo_delegacion, tipo_residuo_codigo, unidades, valor_unitario, valor_total}]`; crea
+  un residuo por línea con algún importe (las demás se descartan) y devuelve sus claves. A
+  diferencia de Veolab, cada alta se audita.
 
 ## 12. Fixes de corrección a arrastrar de la v1
 

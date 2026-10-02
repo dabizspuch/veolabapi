@@ -139,6 +139,12 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     $resource('/inventario', 'InventarioController');
     $resource('/inventario/materias', 'InventarioMateriaController');
     $resource('/inventario/movimientos', 'InventarioMovimientoController');
+    // Préstamos (ALMPRE + líneas ALMPYS): movimientos P/D y existencias.
+    $resource('/prestamos', 'PrestamoController');
+
+    // --- Residuos (LABRED, módulo GDR); /residuos/registro es el alta masiva por tipo ---
+    Route::post('/residuos/registro', [$ns.'ResiduoController', 'register']);
+    $resource('/residuos', 'ResiduoController');
 
     // --- Gestión documental (DOCDIR, DOCFAT, DOCVER, DOCBLO, DOCDYP) ---
     // POST /documentos y POST /documentos/contenido van en multipart/form-data.

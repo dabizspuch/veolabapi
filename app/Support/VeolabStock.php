@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Exceptions\BusinessRuleException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -15,6 +16,8 @@ class VeolabStock
     public const MOV_BAJA = 'B';
     public const MOV_CONSUMO = 'O';
     public const MOV_USO = 'U';
+    public const MOV_PRESTAMO = 'P';
+    public const MOV_DEVOLUCION = 'D';
 
     /** Tipos de movimiento (ALMMOV.MOVCTIP). */
     public const MOVEMENT_TYPES = ['I', 'E', 'S', 'C', 'D', 'P', 'B', 'O', 'U', 'J', 'A'];
@@ -112,6 +115,97 @@ class VeolabStock
             }
 
             $products[$row->PRD2DEL."\x1B".$row->PRD2COD] = [$row->PRD2DEL, $row->PRD2COD];
+        }
+
+        self::recalculateProducts(array_values($products));
+    }
+
+    /**
+     * Movimientos y existencias de un préstamo (FichaPrestamo.Grabar): devuelve
+     * a cada serie/lote lo que el préstamo tenía fuera (ALM_ObtenPrestamosSerieLote:
+     * movimientos P y D), borra sus movimientos y, si está entregado o devuelto
+     * en todo o en parte ($active), genera uno de préstamo (+prestada) y otro de
+     * devolución (−devuelta) por línea y descuenta lo no devuelto. Si alguna
+     * serie/lote se queda sin existencias suficientes lanza la excepción con
+     * la lista (como Veolab, que no graba). Con $active = false es la anulación
+     * del borrado (ALM_CancelarExistenciasPrestamos).
+     *
+     * $lines: [[producto_delegacion, producto_codigo, serie_lote_codigo, prestada, devuelta]].
+     */
+    public static function syncLoan(string $delegation, int $code, array $lines, bool $active): void
+    {
+        $db = DB::connection('dynamic');
+
+        // Lo que estaba fuera vuelve a las existencias.
+        $deltas = [];
+        $previous = $db->table('ALMMOV')
+            ->select('PRD2DEL', 'PRD2COD', 'SEL2COD', DB::raw('SUM(MOVNCAN) AS CANTIDAD'))
+            ->where('PRE2DEL', $delegation)->where('PRE2COD', $code)
+            ->whereIn('MOVCTIP', [self::MOV_PRESTAMO, self::MOV_DEVOLUCION])
+            ->where('SEL2COD', '<>', '')->whereNotNull('SEL2COD')
+            ->groupBy('PRD2DEL', 'PRD2COD', 'SEL2COD')
+            ->get();
+        foreach ($previous as $row) {
+            $deltas[$row->PRD2DEL."\x1B".$row->PRD2COD."\x1B".$row->SEL2COD] = [$row->PRD2DEL, $row->PRD2COD, $row->SEL2COD, (float) $row->CANTIDAD, false];
+        }
+
+        $db->table('ALMMOV')->where('PRE2DEL', $delegation)->where('PRE2COD', $code)->delete();
+
+        if ($active) {
+            $now = $db->selectOne('SELECT NOW() AS n')->n;
+            foreach ($lines as [$productDelegation, $product, $lot, $lent, $returned]) {
+                foreach ([[self::MOV_PRESTAMO, $lent], [self::MOV_DEVOLUCION, -$returned]] as [$type, $quantity]) {
+                    if ($quantity == 0) {
+                        continue;
+                    }
+                    do {
+                        $movement = VeolabCodes::next('ALMMOV', '', $delegation);
+                    } while ($db->table('ALMMOV')->where('DEL3COD', $delegation)->where('MOV1COD', $movement)->exists());
+                    $db->table('ALMMOV')->insert([
+                        'DEL3COD' => $delegation,
+                        'MOV1COD' => $movement,
+                        'MOVCTIP' => $type,
+                        'MOVDFEC' => $now,
+                        'MOVNCAN' => $quantity,
+                        'PRD2DEL' => $productDelegation,
+                        'PRD2COD' => $product,
+                        'SEL2COD' => $lot,
+                        'PRE2DEL' => $delegation,
+                        'PRE2COD' => $code,
+                        'USU2DEL' => '',
+                        'USU2COD' => '',
+                    ]);
+                }
+
+                $key = $productDelegation."\x1B".$product."\x1B".$lot;
+                $deltas[$key] ??= [$productDelegation, $product, $lot, 0.0, false];
+                $deltas[$key][3] -= $lent - $returned;
+                $deltas[$key][4] = true;
+            }
+        }
+
+        $exceeded = [];
+        $products = [];
+        foreach ($deltas as [$productDelegation, $product, $lot, $delta, $checked]) {
+            $row = $db->table('ALMSEL')
+                ->where('PRD3DEL', $productDelegation)->where('PRD3COD', $product)->where('SEL1COD', $lot)
+                ->lockForUpdate()->first(['SELNCAU', 'SELNCAE']);
+            $quantity = ($row ? (float) $row->SELNCAE : 0.0) + $delta;
+            if ($quantity < -1e-9 && $checked) {
+                $exceeded[] = "{$product} - {$lot}";
+            }
+            if ($row) {
+                $db->table('ALMSEL')
+                    ->where('PRD3DEL', $productDelegation)->where('PRD3COD', $product)->where('SEL1COD', $lot)
+                    ->update($quantity > 0
+                        ? ['SELNCAE' => $quantity, 'SELNUNE' => self::unitsFromQuantity((float) $row->SELNCAU, $quantity)]
+                        : ['SELNCAE' => 0, 'SELNUNE' => 0]);
+            }
+            $products[$productDelegation."\x1B".$product] = [$productDelegation, $product];
+        }
+
+        if ($exceeded) {
+            throw new BusinessRuleException('La cantidad prestada supera las existencias de: '.implode(', ', $exceeded));
         }
 
         self::recalculateProducts(array_values($products));
