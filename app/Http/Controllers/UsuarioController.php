@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\VeolabAudit;
+use App\Support\VeolabCodes;
+use App\Support\VeolabPassword;
 use Illuminate\Support\Facades\DB;
 
 class UsuarioController extends BaseController
@@ -26,7 +29,9 @@ class UsuarioController extends BaseController
     ];
 
     // es_conectado, sid_windows y fecha_ultimo_acceso los mantiene Veolab:
-    // se leen pero no se escriben (no tienen regla de validación).
+    // se leen pero no se escriben (no tienen regla de validación). La
+    // contraseña (USUCCON) nunca se devuelve: 'contrasena' solo se escribe y
+    // la respuesta lleva tiene_contrasena y fecha_contrasena.
     protected array $mapping = [
         'delegacion'              => 'DEL3COD',
         'codigo'                  => 'USU1COD',
@@ -43,6 +48,7 @@ class UsuarioController extends BaseController
         'fecha_baja'              => 'USUDBAJ',
         'es_baja'                 => 'USUBBAJ',
         'fecha_ultimo_acceso'     => 'USUTULT',
+        'fecha_contrasena'        => 'USUDCON',
         'perfil_delegacion'       => 'PER2DEL',
         'perfil_codigo'           => 'PER2COD',
         'empleado_delegacion'     => 'EMP2DEL',
@@ -55,6 +61,9 @@ class UsuarioController extends BaseController
     private const TIPO_EMPLEADO = 0;
     private const TIPO_CLIENTE = 1;
 
+    /** La petición en curso es un alta (lo fija validateAdditionalCriteria). */
+    private bool $creating = false;
+
     protected function rules(): array
     {
         return [
@@ -62,6 +71,8 @@ class UsuarioController extends BaseController
             // Sin puntos ni el carácter reservado ¶ (FichaUsuario.CamposValidos).
             'codigo'                  => ['nullable', 'string', 'max:15', 'not_regex:/[.¶]/u'],
             'nombre'                  => 'nullable|string|max:100',
+            // Vacía o null quita la contraseña, como el botón de FichaUsuario.
+            'contrasena'              => 'nullable|string|max:40',
             'idioma'                  => 'nullable|integer|min:0',
             'certificado'             => 'nullable|string|max:100',
             'usuario_windows'         => 'nullable|string|max:50',
@@ -121,7 +132,17 @@ class UsuarioController extends BaseController
     protected function validateAdditionalCriteria(array $data, array $keys = []): array
     {
         $isCreating = empty($keys);
+        $this->creating = $isCreating;
         $before = null;
+
+        if (isset($data['contrasena']) && $data['contrasena'] !== '') {
+            if (! VeolabPassword::configured()) {
+                throw new BusinessRuleException('La API no tiene configurado el cifrado de contraseñas de Veolab');
+            }
+            if (! VeolabPassword::secure($data['contrasena'])) {
+                throw new BusinessRuleException('La contraseña no es segura: debe tener al menos 8 caracteres con mayúsculas, minúsculas, números y algún símbolo');
+            }
+        }
 
         if ($isCreating) {
             $data['delegacion'] = $data['delegacion'] ?? '';
@@ -209,6 +230,66 @@ class UsuarioController extends BaseController
         }
 
         return $data;
+    }
+
+    /**
+     * Contraseña: se graba aparte para no exponerla ni auditar su valor. Como
+     * FichaUsuario: cifrada con ENC_Encripta (o vacía) y USUDCON = hoy; en un
+     * alta sin contraseña también se fija la fecha. Al modificarla se audita
+     * el campo ACCUSUUSUCCON sin valores.
+     */
+    protected function updateAdditionalData(array $data, array $keys): array
+    {
+        $given = array_key_exists('contrasena', $data);
+        if (! $given && ! $this->creating) {
+            return $data;
+        }
+
+        $plain = (string) ($data['contrasena'] ?? '');
+        DB::connection('dynamic')->table('ACCUSU')
+            ->where('DEL3COD', $keys['delegacion'] ?? '')->where('USU1COD', $keys['codigo'])
+            ->update([
+                'USUCCON' => $plain === '' ? '' : VeolabPassword::encrypt($plain),
+                'USUDCON' => date('Y-m-d 00:00:00'),
+            ]);
+
+        if ($given && ! $this->creating) {
+            $row = VeolabCodes::format($this->table, (string) $keys['codigo'], (string) ($keys['delegacion'] ?? ''));
+            // Sin otros campos el BaseController no registra el suceso de fila.
+            if (! array_intersect_key($data, $this->mapping)) {
+                VeolabAudit::record(VeolabAudit::MODIFICACION_FILA, $this->table, $row);
+            }
+            if (VeolabAudit::enabled(VeolabAudit::MODIFICACION_CAMPO)) {
+                VeolabAudit::record(VeolabAudit::MODIFICACION_CAMPO, $this->table, $row, $this->table.'USUCCON');
+            }
+        }
+
+        return $data;
+    }
+
+    /** tiene_contrasena (T/F) de cada usuario, sin devolver la contraseña. */
+    protected function appendRelatedData(array $rows): array
+    {
+        if (! $rows) {
+            return $rows;
+        }
+
+        $query = DB::connection('dynamic')->table('ACCUSU');
+        $query->where(function ($q) use ($rows) {
+            foreach ($rows as $row) {
+                $q->orWhere(fn ($w) => $w->where('DEL3COD', $row['delegacion'] ?? '')->where('USU1COD', $row['codigo']));
+            }
+        });
+        $withPassword = [];
+        foreach ($query->get(['DEL3COD', 'USU1COD', 'USUCCON']) as $user) {
+            $withPassword[$user->DEL3COD.'|'.$user->USU1COD] = (string) $user->USUCCON !== '';
+        }
+
+        foreach ($rows as &$row) {
+            $row['tiene_contrasena'] = ($withPassword[($row['delegacion'] ?? '').'|'.$row['codigo']] ?? false) ? 'T' : 'F';
+        }
+
+        return $rows;
     }
 
     protected function validateBeforeDelete(array $keys): void

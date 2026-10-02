@@ -18,6 +18,7 @@
 11. [Gestión documental](#11-gestión-documental)
     - [11 bis. Inventario](#11-bis-inventario)
     - [11 ter. Permisos de perfil](#11-ter-permisos-de-perfil)
+    - [11 quater. Contraseña y firma de usuario](#11-quater-contraseña-y-firma-de-usuario)
 12. [Fixes de corrección a arrastrar de la v1](#12-fixes-de-corrección-a-arrastrar-de-la-v1)
 13. [Decisiones pendientes de confirmar](#13-decisiones-pendientes-de-confirmar)
 
@@ -410,6 +411,36 @@ PUT: `{ "permisos": [ { "funcionalidad": "LAB_OPE", "acceso": "E", "especial": 2
   el perfil (suceso de fila y de campo `ACCPYF`) solo si algo cambia. La respuesta
   trae la lista completa resultante.
 - Un perfil nuevo no tiene permisos; al borrarlo se borran sus `ACCPYF`.
+
+## 11 quater. Contraseña y firma de usuario
+
+**Contraseña** (`ACCUSU.USUCCON`), en `POST`/`PUT /usuarios`:
+
+- Campo `contrasena` (solo escritura, máx. 40). **Nunca** se devuelve: la respuesta
+  lleva `tiene_contrasena` (T/F) y `fecha_contrasena` (`USUDCON`, la del último
+  cambio, que Veolab usa para obligar al cambio anual).
+- Se guarda como Veolab (`ENC_Encripta`, Encriptacion.bas) para que el usuario entre
+  en Veolab con ella. Necesita en el `.env` los patrones `VEOLAB_ENC_BUSQUEDA` (el
+  mismo de la licencia) y `VEOLAB_ENC_ENCRIPTA1` (base64 de Windows-1252); sin ellos,
+  `422`.
+- Con la seguridad de contraseñas activada en Veolab (`ACCPAR.PARBSEG`), al menos 8
+  caracteres con mayúscula, minúscula, número y algún otro carácter (`422` si no).
+- `""` o `null` quita la contraseña (como el botón de la ficha). Al cambiarla o
+  quitarla `fecha_contrasena` pasa a hoy; también en un alta sin contraseña.
+- Se audita el campo `ACCUSUUSUCCON` **sin valores**.
+
+**Firma digitalizada** (`ACCFIR`), la imagen que Veolab pone en los informes:
+
+| Método | Ruta | Uso |
+|---|---|---|
+| `GET` | `/usuarios/firma?delegacion=&codigo=` | Descarga la imagen (`inline=T` para mostrarla). `404` si no tiene. |
+| `POST` | `/usuarios/firma?delegacion=&codigo=` | `multipart/form-data`, campo `fichero`: sustituye la firma. |
+| `DELETE` | `/usuarios/firma?delegacion=&codigo=` | Quita la firma. |
+
+- Solo **BMP, JPG o GIF** (Veolab la carga con `LoadPicture`, que no admite PNG), hasta
+  2 MB; se comprueba por la cabecera del fichero.
+- Se guarda como Veolab: trozos de 65534 bytes con `FIR1COD` del contador de
+  `ACCFIR` (`ACCCLT`), en orden. Se audita el campo `ACCUSUUSUCBFI`.
 
 ## 12. Fixes de corrección a arrastrar de la v1
 

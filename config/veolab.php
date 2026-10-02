@@ -23,6 +23,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Contraseñas de los usuarios de Veolab
+    |--------------------------------------------------------------------------
+    |
+    | ACCUSU.USUCCON se guarda con ENC_Encripta (Encriptacion.bas) con los
+    | patrones ENC_PATRON_BUSQUEDA (el mismo 'busqueda' de la licencia) y
+    | ENC_PATRON_ENCRIPTA1, en base64 de Windows-1252. SECRETOS: solo en el
+    | .env. Sin ellos la API no puede poner contraseñas (422).
+    |
+    */
+
+    'password' => [
+        'busqueda'  => env('VEOLAB_ENC_BUSQUEDA'),
+        'encripta1' => env('VEOLAB_ENC_ENCRIPTA1'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Separador decimal
     |--------------------------------------------------------------------------
     |

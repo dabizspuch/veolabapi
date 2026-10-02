@@ -70,6 +70,11 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     $resource('/festivos', 'FestivoController');
     $resource('/autodefinibles', 'AutodefinibleController');
 
+    // --- Firma digitalizada del usuario (ACCFIR). POST en multipart/form-data. ---
+    Route::get('/usuarios/firma', [$ns.'UsuarioFirmaController', 'show']);
+    Route::post('/usuarios/firma', [$ns.'UsuarioFirmaController', 'store']);
+    Route::delete('/usuarios/firma', [$ns.'UsuarioFirmaController', 'destroy']);
+
     // --- Permisos de perfil (ACCPYF) y catálogos de solo lectura (ACCFUN, ACCMOD) ---
     Route::get('/perfiles/permisos', [$ns.'PerfilPermisoController', 'index']);
     Route::put('/perfiles/permisos', [$ns.'PerfilPermisoController', 'update']);
