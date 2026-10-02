@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\VeolabAgenda;
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
 use App\Support\VeolabPeriodicity;
@@ -80,9 +81,6 @@ class AgendaController extends BaseController
         'periodicidad_repeticiones' => 'AGENINR',
         'trasladar_laborable'       => 'AGEBLAB',
     ];
-
-    /** Minutos de cada unidad de aviso. */
-    private const UNITS = ['M' => 1, 'H' => 60, 'D' => 1440, 'S' => 10080];
 
     protected function rules(): array
     {
@@ -179,6 +177,9 @@ class AgendaController extends BaseController
             $start = new \DateTimeImmutable($start);
             if (! empty($data['fin'])) {
                 $end = new \DateTimeImmutable($data['fin']);
+            } elseif ($current && $current->FECTFIN === null) {
+                // Sin fin (Veolab lo permite, p. ej. eventos de planificación): sigue sin fin.
+                $end = null;
             } elseif ($current) {
                 // Sin fin: se conserva la duración.
                 $length = (new \DateTime($current->FECTFIN))->getTimestamp() - (new \DateTime($current->FECTINI))->getTimestamp();
@@ -186,10 +187,10 @@ class AgendaController extends BaseController
             } else {
                 $end = $start;
             }
-            if ($end < $start) {
+            if ($end !== null && $end < $start) {
                 throw new BusinessRuleException('La fecha de fin es anterior a la de inicio');
             }
-            $length = $end->getTimestamp() - $start->getTimestamp();
+            $length = $end === null ? null : $end->getTimestamp() - $start->getTimestamp();
 
             if ($repeat && $repeat['frecuencia'] > 0) {
                 $starts = (new VeolabPeriodicity($owner[0]))->dates($start, $repeat['frecuencia'], $repeat['opcion'],
@@ -213,7 +214,8 @@ class AgendaController extends BaseController
             $data['periodicidad_repeticiones'] = $repeat['repeticiones'] ?? 0;
             $data['trasladar_laborable'] = ($repeat['trasladar'] ?? false) ? 'T' : 'F';
 
-            $dates = array_map(fn ($d) => [$d->format('Y-m-d H:i:s'), $d->modify("+{$length} seconds")->format('Y-m-d H:i:s')], $starts);
+            $dates = array_map(fn ($d) => [$d->format('Y-m-d H:i:s'),
+                $length === null ? null : $d->modify("+{$length} seconds")->format('Y-m-d H:i:s')], $starts);
         }
 
         // Asistentes: usuarios existentes, sin repetir ni el propio dueño.
@@ -284,7 +286,7 @@ class AgendaController extends BaseController
                 $db->table('AGEFEC')->insert(['USU3DEL' => $del, 'USU3COD' => $usu, 'AGE3COD' => $cod,
                     'FEC1COD' => $last - count($data['_fechas']) + 1 + $i, 'FECTINI' => $ini, 'FECTFIN' => $fin]);
             }
-            $this->createWarnings($event, null);
+            VeolabAgenda::createWarnings($event, null);
             if (! $isNew) {
                 $auditField('AGEFEC');
             }
@@ -294,42 +296,10 @@ class AgendaController extends BaseController
             $db->delete('DELETE ACCAVI FROM ACCAVI JOIN AGEFEC ON (ACCAVI.AGE2DEL = AGEFEC.USU3DEL AND ACCAVI.AGE2USU = AGEFEC.USU3COD '
                 .'AND ACCAVI.AGE2COD = AGEFEC.AGE3COD AND ACCAVI.AGE2FEC = AGEFEC.FEC1COD) '
                 .'WHERE AGEFEC.USU3DEL = ? AND AGEFEC.USU3COD = ? AND AGEFEC.AGE3COD = ? AND AGEFEC.FECTINI >= ?', [$del, $usu, $cod, $now]);
-            $this->createWarnings($event, $now);
+            VeolabAgenda::createWarnings($event, $now);
         }
 
         return $data;
-    }
-
-    /** Avisos de las fechas del evento (desde $from si se indica) para el dueño y los asistentes. */
-    private function createWarnings(object $event, ?string $from): void
-    {
-        $db = DB::connection('dynamic');
-        [$del, $usu, $cod] = [(string) $event->USU3DEL, (string) $event->USU3COD, (int) $event->AGE1COD];
-
-        $users = [[$del, $usu]];
-        foreach ($db->table('AGEASI')->where('USU3DEL', $del)->where('USU3COD', $usu)->where('AGE3COD', $cod)->get() as $a) {
-            $users[] = [(string) $a->USA3DEL, (string) $a->USA3COD];
-        }
-        $dates = $db->table('AGEFEC')->where('USU3DEL', $del)->where('USU3COD', $usu)->where('AGE3COD', $cod)
-            ->when($from !== null, fn ($q) => $q->where('FECTINI', '>=', $from))
-            ->orderBy('FEC1COD')->get(['FEC1COD', 'FECTINI']);
-
-        $before = (int) $event->AGENAVI > 0 ? (int) $event->AGENAVI * (self::UNITS[(string) $event->AGECAVI] ?? 0) : 0;
-        foreach ($dates as $date) {
-            $times = [(string) $date->FECTINI];
-            if ((int) $event->AGENAVI > 0) {
-                $times[] = (new \DateTime($date->FECTINI))->modify("-{$before} minutes")->format('Y-m-d H:i:s');
-            }
-            foreach ($users as [$uDel, $uCod]) {
-                foreach ($times as $time) {
-                    $db->table('ACCAVI')->insert([
-                        'DEL3COD' => $del, 'AVI1COD' => VeolabCodes::next('ACCAVI', '', $del), 'AVITFEC' => $time,
-                        'AVICTIP' => 'A', 'USU2DEL' => $uDel, 'USU2COD' => $uCod,
-                        'AGE2DEL' => $del, 'AGE2USU' => $usu, 'AGE2COD' => $cod, 'AGE2FEC' => (int) $date->FEC1COD,
-                    ]);
-                }
-            }
-        }
     }
 
     /** Cada evento lleva sus fechas y asistentes. */
@@ -384,7 +354,7 @@ class AgendaController extends BaseController
                 $join->on('AGEAGE.USU3DEL', '=', 'AGEFEC.USU3DEL')->on('AGEAGE.USU3COD', '=', 'AGEFEC.USU3COD')
                     ->on('AGEAGE.AGE1COD', '=', 'AGEFEC.AGE3COD');
             })
-            ->where('AGEFEC.FECTFIN', '>=', $from)->where('AGEFEC.FECTINI', '<=', $to)
+            ->whereRaw('COALESCE(AGEFEC.FECTFIN, AGEFEC.FECTINI) >= ?', [$from])->where('AGEFEC.FECTINI', '<=', $to)
             ->where(function ($q) use ($user) {
                 $q->where(fn ($w) => $w->where('AGEAGE.USU3DEL', $user[0])->where('AGEAGE.USU3COD', $user[1]))
                     ->orWhereExists(function ($e) use ($user) {

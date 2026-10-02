@@ -553,7 +553,7 @@ Como FichaCalendario y Calendario de Veolab, con eventos de una fecha o periódi
 | Recurso | Tabla | Notas |
 |---|---|---|
 | `/agenda` | `AGEAGE` (+ `AGEFEC`, `AGEASI`) | Clave `usuario_delegacion` + `usuario_codigo` (dueño) + `codigo` (contador por usuario). CRUD. |
-| `GET /agenda/fechas?usuario_*&desde=&hasta=` | `AGEFEC` | Fechas de los eventos del usuario o a los que asiste, en orden (para un calendario); `es_propio`. |
+| `GET /agenda/fechas?usuario_*&desde=&hasta=` | `AGEFEC` | Fechas de los eventos del usuario o a los que asiste, en orden (para un calendario); `es_propio`. Una fecha puede no tener `fin` (`null`: Veolab lo permite y así son los eventos de planificación). |
 | `/agenda/estados` | `AGEEST` | `descripcion` (50), `color` (entero de color de VB). |
 | `/agenda/clasificaciones` | `AGECLA` | Igual. |
 
@@ -772,7 +772,16 @@ parámetro), `serie_operaciones` (serie de las operaciones que genera),
   fecha; si la periodicidad no genera ninguna fecha → `422`.
 - `PUT /planificaciones/fechas?delegacion=&codigo=&fecha=` con `{"completada": "T"|"F"}`
   marca una fecha como generada o pendiente (suceso `M` en la auditoría).
-- Aviso en la agenda (`es_aviso`, `aviso_*`): solo lectura.
+- **Aviso en la agenda** (`es_aviso` T/F, `aviso_numero`, `aviso_unidad` M/H/D/S),
+  como `AGE_CrearEventoCalendarioPlanificacion`: al crear con aviso, o al cambiar el aviso,
+  la fecha o la periodicidad, se rehace el evento de agenda (`AGEAGE` con
+  `planificacion_*`, asunto "Planificación <código> <cliente>", 1 h). Dueño: el primero
+  (por delegación y código) de los usuarios con la función `LAB_PLA` en su perfil y de
+  los analistas de sus técnicas, si no tienen cliente o es el de la planificación; el
+  resto son asistentes. Fechas: las de la planificación desde hoy, sin fecha de fin
+  (como Veolab), y avisos de las que no han vencido, para el dueño y los asistentes
+  (Veolab, solo para el dueño). Sin aviso se borra el evento. Aviso sin fecha → `422`.
+  Veolab rehace estos eventos al ampliar el horizonte de periodicidades.
 - **Borrado**: desvincula sus operaciones, documentos a la papelera, borra
   autodefinibles, fechas, servicios/técnicas/gastos (Veolab deja estos tres
   huérfanos) y los eventos de agenda.

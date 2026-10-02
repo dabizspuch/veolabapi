@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Concerns\ChecksVeolabReferences;
+use App\Support\VeolabAgenda;
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
 use App\Support\VeolabCustomFields;
@@ -23,7 +24,10 @@ use Illuminate\Support\Facades\Validator;
  *    PLONFRE = 0) o periódica (fecha_inicio + 'repeticion', ver
  *    VeolabPeriodicity), como FichaPlanificacion: las fechas se generan
  *    hasta el horizonte de periodicidades y se omiten las ya completadas.
- *  - Aviso en la agenda (PLOBAVI...): de solo lectura.
+ *  - Aviso en la agenda (es_aviso, aviso_numero, aviso_unidad): con aviso,
+ *    al crear o al cambiar el aviso o las fechas se rehace el evento de
+ *    agenda de la planificación (ver VeolabAgenda::syncPlanning); sin
+ *    aviso se borra.
  *  - Al cambiar la fecha, las fechas no completadas se desactivan
  *    (FEPTINI = NULL, se conservan por el vínculo de códigos de barras) y se
  *    crea la nueva, salvo que ya haya una completada en esa fecha.
@@ -142,8 +146,8 @@ class PlanificacionController extends BaseController
     ];
 
     /**
-     * Sin regla (solo lectura): periodicidad_* (se escriben con 'repeticion'),
-     * el aviso en la agenda y precios_modificados.
+     * Sin regla (solo lectura): periodicidad_* (se escriben con 'repeticion')
+     * y precios_modificados.
      *
      * 'fecha_inicio': fecha (o inicio de la periodicidad; null = sin fecha).
      * 'repeticion': {frecuencia, opcion, repetir, ordinal, dias | dias_semana |
@@ -183,6 +187,9 @@ class PlanificacionController extends BaseController
             'id_red_sinac'                   => 'nullable|integer',
             'codigo_localidad_sinac'         => 'nullable|integer',
             'direccion_sinac'                => 'nullable|string|max:200',
+            'es_aviso'                       => 'nullable|string|in:T,F',
+            'aviso_numero'                   => 'nullable|integer|min:0',
+            'aviso_unidad'                   => 'nullable|string|in:M,H,D,S',
             'es_urgente'                     => 'nullable|string|in:T,F',
             'calcular_compromiso'            => 'nullable|string|in:T,F',
             'es_visible_sinac'               => 'nullable|string|in:T,F',
@@ -242,8 +249,8 @@ class PlanificacionController extends BaseController
             $data['tipo_desglose'] ??= $this->defaultBreakdown();
             $data['numero_operaciones'] ??= 1;
             $data['precios_modificados'] = 'F';
-            $data['es_aviso'] = 'F';
-            $data['aviso_numero'] = 0;
+            $data['es_aviso'] ??= 'F';
+            $data['aviso_numero'] ??= 0;
             $data = $this->applyClientTariff($data);
             $this->checkServicesExist($data['servicios'] ?? []);
             $data = $this->applyDate($data, $delegation, null);
@@ -258,8 +265,37 @@ class PlanificacionController extends BaseController
             }
         }
 
+        $data = $this->checkWarning($data, $keys);
         $data['_autodefinibles'] = $customFields;
         $data['_nueva'] = $isNew;
+
+        return $data;
+    }
+
+    /**
+     * Aviso en la agenda: necesita fecha y, con número, la unidad. Deja en
+     * '_agenda' si hay que rehacer el evento (FichaPlanificacion.Grabar: al
+     * crear con aviso o al cambiar el aviso, la fecha o la periodicidad).
+     */
+    private function checkWarning(array $data, array $keys): array
+    {
+        $before = $keys ? DB::connection('dynamic')->table('LABPLO')
+            ->where('DEL3COD', $keys['delegacion'])->where('PLO1COD', $keys['codigo'])->first() : null;
+        $warning = $data['es_aviso'] ?? $before->PLOBAVI ?? 'F';
+        $number = (int) ($data['aviso_numero'] ?? $before->PLONAVI ?? 0);
+        $unit = (string) ($data['aviso_unidad'] ?? $before->PLOCAVI ?? '');
+        $frequency = (int) ($data['periodicidad'] ?? $before->PLONFRE ?? self::NO_DATE);
+        $warningGiven = array_key_exists('es_aviso', $data) || array_key_exists('aviso_numero', $data)
+            || array_key_exists('aviso_unidad', $data);
+
+        if ($warning === 'T' && $frequency === self::NO_DATE) {
+            throw new BusinessRuleException('El aviso en la agenda necesita la fecha de inicio');
+        }
+        if ($warningGiven && $number > 0 && $unit === '') {
+            throw new BusinessRuleException('Falta la unidad del aviso (M, H, D o S)');
+        }
+
+        $data['_agenda'] = $keys ? ($warningGiven || isset($data['_fechas'])) : $warning === 'T';
 
         return $data;
     }
@@ -332,7 +368,7 @@ class PlanificacionController extends BaseController
         return $data;
     }
 
-    /** Tras crear/modificar: servicios (alta), fechas y autodefinibles. */
+    /** Tras crear/modificar: servicios (alta), fechas, autodefinibles y evento de agenda. */
     protected function updateAdditionalData(array $data, array $keys): array
     {
         [$del, $cod] = [(string) $keys['delegacion'], (int) $keys['codigo']];
@@ -346,6 +382,10 @@ class PlanificacionController extends BaseController
         }
 
         VeolabCustomFields::save('LABPLO', [$del, $cod], $data['_autodefinibles'] ?? [], $this->auditRow($keys), $data['_nueva']);
+
+        if ($data['_agenda']) {
+            VeolabAgenda::syncPlanning($del, $cod);
+        }
 
         return $data;
     }
@@ -492,13 +532,6 @@ class PlanificacionController extends BaseController
         }
 
         // Eventos de agenda (AGE_BorrarEventoCalendarioPlanificaciones).
-        $agenda = 'AGEAGE.PLO2DEL = ? AND AGEAGE.PLO2COD = ?';
-        $db->delete('DELETE AGEFEC FROM AGEFEC JOIN AGEAGE ON (AGEFEC.USU3DEL = AGEAGE.USU3DEL '
-            ."AND AGEFEC.USU3COD = AGEAGE.USU3COD AND AGEFEC.AGE3COD = AGEAGE.AGE1COD) WHERE {$agenda}", [$del, $cod]);
-        $db->delete('DELETE AGEASI FROM AGEASI JOIN AGEAGE ON (AGEASI.USU3DEL = AGEAGE.USU3DEL '
-            ."AND AGEASI.USU3COD = AGEAGE.USU3COD AND AGEASI.AGE3COD = AGEAGE.AGE1COD) WHERE {$agenda}", [$del, $cod]);
-        $db->delete('DELETE ACCAVI FROM ACCAVI JOIN AGEAGE ON (ACCAVI.AGE2DEL = AGEAGE.USU3DEL '
-            ."AND ACCAVI.AGE2USU = AGEAGE.USU3COD AND ACCAVI.AGE2COD = AGEAGE.AGE1COD) WHERE {$agenda}", [$del, $cod]);
-        $db->table('AGEAGE')->where('PLO2DEL', $del)->where('PLO2COD', $cod)->delete();
+        VeolabAgenda::deletePlanning($del, $cod);
     }
 }
