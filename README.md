@@ -9,7 +9,7 @@ Verifactu.
 - **Versión:** 2.0 (rutas `/api/v2`).
 - **URL del servicio de Spuch:** `https://api.veolab.es`
 - **Formato:** JSON sobre HTTPS, autenticación con token Bearer.
-- **Manual de referencia** (PDF con todos los recursos y campos): ver [Documentación](#documentación).
+- **[Manual de referencia](https://www.spuch.com/downloads/API%20REST%20Veolab%20-%20Manual%20de%20referencia.pdf)** (PDF con todos los recursos y campos).
 
 ## Índice
 
@@ -557,8 +557,10 @@ en el cron para borrar a diario los tokens caducados. Compruebe la licencia de u
 
 ## Documentación
 
-- **Manual de referencia** (todos los recursos, sus reglas y sus campos): *API REST Veolab - Manual
-  de referencia* (PDF), disponible en la web de Spuch.
+- **[Manual de referencia](https://www.spuch.com/downloads/API%20REST%20Veolab%20-%20Manual%20de%20referencia.pdf)**
+  (PDF): todos los recursos, sus reglas y sus campos, con ejemplos.
+- **[Presentación](https://www.spuch.com/downloads/API%20REST%20Veolab.pdf)** (PDF): qué es la API y cómo empezar.
+- Otros recursos de Veolab: [spuch.com/resources.php](https://www.spuch.com/resources.php).
 - **Diseño técnico y reglas de negocio**, recurso por recurso: [`docs/v2/CONVENCIONES.md`](docs/v2/CONVENCIONES.md).
 
 ## Historial de versiones
