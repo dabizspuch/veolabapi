@@ -153,6 +153,17 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     Route::post('/documentos/carpetas/perfiles', [$ns.'CarpetaPerfilController', 'store']);
     Route::delete('/documentos/carpetas/perfiles', [$ns.'CarpetaPerfilController', 'destroy']);
 
+    // --- Comunicaciones: notificaciones (ACCNOT), mensajes (MENMEN) y avisos pendientes (ACCAVI) ---
+    Route::get('/notificaciones', [$ns.'NotificacionController', 'index']);
+    Route::delete('/notificaciones', [$ns.'NotificacionController', 'destroy']);
+    Route::get('/mensajes', [$ns.'MensajeController', 'index']);
+    Route::post('/mensajes', [$ns.'MensajeController', 'store']);
+    Route::get('/mensajes/conversacion', [$ns.'MensajeController', 'conversation']);
+    Route::post('/mensajes/leidos', [$ns.'MensajeController', 'markRead']);
+    Route::get('/avisos', [$ns.'AvisoController', 'index']);
+    Route::delete('/avisos', [$ns.'AvisoController', 'destroy']);
+    Route::post('/avisos/vistos', [$ns.'AvisoController', 'markSeen']);
+
     // --- Configuración de Veolab: solo lectura (se mantiene en las pantallas Configurar...) ---
     Route::get('/configuracion/general', [$ns.'ConfiguracionGeneralController', 'index']);
     Route::get('/configuracion/laboratorio', [$ns.'ConfiguracionLaboratorioController', 'index']);

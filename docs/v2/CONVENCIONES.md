@@ -21,6 +21,7 @@
     - [11 quater. Contraseña y firma de usuario](#11-quater-contraseña-y-firma-de-usuario)
     - [11 quinquies. Configuración](#11-quinquies-configuración-solo-lectura)
     - [11 sexies. Cartas de control](#11-sexies-cartas-de-control)
+    - [11 septies. Notificaciones, mensajes y avisos](#11-septies-notificaciones-mensajes-y-avisos)
 12. [Fixes de corrección a arrastrar de la v1](#12-fixes-de-corrección-a-arrastrar-de-la-v1)
 13. [Decisiones pendientes de confirmar](#13-decisiones-pendientes-de-confirmar)
 
@@ -518,6 +519,27 @@ licenciado, las escrituras dan `422`.
   usuarios empleados con escritura en `LAB_CDC` (si no hay, al usuario indicado); avisos al
   usuario indicado (`usuario_*` del `PUT /resultados`).
 - Borrado: documentos a la papelera y se borran resultados, técnicas y notificaciones.
+
+## 11 septies. Notificaciones, mensajes y avisos
+
+La API no tiene sesión de usuario: estas rutas trabajan sobre el usuario que se indique
+(`usuario_delegacion` + `usuario_codigo`), que la app web debe tomar del usuario conectado.
+
+| Recurso | Tabla | Notas |
+|---|---|---|
+| `GET /notificaciones` | `ACCNOT` | Lista de notificaciones (filtrar por `usuario_*`, `tipo`, `fecha[gte]`...). Cada una lleva `tipo_descripcion` y `pendiente` (T si su aviso emergente no se ha visto). Referencias: `operacion_*`, `informe_*`, `producto_*`, `carta_control_*`. |
+| `DELETE /notificaciones?delegacion=&codigo=` | `ACCNOT` | Borra la notificación y sus avisos (Veolab deja los avisos huérfanos). Se audita. |
+| `GET /mensajes` | `MENMEN` | Listado (`origen_*`, `destino_*`, `fecha`...); `leido` = F mientras el destinatario tenga el aviso. |
+| `POST /mensajes` | `MENMEN` | `{origen_delegacion, origen_codigo, destino_delegacion, destino_codigo, texto}`. Como Mensajeria: se guarda en la delegación del remitente con la hora del servidor y crea el aviso `M` del destinatario (que no puede estar de baja). Necesita el módulo COM. No se auditan ni se borran. |
+| `GET /mensajes/conversacion?usuario_*&con_*[&desde=]` | `MENMEN` | Mensajes entre los dos usuarios, en orden de envío (sin paginar). |
+| `POST /mensajes/leidos` | `ACCAVI` | `{usuario_*[, con_*]}`: borra los avisos de mensajes del usuario (de todos o solo de `con`). |
+| `GET /avisos` | `ACCAVI` | Avisos pendientes: `tipo` N notificación, M mensaje, A agenda (la fecha de una cita puede ser futura: filtrar `fecha[lte]`). Cada uno lleva un `resumen` de lo avisado. |
+| `DELETE /avisos?delegacion=&codigo=` | `ACCAVI` | Aviso visto (como al mostrarlo en Veolab). |
+| `POST /avisos/vistos` | `ACCAVI` | `{usuario_*[, tipo]}`: todos los avisos vencidos del usuario. |
+
+Tipos de notificación: B muestra recibida, C fecha de compromiso, A analista asignado, F firma
+pendiente, R resultado rechazado, I nuevo informe, M marca en resultados, S stock mínimo,
+O/V/N error, aviso y nueva carta de control.
 
 ## 12. Fixes de corrección a arrastrar de la v1
 
@@ -1084,7 +1106,7 @@ las relaciones.
   Al crear se añade a los campos de operación (`PERCCAO`) de los perfiles de su
   delegación; al borrar se quita, y se borran sus servicios y valores. Con valor en alguna
   operación o lote no se borra (`422`). Auditoría con el nombre como fila.
-- Fuera de la API por ahora: estadísticas, plantillas de exportación, agenda, mensajes,
+- Fuera de la API por ahora: estadísticas, plantillas de exportación, agenda,
   préstamos/residuos y tablas de sistema.
 
 **Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
