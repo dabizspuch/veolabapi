@@ -19,6 +19,7 @@
     - [11 bis. Inventario](#11-bis-inventario)
     - [11 ter. Permisos de perfil](#11-ter-permisos-de-perfil)
     - [11 quater. Contraseña y firma de usuario](#11-quater-contraseña-y-firma-de-usuario)
+    - [11 quinquies. Configuración](#11-quinquies-configuración-solo-lectura)
 12. [Fixes de corrección a arrastrar de la v1](#12-fixes-de-corrección-a-arrastrar-de-la-v1)
 13. [Decisiones pendientes de confirmar](#13-decisiones-pendientes-de-confirmar)
 
@@ -448,6 +449,29 @@ PUT: `{ "permisos": [ { "funcionalidad": "LAB_OPE", "acceso": "E", "especial": 2
   ficha, así que se va duplicando; al leerla se concatenan todos los trozos.
 - Se guarda como Veolab: trozos de 65534 bytes con `FIR1COD` del contador de
   `ACCFIR` (`ACCCLT`), en orden. Se audita el campo `ACCUSUUSUCBFI`.
+
+## 11 quinquies. Configuración (solo lectura)
+
+La configuración de Veolab se mantiene en sus pantallas Configurar...; la API la
+expone **solo para lectura** (la escritura irá por partes, con las reglas de cada
+pantalla). Son listados estándar (`{data, meta}`, filtros y orden).
+
+| Recurso | Tabla | Notas |
+|---|---|---|
+| `GET /configuracion/general` | `ACCPAR` | Una fila (`codigo` 1): empresa, acceso, auditoría, copias, documentos, email, IGEO. |
+| `GET /configuracion/laboratorio` | `LABCON` | Una fila (`codigo` 1): operaciones, resultados, informes, notificaciones, cartas de control, facturación, exportación. |
+| `GET /configuracion/codigos` | `ACCCFC` | Formato y numeración de códigos por `tabla` (la API ya lo aplica al generar códigos). |
+| `GET /series` | `ACCCLT` | Series y contadores por `delegacion` + `tabla` + `serie`. Las tablas sin serie tienen su contador con serie `''`. `contador` = último código asignado. |
+| `GET /configuracion/imagen-acreditacion` | `LABIMG` | La imagen de acreditación de los informes (binaria, `inline=T` para mostrarla). `404` si no hay. |
+
+- **Nunca se devuelven** las contraseñas de `ACCPAR` (SMTP `PARCPAE`, RabbitMQ de
+  IGEO `PARCIGC`): solo `smtp_tiene_contrasena` / `igeo_tiene_contrasena` (T/F).
+- Tampoco la licencia cifrada (`PARCLBD`, `PARCCLV`): en su lugar `licencia`
+  (Gratuita, Profesional, Empresarial, Empresarial Verifactu o `null` si no se puede
+  leer) y `restricciones_verifactu` (T/F). La cadena de hash de facturas (`ACCHAS`)
+  no se expone.
+- Los nombres de campo agrupan por pantalla; los códigos de letra se documentan en
+  los controladores (`ConfiguracionGeneralController`, `ConfiguracionLaboratorioController`).
 
 ## 12. Fixes de corrección a arrastrar de la v1
 

@@ -150,6 +150,13 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     Route::post('/documentos/carpetas/perfiles', [$ns.'CarpetaPerfilController', 'store']);
     Route::delete('/documentos/carpetas/perfiles', [$ns.'CarpetaPerfilController', 'destroy']);
 
+    // --- Configuración de Veolab: solo lectura (se mantiene en las pantallas Configurar...) ---
+    Route::get('/configuracion/general', [$ns.'ConfiguracionGeneralController', 'index']);
+    Route::get('/configuracion/laboratorio', [$ns.'ConfiguracionLaboratorioController', 'index']);
+    Route::get('/configuracion/codigos', [$ns.'ConfiguracionCodigoController', 'index']);
+    Route::get('/configuracion/imagen-acreditacion', [$ns.'ConfiguracionImagenController', 'show']);
+    Route::get('/series', [$ns.'SerieController', 'index']);
+
     // Auditoría: solo lectura.
     Route::get('/auditorias', [$ns.'AuditoriaController', 'index']);
     Route::get('/auditorias-archivadas', [$ns.'AuditoriaArchivadaController', 'index']);
