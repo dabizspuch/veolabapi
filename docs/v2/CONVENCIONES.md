@@ -20,6 +20,7 @@
     - [11 ter. Permisos de perfil](#11-ter-permisos-de-perfil)
     - [11 quater. Contraseña y firma de usuario](#11-quater-contraseña-y-firma-de-usuario)
     - [11 quinquies. Configuración](#11-quinquies-configuración-solo-lectura)
+    - [11 sexies. Cartas de control](#11-sexies-cartas-de-control)
 12. [Fixes de corrección a arrastrar de la v1](#12-fixes-de-corrección-a-arrastrar-de-la-v1)
 13. [Decisiones pendientes de confirmar](#13-decisiones-pendientes-de-confirmar)
 
@@ -473,6 +474,51 @@ pantalla). Son listados estándar (`{data, meta}`, filtros y orden).
 - Los nombres de campo agrupan por pantalla; los códigos de letra se documentan en
   los controladores (`ConfiguracionGeneralController`, `ConfiguracionLaboratorioController`).
 
+## 11 sexies. Cartas de control
+
+Módulo **CDC**, como Veolab 2.4 (en 2.5 se rehacen). Tablas `LABCDC` (carta), `LABCYT`
+(técnicas) y `LABRCD` (resultados: uno por operación de control). Sin el módulo activo y
+licenciado, las escrituras dan `422`.
+
+`/cartas-control` (clave `delegacion` + `codigo`; CRUD estándar):
+
+| Campo | Notas |
+|---|---|
+| `tipo` | `E` exactitud (columnas de control `CORBCON`), `P` precisión (`CORBCOP`). Por defecto `E`. |
+| `estado` | `N` normal, `A` aviso, `E` error, `C` corregida. Por defecto `N`. |
+| `fecha_creacion`, `fecha_cierre` | Por defecto, creada ahora; se cierra al abrirse la siguiente. |
+| `numero_resultados` | Resultados que admite; por defecto `LABCON.CONNNUM`. |
+| `promedio`, `desviacion` | Base de los límites. `calcular_promedio: "T"` los calcula (botón de la ficha). |
+| `matriz_*`, `observaciones` | |
+| `tecnicas` | `[{tecnica_delegacion, tecnica_codigo}]`; en escritura sustituye la lista. |
+| `resultados` | Lectura: `[{posicion, valor, incidencia, operacion_*}]`. Escritura: `[{operacion_delegacion, operacion_serie, operacion_codigo}]` en orden, sustituye la lista; las ya presentes conservan su valor y las nuevas (operaciones de control) toman el de su primera columna de control. |
+
+- **Promedio y desviación** (`calcular_promedio`): de los últimos `numero_resultados` valores de
+  control del tipo en cualquier operación de control de las técnicas de la carta, redondeados a
+  4 decimales. Si la sección de las técnicas es físico-químico (`F`), el promedio es 0
+  (precisión) o 100 (exactitud).
+- **Límites** (sección `M` microbiología: LSC = 3,27·x̄; resto: x̄ ± 3s), advertencia x̄ ± 2s y
+  1s. **Error**: dos últimos fuera del límite de control; 2 de 3 fuera del de advertencia y el
+  último también; 4 de 5 fuera de 1s y el siguiente también, o 5 seguidos crecientes o
+  decrecientes; 7 seguidos al mismo lado del promedio. **Aviso**: último fuera del límite de
+  control; 2 de 3 fuera del de advertencia; 4 seguidos fuera de 1s o crecientes/decrecientes.
+  En precisión solo cuenta el lado superior; en microbiología y en físico-químico de precisión
+  solo el límite de control.
+- Al cambiar `tipo`, `numero_resultados`, `promedio`, `desviacion`, `tecnicas` o `resultados` se
+  recalcula la incidencia de cada resultado (con los 7 anteriores) y el estado pasa al de la
+  última incidencia, salvo que la petición indique `estado` (p. ej. `C` al corregirla).
+- **Desde resultados** (`PUT /resultados`, operación de control): cada valor de control
+  modificado (no vacío ni `N/A`) va a la carta del tipo de su técnica: la que ya tiene un
+  resultado de la operación o, si no, la última de la delegación de la sesión. Con la carta
+  llena se abre una nueva (mismas técnicas y matriz, promedio y desviación recalculados,
+  `CONNNUM` resultados) y se cierra la anterior. La incidencia sube el estado de la carta
+  (nunca baja de error). Una técnica con la carta en error **no se puede grabar** en ninguna
+  operación hasta corregirla.
+- **Notificaciones** (módulo COM, `CONBCAE`/`CONBCAA`/`CONBCAN`): errores y cartas nuevas a los
+  usuarios empleados con escritura en `LAB_CDC` (si no hay, al usuario indicado); avisos al
+  usuario indicado (`usuario_*` del `PUT /resultados`).
+- Borrado: documentos a la papelera y se borran resultados, técnicas y notificaciones.
+
 ## 12. Fixes de corrección a arrastrar de la v1
 
 Se aplican dentro del rediseño (no son parte del diseño nuevo, son fallos):
@@ -799,9 +845,11 @@ de `FichaResultados` (`App\Support\VeolabResults`):
   (`referenciaoperacion`, `temperaturaoperacion`, `fechainiciooperacion`, `codigotecnica`,
   `unidadestecnica`, `fechafintecnica`...); con otro campo la celda no se recalcula y se
   devuelve un aviso. En `result()` una columna numérica es la posición en esa técnica.
-- **Pendiente**: con el módulo de **cartas de control**, los resultados de control de una
-  operación de control (`OPEBCON`) se graban en Veolab (`422`). Tampoco: notificaciones de
-  marcas, importación de equipos, "establecer predeterminados".
+- **Cartas de control** (módulo CDC, ver §11 sexies): una técnica cuya carta está en error no
+  se puede grabar (`422`), y los resultados de control de una operación de control alimentan
+  las cartas. La "delegación de la sesión" de Veolab es la de `usuario_delegacion` si se
+  indica `usuario_codigo`, o la de la operación.
+- **Pendiente**: notificaciones de marcas, importación de equipos, "establecer predeterminados".
 
 **Presupuestos** (`/presupuestos`, `FACPRE`; clave `delegacion` + `serie` + `codigo`). Réplica
 de `FichaPresupuesto`/`Presupuestos` (`App\Support\VeolabBillingLines`):
@@ -1036,8 +1084,8 @@ las relaciones.
   Al crear se añade a los campos de operación (`PERCCAO`) de los perfiles de su
   delegación; al borrar se quita, y se borran sus servicios y valores. Con valor en alguna
   operación o lote no se borra (`422`). Auditoría con el nombre como fila.
-- Fuera de la API por ahora: cartas de control (se rehacen), estadísticas, plantillas de
-  exportación, agenda, mensajes, movimientos/préstamos/residuos y tablas de sistema.
+- Fuera de la API por ahora: estadísticas, plantillas de exportación, agenda, mensajes,
+  préstamos/residuos y tablas de sistema.
 
 **Campos obligatorios para recibir** (`LABCON.CONCCAO`, `CamposObligatoriosCubiertos`):
 al pasar a recibida (estado 1) o guardar en un estado posterior, los campos de la

@@ -105,6 +105,8 @@ class VeolabResults
                 'active'     => $row->CORBACT === 'T',
                 'editable'   => $row->CORBACT === 'T' && $row->CORBEDI === 'T',
                 'control'    => $row->CORBCON === 'T' || $row->CORBCOP === 'T',
+                'controlE'   => $row->CORBCON === 'T',   // control de exactitud (cartas E)
+                'controlP'   => $row->CORBCOP === 'T',   // control de precisión (cartas P)
                 'ranges'     => $cellRanges,
                 'changed'    => false,
                 'warning'    => '',

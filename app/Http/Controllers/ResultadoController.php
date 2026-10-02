@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Exceptions\BusinessRuleException;
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
+use App\Support\VeolabControlCharts;
 use App\Support\VeolabFormat;
 use App\Support\VeolabFormulas;
 use App\Support\VeolabLicense;
@@ -37,8 +38,11 @@ use Illuminate\Validation\ValidationException;
  *  - Formato de columna (COTCFOR) sobre los valores recibidos y fórmulas
  *    (COTCFOM) recalculadas como al editar en la ficha (VeolabFormat,
  *    VeolabFormulas); "recalcular" fuerza las de una técnica.
- *  - Cartas de control (módulo CDC): los resultados de control de una
- *    operación de control se graban en Veolab.
+ *  - Cartas de control (módulo CDC, VeolabControlCharts): no se graba en
+ *    una técnica cuya carta está en error (RevisarBloqueosCartas) y los
+ *    resultados de control de una operación de control alimentan las cartas
+ *    (AcumulaGrabarControl), con sus notificaciones. La "delegación de la
+ *    sesión" de Veolab es la del usuario indicado, o la de la operación.
  */
 class ResultadoController extends BaseController
 {
@@ -276,6 +280,13 @@ class ResultadoController extends BaseController
         $formulas = new VeolabFormulas($cells, $techniques, $operation, $marks, ($config->CONBEFD ?? '') === 'T');
         $hasFormulas = $formulas->hasFormulas();
 
+        $charts = VeolabLicense::moduleActive('dynamic', $db->getDatabaseName(), 'CDC');
+        $sessionDel = isset($body['usuario_codigo']) && (string) $body['usuario_codigo'] !== ''
+            ? (string) ($body['usuario_delegacion'] ?? '') : $del;
+        if ($charts) {
+            $this->assertChartsNotInError($operation, $body, $sessionDel);
+        }
+
         $resChanges = [];       // técnica => [columna LABRES => valor]
         $valueRows = [];        // técnicas con valores modificados
         $analystRows = [];      // técnicas a las que asignar el analista del usuario
@@ -370,7 +381,6 @@ class ResultadoController extends BaseController
             $marksChanged = true;
         }
 
-        $this->assertNoControlResults($current, $cells);
         $this->assignAnalyst($body, $analystRows, $techniques, $resChanges);
 
         // Fechas, estado y dictamen de la operación (en memoria hasta grabar).
@@ -411,6 +421,13 @@ class ResultadoController extends BaseController
             VeolabResults::setVerdict($op, $this->verdictFromBody($body), $now);
         }
 
+        // Cartas de control: antes de grabar LABCOR, como Veolab (el promedio
+        // de una carta nueva no incluye los valores de esta grabación).
+        $chartEvents = [];
+        if ($charts && $current->OPEBCON === 'T') {
+            $this->recordControlResults($operation, $cells, $sessionDel, $chartEvents);
+        }
+
         // Grabación y auditoría.
         $opRow = VeolabCodes::format('LABOPE', (string) $cod, $del, $ser);
         $changed = $this->saveOperation($operation, $current, $op, $opRow, $now);
@@ -419,6 +436,12 @@ class ResultadoController extends BaseController
 
         if ($changed && $op['end'] !== null) {
             $this->resetReportSignatures($operation);
+        }
+
+        if ($chartEvents) {
+            $user = isset($body['usuario_codigo']) && (string) $body['usuario_codigo'] !== ''
+                ? [(string) ($body['usuario_delegacion'] ?? ''), (string) $body['usuario_codigo']] : null;
+            VeolabControlCharts::notify($chartEvents, $user);
         }
 
         $warnings = [];
@@ -681,24 +704,39 @@ class ResultadoController extends BaseController
     }
 
     /**
-     * Cartas de control (AcumulaGrabarControl): con el módulo CDC, los
-     * resultados de columnas de control de una operación de control
-     * alimentan las cartas; eso todavía se hace en Veolab.
+     * RevisarBloqueosCartas: con el módulo CDC, una técnica cuya carta de
+     * control (la que ya tiene un resultado de la operación o, si no, la
+     * última de la delegación de la sesión) está en error no se puede editar.
      */
-    private function assertNoControlResults(object $current, array $cells): void
+    private function assertChartsNotInError(array $operation, array $body, string $sessionDel): void
     {
-        if ($current->OPEBCON !== 'T') {
-            return;
+        foreach ($body['tecnicas'] ?? [] as $input) {
+            $tecDel = (string) ($input['tecnica_delegacion'] ?? '');
+            $tecCod = (string) ($input['tecnica_codigo'] ?? '');
+            if ($tecCod !== '' && VeolabControlCharts::blocked($tecDel, $tecCod, $operation, $sessionDel)) {
+                throw new BusinessRuleException("La técnica {$tecCod} tiene la carta de control en error: hay que corregirla antes de grabar sus resultados");
+            }
         }
-        foreach ($cells as $columns) {
-            foreach ($columns as $cell) {
-                if ($cell['changed'] && $cell['control'] && $cell['value'] !== '' && $cell['value'] !== 'N/A') {
-                    $db = DB::connection('dynamic');
-                    if (VeolabLicense::moduleActive('dynamic', $db->getDatabaseName(), 'CDC')) {
-                        throw new BusinessRuleException('Los resultados de control de una operación de control (cartas de control) se graban desde Veolab');
-                    }
+    }
 
-                    return;
+    /**
+     * AcumulaGrabarControl: cada valor modificado (no vacío ni N/A) de una
+     * columna de control de exactitud o precisión se graba en la carta del
+     * tipo de su técnica.
+     */
+    private function recordControlResults(array $operation, array $cells, string $sessionDel, array &$events): void
+    {
+        foreach ($cells as $tec => $columns) {
+            [$tecDel, $tecCod] = explode("\x1B", $tec, 2);
+            foreach ($columns as $cell) {
+                if (! $cell['changed'] || $cell['value'] === '' || $cell['value'] === 'N/A' || $cell['value'] === $cell['original']) {
+                    continue;
+                }
+                if ($cell['controlE']) {
+                    VeolabControlCharts::record(VeolabControlCharts::EXACTITUD, $tecDel, $tecCod, $operation, $cell['value'], $sessionDel, $events);
+                }
+                if ($cell['controlP']) {
+                    VeolabControlCharts::record(VeolabControlCharts::PRECISION, $tecDel, $tecCod, $operation, $cell['value'], $sessionDel, $events);
                 }
             }
         }

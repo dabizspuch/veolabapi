@@ -107,6 +107,9 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     // Facturas: la API gestiona borradores y el estado de las emitidas (se emiten en Veolab).
     $resource('/facturas', 'FacturaController');
 
+    // --- Cartas de control (módulo CDC): LABCDC + técnicas (LABCYT) + resultados (LABRCD) ---
+    $resource('/cartas-control', 'CartaControlController');
+
     // --- Planificaciones (delegacion + codigo) y su generación de operaciones ---
     $resource('/planificaciones', 'PlanificacionController');
     Route::post('/planificaciones/generar', [$ns.'OperacionController', 'generateFromPlanning']);
