@@ -7,6 +7,7 @@ escritorio**: códigos, estados, precios, resultados, fórmulas, firmas, existen
 Verifactu.
 
 - **Versión:** 2.0 (rutas `/api/v2`).
+- **Licencia de Veolab:** exclusiva de la **Edición Empresarial**.
 - **URL del servicio de Spuch:** `https://api.veolab.es`
 - **Formato:** JSON sobre HTTPS, autenticación con token Bearer.
 - **[Manual de referencia](https://www.spuch.com/downloads/API%20REST%20Veolab%20-%20Manual%20de%20referencia.pdf)** (PDF con todos los recursos y campos).
@@ -60,7 +61,8 @@ curl -s "https://api.veolab.es/api/v2/operaciones?estado=1,2&sort=-fecha_registr
   -H "Authorization: Bearer 12|AbC..."
 ```
 
-El nombre de laboratorio y la contraseña de la API los facilita Spuch al contratar el servicio
+La API es exclusiva de la Edición Empresarial de Veolab. El nombre de laboratorio y la contraseña de
+la API los facilita Spuch al contratar el servicio
 (son distintos de los usuarios de Veolab).
 
 ## Autenticación
@@ -517,7 +519,7 @@ curl -X POST https://api.veolab.es/api/v2/documentos \
 
 Spuch ofrece la API como servicio en `https://api.veolab.es`. Para alojarla en un servidor propio:
 
-**Requisitos:** PHP 8.2 o superior con las extensiones `pdo_mysql`, `mbstring`, `zip` y `fileinfo`;
+**Requisitos:** licencia de Veolab Edición Empresarial; PHP 8.2 o superior con las extensiones `pdo_mysql`, `mbstring`, `zip` y `fileinfo`;
 Composer; MySQL o MariaDB con las bases de datos de Veolab; Apache o Nginx con HTTPS.
 
 ```bash
