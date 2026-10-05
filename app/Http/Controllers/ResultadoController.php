@@ -877,8 +877,15 @@ class ResultadoController extends BaseController
 
         foreach ($resChanges as $tec => $changes) {
             $technique = $techniques[$tec];
+            $requested = $changes;
             $changes = array_filter($changes, fn ($value, $column) => (string) $value !== (string) $technique->$column,
                 ARRAY_FILTER_USE_BOTH);
+            // El analista se graba con su delegación aunque esta no cambie
+            // (p. ej. EMP2DEL NULL en la técnica y '' en el empleado).
+            if (array_key_exists('EMP2COD', $changes) || array_key_exists('EMP2DEL', $changes)) {
+                $changes['EMP2DEL'] = $requested['EMP2DEL'];
+                $changes['EMP2COD'] = $requested['EMP2COD'];
+            }
             if (! $changes) {
                 continue;
             }
