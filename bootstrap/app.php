@@ -1,11 +1,15 @@
 <?php
 
+use App\Support\ServerError;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -54,5 +58,27 @@ return Application::configure(basePath: dirname(__DIR__))
             if ($request->is('api/*')) {
                 return response()->json(['message' => 'Método no permitido'], 405, $e->getHeaders());
             }
+        });
+
+        // Errores no controlados: se registran con una referencia (sin que un
+        // fallo del propio registro tape el error) y la API responde 500 con
+        // esa referencia en lugar del "Server Error" genérico de Laravel.
+        $exceptions->report(function (Throwable $e) {
+            $request = request();
+            $request->attributes->set('error_reference',
+                ServerError::log('v2 no controlado '.$request->method().' '.$request->path(), $e));
+
+            return false;
+        });
+
+        $exceptions->render(function (Throwable $e, Request $request) {
+            if (! $request->is('api/*') || $e instanceof HttpExceptionInterface || $e instanceof HttpResponseException
+                || $e instanceof ValidationException || $e instanceof AuthenticationException) {
+                return null;
+            }
+            $reference = $request->attributes->get('error_reference')
+                ?? ServerError::log('v2 no controlado '.$request->method().' '.$request->path(), $e);
+
+            return response()->json(['message' => 'Error interno del servidor', 'referencia' => $reference], 500);
         });
     })->create();

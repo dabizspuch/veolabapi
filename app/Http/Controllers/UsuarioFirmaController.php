@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\ServerError;
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
 use App\Support\VeolabDocuments;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpFoundation\HeaderUtils;
 
@@ -130,9 +130,7 @@ class UsuarioFirmaController extends Controller
             if ($db->transactionLevel() > 0) {
                 $db->rollBack();
             }
-            Log::error('v2 store ACCFIR: '.$e->getMessage());
-
-            return response()->json(['message' => 'Error al guardar la firma'], 500);
+            return ServerError::response('v2 store ACCFIR', $e, 'Error al guardar la firma');
         }
     }
 
@@ -162,9 +160,7 @@ class UsuarioFirmaController extends Controller
             if ($db->transactionLevel() > 0) {
                 $db->rollBack();
             }
-            Log::error('v2 destroy ACCFIR: '.$e->getMessage());
-
-            return response()->json(['message' => 'Error al eliminar la firma'], 500);
+            return ServerError::response('v2 destroy ACCFIR', $e, 'Error al eliminar la firma');
         }
     }
 

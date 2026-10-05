@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\ServerError;
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -232,9 +233,7 @@ abstract class BaseController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         } catch (\Throwable $e) {
             DB::connection('dynamic')->rollBack();
-            Log::error("v2 store {$this->table}: ".$e->getMessage());
-
-            return response()->json(['message' => 'Error al crear el registro'], 500);
+            return ServerError::response("v2 store {$this->table}", $e, 'Error al crear el registro');
         }
     }
 
@@ -285,9 +284,7 @@ abstract class BaseController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         } catch (\Throwable $e) {
             DB::connection('dynamic')->rollBack();
-            Log::error("v2 update {$this->table}: ".$e->getMessage());
-
-            return response()->json(['message' => 'Error al actualizar el registro'], 500);
+            return ServerError::response("v2 update {$this->table}", $e, 'Error al actualizar el registro');
         }
     }
 
@@ -319,9 +316,7 @@ abstract class BaseController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         } catch (\Throwable $e) {
             DB::connection('dynamic')->rollBack();
-            Log::error("v2 destroy {$this->table}: ".$e->getMessage());
-
-            return response()->json(['message' => 'Error al eliminar el registro'], 500);
+            return ServerError::response("v2 destroy {$this->table}", $e, 'Error al eliminar el registro');
         }
     }
 

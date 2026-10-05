@@ -4,12 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Concerns\ChecksVeolabReferences;
+use App\Support\ServerError;
 use App\Support\VeolabAudit;
 use App\Support\VeolabLicense;
 use App\Support\VeolabReports;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -486,9 +486,7 @@ class InformeController extends BaseController
             return response()->json(['message' => $e->getMessage()], 422);
         } catch (\Throwable $e) {
             $db->rollBack();
-            Log::error('v2 informes/firmas: '.$e->getMessage());
-
-            return response()->json(['message' => 'Error al actualizar las firmas'], 500);
+            return ServerError::response('v2 informes/firmas', $e, 'Error al actualizar las firmas');
         }
     }
 

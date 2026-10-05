@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\ServerError;
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
 use App\Support\VeolabControlCharts;
@@ -12,7 +13,6 @@ use App\Support\VeolabLicense;
 use App\Support\VeolabResults;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
@@ -260,9 +260,7 @@ class ResultadoController extends BaseController
             if ($db->transactionLevel() > 0) {
                 $db->rollBack();
             }
-            Log::error('v2 update LABRES: '.$e->getMessage());
-
-            return response()->json(['message' => 'Error al grabar los resultados'], 500);
+            return ServerError::response('v2 update LABRES', $e, 'Error al grabar los resultados');
         }
     }
 

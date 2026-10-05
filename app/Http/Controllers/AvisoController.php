@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\ServerError;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -111,9 +111,7 @@ class AvisoController extends BaseController
 
             return response()->json(['message' => 'Avisos marcados como vistos', 'data' => ['avisos_borrados' => $count]]);
         } catch (\Throwable $e) {
-            Log::error('v2 avisos vistos: '.$e->getMessage());
-
-            return response()->json(['message' => 'Error al marcar los avisos'], 500);
+            return ServerError::response('v2 avisos vistos', $e, 'Error al marcar los avisos');
         }
     }
 }

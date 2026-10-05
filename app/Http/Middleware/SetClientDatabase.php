@@ -2,9 +2,9 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\ServerError;
 use Closure;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class SetClientDatabase
 {
@@ -36,9 +36,7 @@ class SetClientDatabase
             try {
                 DB::connection('dynamic')->getPdo();
             } catch (\Exception $e) {
-                Log::error('v2 conexión BD '.$databaseName.': '.$e->getMessage());
-
-                return response()->json(['message' => 'No se ha podido conectar con la base de datos del laboratorio'], 500);
+                return ServerError::response('v2 conexión BD '.$databaseName, $e, 'No se ha podido conectar con la base de datos del laboratorio');
             }
         }
 

@@ -4,10 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Concerns\AuditsOwnerRecord;
+use App\Support\ServerError;
 use App\Support\VeolabPermissions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
@@ -109,9 +109,7 @@ class PerfilPermisoController extends Controller
             if ($db->transactionLevel() > 0) {
                 $db->rollBack();
             }
-            Log::error('v2 update ACCPYF: '.$e->getMessage());
-
-            return response()->json(['message' => 'Error al grabar los permisos'], 500);
+            return ServerError::response('v2 update ACCPYF', $e, 'Error al grabar los permisos');
         }
     }
 

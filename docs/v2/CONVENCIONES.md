@@ -289,6 +289,10 @@ Veolab guarda una FK vacía como `0` (código `int`) o `''` (código texto), no 
 - **Nunca** se filtran mensajes internos de excepción al cliente. Errores de
   validación en formato estándar Laravel `{ "message": ..., "errors": { campo: [...] } }`;
   el resto, `{ "message": ... }`. El detalle interno va a `Log`, no a la respuesta.
+- Los `500` (capturados con `ServerError::response()` o no controlados, vía
+  `bootstrap/app.php`) añaden `referencia`, que aparece en el registro como
+  `[ref xxxxxxxx]` junto con la excepción completa. Si `storage/logs` no se puede
+  escribir, se usa el `error_log` de PHP: un fallo del registro no tapa el error.
   (Corrige el `{error, detalle}` de la v1, que devolvía 500 en validación y filtraba
   `$e->getMessage()`.)
 

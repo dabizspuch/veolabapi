@@ -3,11 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\ServerError;
 use App\Support\VeolabCodes;
 use App\Support\VeolabLicense;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -206,9 +206,7 @@ class MensajeController extends BaseController
 
             return response()->json(['message' => 'Mensajes marcados como leídos', 'data' => ['avisos_borrados' => $count]]);
         } catch (\Throwable $e) {
-            Log::error('v2 mensajes leidos: '.$e->getMessage());
-
-            return response()->json(['message' => 'Error al marcar los mensajes'], 500);
+            return ServerError::response('v2 mensajes leidos', $e, 'Error al marcar los mensajes');
         }
     }
 }

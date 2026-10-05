@@ -177,7 +177,7 @@ operación...) y los aceptan en la escritura con la misma forma.
 | `413` | Fichero demasiado grande. |
 | `422` | Datos no válidos o regla de negocio incumplida. |
 | `429` | Demasiados intentos de login. |
-| `500` | Error interno (el detalle queda en el registro del servidor). |
+| `500` | Error interno. Lleva una `referencia` que identifica el error en el registro del servidor: indíquela al comunicar la incidencia. |
 
 Los errores llevan siempre `message` en español; los de validación, además, `errors` por campo:
 

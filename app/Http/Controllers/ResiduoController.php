@@ -4,11 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Concerns\ChecksVeolabReferences;
+use App\Support\ServerError;
 use App\Support\VeolabAudit;
 use App\Support\VeolabLicense;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
@@ -221,9 +221,7 @@ class ResiduoController extends BaseController
             return response()->json(['message' => $e->getMessage()], 422);
         } catch (\Throwable $e) {
             $db->rollBack();
-            Log::error('v2 register LABRED: '.$e->getMessage());
-
-            return response()->json(['message' => 'Error al registrar los residuos'], 500);
+            return ServerError::response('v2 register LABRED', $e, 'Error al registrar los residuos');
         }
     }
 

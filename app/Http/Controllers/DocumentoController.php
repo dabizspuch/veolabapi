@@ -3,11 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\ServerError;
 use App\Support\VeolabAudit;
 use App\Support\VeolabDocuments;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
@@ -328,9 +328,7 @@ class DocumentoController extends BaseController
             return response()->json(['message' => $e->getMessage()], 422);
         } catch (\Throwable $e) {
             $this->rollBack();
-            Log::error('v2 store DOCFAT: '.$e->getMessage());
-
-            return response()->json(['message' => 'Error al crear el documento'], 500);
+            return ServerError::response('v2 store DOCFAT', $e, 'Error al crear el documento');
         } finally {
             if ($temporary) {
                 @unlink($temporary);
@@ -380,9 +378,7 @@ class DocumentoController extends BaseController
                 : 'Documento enviado a la papelera']);
         } catch (\Throwable $e) {
             $this->rollBack();
-            Log::error('v2 destroy DOCFAT: '.$e->getMessage());
-
-            return response()->json(['message' => 'Error al eliminar el documento'], 500);
+            return ServerError::response('v2 destroy DOCFAT', $e, 'Error al eliminar el documento');
         }
     }
 
@@ -419,9 +415,7 @@ class DocumentoController extends BaseController
         try {
             return VeolabDocuments::download($row, $version, $compressed, $request->query('inline') === 'T');
         } catch (\Throwable $e) {
-            Log::error('v2 download DOCFAT: '.$e->getMessage());
-
-            return response()->json(['message' => 'Error al leer el documento'], 500);
+            return ServerError::response('v2 download DOCFAT', $e, 'Error al leer el documento');
         }
     }
 
@@ -525,9 +519,7 @@ class DocumentoController extends BaseController
             return response()->json(['message' => $e->getMessage()], 422);
         } catch (\Throwable $e) {
             $this->rollBack();
-            Log::error('v2 upload DOCFAT: '.$e->getMessage());
-
-            return response()->json(['message' => 'Error al guardar el contenido'], 500);
+            return ServerError::response('v2 upload DOCFAT', $e, 'Error al guardar el contenido');
         } finally {
             if ($temporary) {
                 @unlink($temporary);

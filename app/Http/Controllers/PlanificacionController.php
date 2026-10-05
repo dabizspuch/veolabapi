@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Concerns\ChecksVeolabReferences;
+use App\Support\ServerError;
 use App\Support\VeolabAgenda;
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
@@ -12,7 +13,6 @@ use App\Support\VeolabOperationServices;
 use App\Support\VeolabPeriodicity;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -506,9 +506,7 @@ class PlanificacionController extends BaseController
             return response()->json(['message' => 'Fecha actualizada correctamente']);
         } catch (\Throwable $e) {
             $db->rollBack();
-            Log::error('v2 planificaciones/fechas: '.$e->getMessage());
-
-            return response()->json(['message' => 'Error al actualizar la fecha'], 500);
+            return ServerError::response('v2 planificaciones/fechas', $e, 'Error al actualizar la fecha');
         }
     }
 
