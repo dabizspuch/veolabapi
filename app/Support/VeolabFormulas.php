@@ -42,8 +42,9 @@ class VeolabFormulas
     private const OPERATORS = ['+', '-', '*', '/', '\\', '^', '<', '>', '=', '>=', '<=', '=>', '=<', '<>',
         '&', '|', '#', ':'];
 
-    /** Operadores cuya posición se recuerda para añadir paréntesis (":", "#" y "<>" no). */
-    private const PRIORITY_OPERATORS = ['^', '*', '\\', '/', '+', '-', '&', '|', '>', '<', '=', '>=', '<=', '=>', '=<'];
+    /** Operadores cuya posición se recuerda para añadir paréntesis (":" y "#" no; "<>" sí desde Veolab 2.4.5). */
+    private const PRIORITY_OPERATORS = ['^', '*', '\\', '/', '+', '-', '&', '|', '>', '<', '=', '>=', '<=', '=>', '=<',
+        '<>'];
 
     private const PRIORITY_LEVELS = [['^'], ['*', '/', '\\'], ['+', '-'], [':'],
         ['>', '<', '=', '>=', '=>', '<=', '=<', '<>'], ['&'], ['|'], ['#']];
@@ -61,6 +62,7 @@ class VeolabFormulas
     private array $manual = [];
     private array $evaluated = [];
     private int $stack = 0;
+    private bool $stackExceeded = false;
     private bool $forced = false;
     private bool $marksChanged = false;
     private array $warnings = [];
@@ -134,6 +136,7 @@ class VeolabFormulas
     {
         $this->evaluated = [];
         $this->stack = 0;
+        $this->stackExceeded = false;
         $this->forced = $forced;
         $this->fieldCache = [];
 
@@ -162,7 +165,7 @@ class VeolabFormulas
             }
         }
 
-        if ($this->stack > self::MAX_STACK) {
+        if ($this->stackExceeded) {
             $this->warn($tec, null, 'Las fórmulas tienen demasiadas dependencias (¿referencias circulares?): no se han calculado todas');
         }
     }
@@ -184,13 +187,32 @@ class VeolabFormulas
         $this->evaluateCell($tec, $column);
     }
 
-    /** EvaluarCelda: dependencias de la misma fila primero, después la fórmula. */
+    /**
+     * EvaluarCelda: dependencias de la misma fila primero, después la fórmula.
+     * MAX_STACK limita la profundidad de la recursión (referencias circulares),
+     * no el número de celdas evaluadas, como Veolab 2.4.5.
+     */
     private function evaluateCell(string $tec, int $column): void
     {
-        if (++$this->stack > self::MAX_STACK || isset($this->evaluated[$tec][$column])) {
+        if (isset($this->evaluated[$tec][$column])) {
+            return;
+        }
+        if ($this->stack >= self::MAX_STACK) {
+            $this->stackExceeded = true;
+
             return;
         }
 
+        $this->stack++;
+        try {
+            $this->evaluateCellBody($tec, $column);
+        } finally {
+            $this->stack--;
+        }
+    }
+
+    private function evaluateCellBody(string $tec, int $column): void
+    {
         $cell = $this->cells[$tec][$column] ?? null;
         if ($cell === null || $cell['formula'] === '' || (isset($this->manual[$tec][$column]) && ! $this->forced)) {
             $this->evaluated[$tec][$column] = true;
@@ -836,6 +858,8 @@ class VeolabFormulas
      * EstablecerPrioridadOperaciones: añade paréntesis alrededor de los
      * operandos de cada operador, por niveles (^, * / \, + -, :, comparaciones,
      * &, |, #). Las posiciones de los operadores se toman al principio, como VB.
+     * Dentro de un nivel se procesan de izquierda a derecha (A-B+C = (A-B)+C,
+     * A/B*C = (A/B)*C), como Veolab 2.4.5; antes se agrupaban por tipo de operador.
      */
     private static function priority(string $formula): string
     {
@@ -851,11 +875,16 @@ class VeolabFormulas
         } while ($rest !== '');
 
         foreach (self::PRIORITY_LEVELS as $operators) {
+            $level = [];
             foreach ($operators as $operator) {
                 foreach ($positions[$operator] ?? [] as $position) {
-                    self::closeRight($atoms, $position);
-                    self::openLeft($atoms, $position);
+                    $level[] = $position;
                 }
+            }
+            sort($level);
+            foreach ($level as $position) {
+                self::closeRight($atoms, $position);
+                self::openLeft($atoms, $position);
             }
         }
 
@@ -903,8 +932,9 @@ class VeolabFormulas
         $end = 0;
         $i = $position - 1;
         if ($i <= 0) {
-            // Operación no binaria: se añade un 0.
-            self::insertBefore($atoms, 1, '(0');
+            // Operación no binaria (operador al principio): se antepone 0 en el mismo átomo
+            // para no desplazar las posiciones de los operadores que se procesan después.
+            $atoms[0] = '(0'.$atoms[0];
 
             return;
         }
