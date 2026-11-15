@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 class NormativaController extends BaseController
@@ -91,6 +92,17 @@ class NormativaController extends BaseController
             ->where('NOR3DEL', $delegation)->where('NOR3COD', $code)->exists();
         if ($used) {
             throw new BusinessRuleException('La normativa no puede ser eliminada porque está siendo referenciada en algún parámetro');
+        }
+
+        // Puede estar en una lista sin ser la normativa principal.
+        if (VeolabVersion::isV3()) {
+            foreach (['LABSYN' => 'algún servicio', 'LABOYN' => 'alguna operación', 'LABIYN' => 'algún informe'] as $table => $where) {
+                $used = DB::connection('dynamic')->table($table)
+                    ->where('NOR3DEL', $delegation)->where('NOR3COD', $code)->exists();
+                if ($used) {
+                    throw new BusinessRuleException("La normativa no puede ser eliminada porque está siendo referenciada en {$where}");
+                }
+            }
         }
     }
 }

@@ -378,22 +378,6 @@ class VeolabReports
             ['OPE3DEL', 'OPE3SER', 'OPE3COD'])->whereNotNull('RESDACR')->exists();
     }
 
-    /** Normativa del servicio de la operación de menor código: [del, cod] o null. */
-    public static function defaultRegulation(array $operations): ?array
-    {
-        usort($operations, fn ($a, $b) => $a[2] <=> $b[2]);
-        [$del, $ser, $cod] = $operations[0];
-
-        $row = DB::connection('dynamic')->table('LABOYS')
-            ->join('LABSER', function ($join) {
-                $join->on('LABSER.DEL3COD', '=', 'LABOYS.SER3DEL')->on('LABSER.SER1COD', '=', 'LABOYS.SER3COD');
-            })
-            ->where('LABOYS.OPE3DEL', $del)->where('LABOYS.OPE3SER', $ser)->where('LABOYS.OPE3COD', $cod)
-            ->first(['LABSER.NOR2DEL', 'LABSER.NOR2COD']);
-
-        return $row && (string) $row->NOR2COD !== '' ? [(string) $row->NOR2DEL, (string) $row->NOR2COD] : null;
-    }
-
     /** Forma de envío del cliente de la primera operación: [del, cod] o null. */
     public static function defaultDelivery(array $operations): ?array
     {

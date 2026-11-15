@@ -5,12 +5,15 @@ namespace App\Http\Controllers;
 use App\Exceptions\BusinessRuleException;
 use App\Support\ServerError;
 use App\Support\VeolabAudit;
+use App\Support\VeolabAuthorizations;
 use App\Support\VeolabCodes;
 use App\Support\VeolabControlCharts;
 use App\Support\VeolabFormat;
 use App\Support\VeolabFormulas;
 use App\Support\VeolabLicense;
 use App\Support\VeolabResults;
+use App\Support\VeolabStock;
+use App\Support\VeolabVersion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -43,6 +46,9 @@ use Illuminate\Validation\ValidationException;
  *    resultados de control de una operación de control alimentan las cartas
  *    (AcumulaGrabarControl), con sus notificaciones. La "delegación de la
  *    sesión" de Veolab es la del usuario indicado, o la de la operación.
+ *  - Veolab 3: analistas sin autorización vigente (LABCON.CONCAUT) y equipos
+ *    vencidos o fuera de uso (LABCON.CONCVEN, módulo ALM) en las técnicas
+ *    con valores o marcas: aviso en "avisos" o 422 según la configuración.
  */
 class ResultadoController extends BaseController
 {
@@ -289,6 +295,7 @@ class ResultadoController extends BaseController
         $valueRows = [];        // técnicas con valores modificados
         $analystRows = [];      // técnicas a las que asignar el analista del usuario
         $explicitDates = [];    // técnica => [RESTINI|RESTFIN => true] indicadas en la petición
+        $manualMarks = [];      // técnica => [columna => true] con la marca indicada en la petición
         $marksChanged = false;
 
         foreach ($body['tecnicas'] ?? [] as $input) {
@@ -318,7 +325,7 @@ class ResultadoController extends BaseController
                 }
                 // Con CONBDSL no se sustituye por el límite una celda con fórmula modificada a mano.
                 $keepLimit = ($config->CONBDSL ?? '') === 'T' && $cell['formula'] !== '';
-                if (VeolabResults::applyRangeMark($cell, $marks, $del, $keepLimit)) {
+                if (VeolabResults::applyRangeMark($cell, $marks, $del, $keepLimit, $formulas)) {
                     $marksChanged = true;
                 }
                 if ($cell['formula'] !== '') {
@@ -345,6 +352,7 @@ class ResultadoController extends BaseController
                 $cell['changed'] = true;
                 $marksChanged = true;
                 $analystRows[$tec] = true;
+                $manualMarks[$tec][$cell['column']] = true;
                 unset($cell);
             }
 
@@ -377,6 +385,29 @@ class ResultadoController extends BaseController
 
         if ($formulas->marksChanged()) {
             $marksChanged = true;
+        }
+
+        // Veolab 3 (RecalcularRangosDinamicos): con los valores ya definitivos, los
+        // resultados cuyos rangos dependen de otras celdas (letras de columna,
+        // result() o incertidumbre con fórmula) se vuelven a evaluar. Solo los
+        // editables con valor numérico y sin marca indicada en la petición.
+        if ($valueRows) {
+            foreach ($cells as $tec => &$columns) {
+                foreach ($columns as $column => &$cell) {
+                    if (! $cell['editable'] || isset($manualMarks[$tec][$column])
+                        || ! VeolabResults::dependsOnOtherCells($cell) || ! VeolabResults::recalculableValue($cell['value'])) {
+                        continue;
+                    }
+                    $before = [$cell['mark'], $cell['value']];
+                    VeolabResults::applyRangeMark($cell, $marks, $del, false, $formulas);
+                    if ([$cell['mark'], $cell['value']] !== $before) {
+                        $cell['changed'] = true;
+                        $marksChanged = true;
+                    }
+                }
+                unset($cell);
+            }
+            unset($columns);
         }
 
         $this->assignAnalyst($body, $analystRows, $techniques, $resChanges);
@@ -419,11 +450,19 @@ class ResultadoController extends BaseController
             VeolabResults::setVerdict($op, $this->verdictFromBody($body), $now);
         }
 
+        // Veolab 3 (RevisarAutorizaciones, ISO 17025 6.2): analistas sin autorización vigente en técnicas acreditadas.
+        $authorizationWarnings = $this->checkAuthorizations($current, $techniques, $resChanges,
+            array_keys($valueRows + $manualMarks), $op['start']);
+
+        // Veolab 3 (RevisarEquiposVencidos, LABCON.CONCVEN): técnicas que usan equipos vencidos o fuera de uso.
+        $equipmentWarnings = $this->checkExpiredEquipment($operation, $current, array_keys($valueRows + $manualMarks), $op['start']);
+
         // Cartas de control: antes de grabar LABCOR, como Veolab (el promedio
         // de una carta nueva no incluye los valores de esta grabación).
         $chartEvents = [];
+        $chartWarnings = [];
         if ($charts && $current->OPEBCON === 'T') {
-            $this->recordControlResults($operation, $cells, $sessionDel, $chartEvents);
+            $chartWarnings = $this->recordControlResults($operation, $cells, $sessionDel, $chartEvents);
         }
 
         // Grabación y auditoría.
@@ -432,8 +471,18 @@ class ResultadoController extends BaseController
         $changed = $this->saveTechniques($operation, $techniques, $resChanges, $opRow) || $changed;
         $changed = $this->saveCells($operation, $cells, $opRow) || $changed;
 
+        // Veolab 3: fecha del análisis y analista de los puntos de carta de la operación (LABRES ya grabada).
+        if ($charts && $current->OPEBCON === 'T') {
+            VeolabControlCharts::refreshPoints($operation);
+        }
+
         if ($changed && $op['end'] !== null) {
             $this->resetReportSignatures($operation);
+        }
+
+        // Veolab 3: al finalizar una calibración, verificación o mantenimiento, la próxima fecha de su serie
+        if ($changed) {
+            VeolabStock::syncOperationMetrology(VeolabStock::operationForMetrology($del, $ser, (int) $cod));
         }
 
         if ($chartEvents) {
@@ -459,8 +508,102 @@ class ResultadoController extends BaseController
             'fecha_fin'           => $op['end'],
             'dictamen_delegacion' => $op['verdict'][0] ?? null,
             'dictamen_codigo'     => $op['verdict'][1] ?? null,
-            'avisos'              => array_merge($warnings, $formulas->warnings()),
+            'avisos'              => array_merge($warnings, $formulas->warnings(), $authorizationWarnings, $equipmentWarnings, $chartWarnings),
         ];
+    }
+
+    /**
+     * RevisarAutorizaciones (Veolab 3, LABCON.CONCAUT): técnicas acreditadas
+     * (LABTEC.TECDACR) con resultados o marcas en la petición cuyo analista
+     * (el que queda tras la grabación) tiene una autorización registrada
+     * para la técnica (GRHAUT) que no está vigente en la fecha de inicio de
+     * la operación (hoy si no la tiene). Con «Bloquear» (B) no se graba
+     * (422); con «Avisar» (A) se graba y se devuelve un aviso por técnica.
+     * Sin autorización registrada no cuenta.
+     */
+    private function checkAuthorizations(object $current, array $techniques, array $resChanges, array $editedRows, $start): array
+    {
+        if (! $editedRows || ! VeolabAuthorizations::available()) {
+            return [];
+        }
+        $db = DB::connection('dynamic');
+        $mode = (string) $db->table('LABCON')->where('CON1COD', 1)->value('CONCAUT');
+        if ($mode !== VeolabAuthorizations::AVISAR && $mode !== VeolabAuthorizations::BLOQUEAR) {
+            return [];
+        }
+
+        $start = $current->OPEDINI ?? $start;
+        $date = $start ? substr((string) $start, 0, 10) : date('Y-m-d');
+        $warnings = [];
+        foreach ($editedRows as $tec) {
+            $technique = $techniques[$tec];
+            $empDel = array_key_exists('EMP2COD', $resChanges[$tec] ?? []) ? (string) $resChanges[$tec]['EMP2DEL'] : (string) $technique->EMP2DEL;
+            $empCod = array_key_exists('EMP2COD', $resChanges[$tec] ?? []) ? (int) $resChanges[$tec]['EMP2COD'] : (int) $technique->EMP2COD;
+            if ($empCod === 0) {
+                continue;
+            }
+            [$tecDel, $tecCod] = explode("\x1B", $tec, 2);
+            $accredited = $db->table('LABTEC')->where('DEL3COD', $tecDel)->where('TEC1COD', $tecCod)
+                ->whereNotNull('TECDACR')->exists();
+            if (! $accredited) {
+                continue;
+            }
+            $authorization = $db->table('GRHAUT')
+                ->where('EMP3DEL', $empDel)->where('EMP3COD', $empCod)->where('TEC3DEL', $tecDel)->where('TEC3COD', $tecCod)
+                ->first(['AUTCEST', 'AUTDCAD']);
+            if (! $authorization || VeolabAuthorizations::isValid($authorization->AUTCEST, $authorization->AUTDCAD, $date)) {
+                continue;
+            }
+
+            $name = (string) $db->table('GRHEMP')->where('DEL3COD', $empDel)->where('EMP1COD', $empCod)->value('EMPCNOM');
+            $situation = VeolabAuthorizations::situationText($authorization->AUTCEST, $authorization->AUTDCAD, $date);
+            $text = "El analista {$name} no tiene autorización vigente para la técnica {$tecCod} ({$situation})";
+            if ($mode === VeolabAuthorizations::BLOQUEAR) {
+                throw new BusinessRuleException($text.': no se pueden grabar sus resultados');
+            }
+            $warnings[] = ['tecnica_delegacion' => $tecDel, 'tecnica_codigo' => $tecCod, 'columna' => null, 'aviso' => $text];
+        }
+
+        return $warnings;
+    }
+
+    /**
+     * RevisarEquiposVencidos (Veolab 3, LABCON.CONCVEN, módulo ALM): técnicas
+     * con valores o marcas en la petición que tienen registrado el uso
+     * (ALMMOV tipo U) de un equipo vencido o fuera de uso en la fecha de
+     * inicio de la operación (hoy si no la tiene): estado F o B, o próxima
+     * calibración, verificación, mantenimiento o caducidad ya alcanzadas.
+     * Con «Bloquear» (vacío, el predeterminado) no se graba (422), como la
+     * ficha, que deja esos resultados sin editar; con «Avisar» (A) se graba y
+     * se devuelve un aviso por técnica. «No comprobar» (N) no hace nada.
+     */
+    private function checkExpiredEquipment(array $operation, object $current, array $editedRows, $start): array
+    {
+        if (! $editedRows) {
+            return [];
+        }
+        $mode = VeolabStock::expiredEquipmentMode();
+        if ($mode === null) {
+            return [];
+        }
+
+        $start = $current->OPEDINI ?? $start;
+        $date = $start ? substr((string) $start, 0, 10) : date('Y-m-d');
+        $expired = VeolabStock::expiredEquipment($operation[0], $operation[1], (int) $operation[2], $date);
+        $warnings = [];
+        foreach ($editedRows as $tec) {
+            if (! isset($expired[$tec])) {
+                continue;
+            }
+            [$tecDel, $tecCod] = explode("\x1B", $tec, 2);
+            $text = "La técnica {$tecCod} usa equipos vencidos o fuera de uso en la fecha del análisis: ".implode('; ', $expired[$tec]);
+            if ($mode === VeolabStock::VENCIDOS_BLOQUEAR) {
+                throw new BusinessRuleException($text.'. No se pueden grabar sus resultados: cambie el equipo en los consumos de la operación o ponga el equipo al día');
+            }
+            $warnings[] = ['tecnica_delegacion' => $tecDel, 'tecnica_codigo' => $tecCod, 'columna' => null, 'aviso' => $text];
+        }
+
+        return $warnings;
     }
 
     /** Celda de la técnica por letra de columna (editable para cambiar el valor). */
@@ -712,7 +855,7 @@ class ResultadoController extends BaseController
             $tecDel = (string) ($input['tecnica_delegacion'] ?? '');
             $tecCod = (string) ($input['tecnica_codigo'] ?? '');
             if ($tecCod !== '' && VeolabControlCharts::blocked($tecDel, $tecCod, $operation, $sessionDel)) {
-                throw new BusinessRuleException("La técnica {$tecCod} tiene la carta de control en error: hay que corregirla antes de grabar sus resultados");
+                throw new BusinessRuleException("La técnica {$tecCod} tiene el gráfico de control en error: hay que corregirlo antes de grabar sus resultados");
             }
         }
     }
@@ -720,24 +863,52 @@ class ResultadoController extends BaseController
     /**
      * AcumulaGrabarControl: cada valor modificado (no vacío ni N/A) de una
      * columna de control de exactitud o precisión se graba en la carta del
-     * tipo de su técnica.
+     * tipo de su técnica. Con varias columnas de control del mismo tipo, la
+     * carta sigue la primera que tiene valor (PrimeraColumnaControl, Veolab 3);
+     * en Veolab 2.4 cada columna sobrescribía el punto de la anterior.
+     * Veolab 3: cada columna va a la carta de su número (chartE / chartP), así
+     * que "primera" es por tipo y número de carta. Devuelve un aviso por
+     * técnica, tipo y número sin carta (el valor no va a ninguna), como el
+     * globo de FichaResultados (LAB_AvisarControlSinCarta).
      */
-    private function recordControlResults(array $operation, array $cells, string $sessionDel, array &$events): void
+    private function recordControlResults(array $operation, array $cells, string $sessionDel, array &$events): array
     {
+        $noChart = [];
+        $firstOnly = VeolabVersion::isV3();
+        $types = ['controlE' => [VeolabControlCharts::EXACTITUD, 'chartE'], 'controlP' => [VeolabControlCharts::PRECISION, 'chartP']];
         foreach ($cells as $tec => $columns) {
             [$tecDel, $tecCod] = explode("\x1B", $tec, 2);
-            foreach ($columns as $cell) {
+            ksort($columns);
+            $first = [];   // primera columna de control con valor por tipo y número de carta: "controlE#2" => columna
+            foreach ($columns as $column => $cell) {
+                foreach ($types as $flag => [, $chartKey]) {
+                    $slot = $flag.'#'.$cell[$chartKey];
+                    if (! isset($first[$slot]) && $cell[$flag] && $cell['type'] !== 'C' && trim($cell['value']) !== '' && trim($cell['value']) !== 'N/A') {
+                        $first[$slot] = $column;
+                    }
+                }
+            }
+            foreach ($columns as $column => $cell) {
                 if (! $cell['changed'] || $cell['value'] === '' || $cell['value'] === 'N/A' || $cell['value'] === $cell['original']) {
                     continue;
                 }
-                if ($cell['controlE']) {
-                    VeolabControlCharts::record(VeolabControlCharts::EXACTITUD, $tecDel, $tecCod, $operation, $cell['value'], $sessionDel, $events);
-                }
-                if ($cell['controlP']) {
-                    VeolabControlCharts::record(VeolabControlCharts::PRECISION, $tecDel, $tecCod, $operation, $cell['value'], $sessionDel, $events);
+                foreach ($types as $flag => [$type, $chartKey]) {
+                    if ($cell[$flag] && (! $firstOnly || ($first[$flag.'#'.$cell[$chartKey]] ?? null) === $column)) {
+                        $recorded = VeolabControlCharts::record($type, $tecDel, $tecCod, $operation, $cell['value'], $sessionDel, $events, $cell[$chartKey]);
+                        $slot = $tec."\x1B".$type."\x1B".$cell[$chartKey];
+                        if (! $recorded && $firstOnly && ! isset($noChart[$slot])) {
+                            $chart = ($type === VeolabControlCharts::EXACTITUD ? 'exactitud' : 'precisión')
+                                .($cell[$chartKey] > 1 ? ', carta '.$cell[$chartKey] : '');
+                            $noChart[$slot] = ['tecnica_delegacion' => $tecDel, 'tecnica_codigo' => $tecCod,
+                                'columna' => $cell['letter'],
+                                'aviso' => "El valor de control no se ha guardado en ninguna carta porque el parámetro no tiene carta de {$chart}"];
+                        }
+                    }
                 }
             }
         }
+
+        return array_values($noChart);
     }
 
     /**
@@ -778,6 +949,8 @@ class ResultadoController extends BaseController
             })
             ->where('LABIYO.OPE3DEL', $operation[0])->where('LABIYO.OPE3SER', $operation[1])->where('LABIYO.OPE3COD', $operation[2])
             ->where(fn ($q) => $q->whereNull('LABIYO.IYOBHIS')->orWhere('LABIYO.IYOBHIS', '<>', 'T'))
+            // Veolab 3: un informe sustituido ni bloquea la operación ni pierde sus firmas.
+            ->when(VeolabVersion::isV3(), fn ($q) => $q->where(fn ($w) => $w->whereNull('LABINF.INFBSUS')->orWhere('LABINF.INFBSUS', '<>', 'T')))
             ->distinct()
             ->get(['LABINF.DEL3COD', 'LABINF.INF1SER', 'LABINF.INF1COD', 'LABINF.INFCVAL']);
     }

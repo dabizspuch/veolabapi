@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Concerns\ChecksVeolabReferences;
 use App\Support\VeolabAudit;
+use App\Support\VeolabDocuments;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -383,6 +384,6 @@ class OrdenController extends BaseController
         $db->table('LABOYO')->where($orderKey)->delete();
         $db->table('LABORE')->where($orderKey)->delete();
         $db->table('DOCFAT')->where('DEL3COD', $del)->where('ORD2SER', $ser)->where('ORD2COD', $cod)
-            ->update(['DIR2DEL' => $del, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($del));
     }
 }

@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\VeolabDocuments;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 class EmpleadoController extends BaseController
@@ -17,6 +19,12 @@ class EmpleadoController extends BaseController
     protected array $searchFields = ['EMPCNOM'];
 
     protected bool $generatesCode = true;
+
+    /** Compromisos de confidencialidad e imparcialidad (ISO 17025 4.1 y 4.2), desde Veolab 3. */
+    protected array $since = [
+        'fecha_compromiso_confidencialidad' => VeolabVersion::V3,
+        'fecha_compromiso_imparcialidad'    => VeolabVersion::V3,
+    ];
 
     protected array $mapping = [
         'delegacion'    => 'DEL3COD',
@@ -42,6 +50,9 @@ class EmpleadoController extends BaseController
         'es_recolector' => 'EMPBREC',
         'es_comercial'  => 'EMPBCOM',
         'es_baja'       => 'EMPBBAJ',
+        // Veolab 3: fechas de firma de los compromisos
+        'fecha_compromiso_confidencialidad' => 'EMPDCON',
+        'fecha_compromiso_imparcialidad'    => 'EMPDIMP',
     ];
 
     protected function rules(): array
@@ -70,6 +81,8 @@ class EmpleadoController extends BaseController
             'es_recolector' => 'nullable|string|in:T,F|max:1',
             'es_comercial'  => 'nullable|string|in:T,F|max:1',
             'es_baja'       => 'nullable|string|in:T,F|max:1',
+            'fecha_compromiso_confidencialidad' => 'nullable|date',
+            'fecha_compromiso_imparcialidad'    => 'nullable|date',
         ];
     }
 
@@ -172,6 +185,9 @@ class EmpleadoController extends BaseController
         $code = $keys['codigo'] ?? null;
 
         $relatedEmp3 = ['GRHEYC', 'GRHAUS', 'GRHCUR', 'GRHFOR', 'GRHCLI'];
+        if (VeolabVersion::isV3()) {
+            $relatedEmp3[] = 'GRHAUT';   // autorizaciones por técnica (Empleados.frm)
+        }
         foreach ($relatedEmp3 as $table) {
             DB::connection('dynamic')->table($table)
                 ->where('EMP3DEL', $delegation)->where('EMP3COD', $code)->delete();
@@ -179,6 +195,6 @@ class EmpleadoController extends BaseController
 
         DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)->where('EMP2COD', $code)
-            ->update(['DIR2DEL' => $delegation, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($delegation));
     }
 }

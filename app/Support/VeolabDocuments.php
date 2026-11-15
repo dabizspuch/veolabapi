@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Exceptions\BusinessRuleException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -22,9 +23,14 @@ use Symfony\Component\Mime\MimeTypes;
  *  - Los códigos de documento y de bloque se reservan fuera de la transacción
  *    del alta, como Veolab, para no bloquear el contador mientras se graba el
  *    fichero; si el alta falla quedan huecos en la secuencia, que no importan.
+ *  - Accesos directos (Veolab 3, «Analisis accesos directos a documentos.md»):
+ *    filas de DOCFAT sin contenido (sin DOCVER ni DOCBLO) con FAT2DEL/FAT2COD
+ *    apuntando al documento de destino; FATCNOM/FATCTIP son una copia del
+ *    nombre del destino. FAT2COD NULL o 0 = documento normal.
  */
 class VeolabDocuments
 {
+    private static array $shortcuts = [];
     /** Tamaño de trozo de Veolab (Database.bas, DBS_MAX_BUFFER_BLOB). */
     public const BLOCK_SIZE = 65534;
 
@@ -55,15 +61,46 @@ class VeolabDocuments
         'FACFAC' => ['La factura no existe', 'DEL3COD', ['FAC1SER' => 'factura_serie', 'FAC1COD' => 'factura_codigo']],
         'ALMSEL' => ['La serie o lote del producto no existe', 'PRD3DEL', ['PRD3COD' => 'producto_codigo', 'SEL1COD' => 'producto_serie_lote_codigo']],
         'ALMPRD' => ['El producto no existe', 'DEL3COD', ['PRD1COD' => 'producto_codigo']],
-        'LABCDC' => ['La carta de control no existe', 'DEL3COD', ['CDC1COD' => 'carta_control_codigo']],
+        'LABCDC' => ['El gráfico de control no existe', 'DEL3COD', ['CDC1COD' => 'carta_control_codigo']],
         'ALMPRE' => ['El préstamo no existe', 'DEL3COD', ['PRE1COD' => 'prestamo_codigo']],
+        'ALMPED' => ['El pedido no existe', 'DEL3COD', ['PED1SER' => 'pedido_serie', 'PED1COD' => 'pedido_codigo']],
+        'ALMALB' => ['La entrega no existe', 'DEL3COD', ['ALB1COD' => 'entrega_codigo']],
+        'CALINC' => ['La incidencia no existe', 'DEL3COD', ['INC1SER' => 'incidencia_serie', 'INC1COD' => 'incidencia_codigo']],
+        'LABSOL' => ['La solicitud no existe', 'DEL3COD', ['SOL1SER' => 'solicitud_serie', 'SOL1COD' => 'solicitud_codigo']],
+        'CALEAP' => ['El ensayo de aptitud no existe', 'DEL3COD', ['EAP1SER' => 'ensayo_serie', 'EAP1COD' => 'ensayo_codigo']],
+        'CALAUI' => ['La auditoría no existe', 'DEL3COD', ['AUI1SER' => 'auditoria_calidad_serie', 'AUI1COD' => 'auditoria_calidad_codigo']],
+        'CALRDI' => ['La revisión por la dirección no existe', 'DEL3COD', ['RDI1SER' => 'revision_direccion_serie', 'RDI1COD' => 'revision_direccion_codigo']],
     ];
+
+    /** Entidades que solo existen desde una versión de la base de datos (columnas de DOCFAT de Veolab 3). */
+    public const ENTITIES_SINCE = [
+        'ALMPED' => VeolabVersion::V3,
+        'ALMALB' => VeolabVersion::V3,
+        'CALINC' => VeolabVersion::V3,
+        'LABSOL' => VeolabVersion::V3,
+        'CALEAP' => VeolabVersion::V3,
+        'CALAUI' => VeolabVersion::V3,
+        'CALRDI' => VeolabVersion::V3,
+    ];
+
+    /** Entidades vinculables en la base de datos actual. */
+    public static function entities(): array
+    {
+        $entities = self::ENTITIES;
+        foreach (self::ENTITIES_SINCE as $table => $version) {
+            if (! VeolabVersion::atLeast($version)) {
+                unset($entities[$table]);
+            }
+        }
+
+        return $entities;
+    }
 
     /** Parámetros de entidad de DOCFAT (todos los de ENTITIES). */
     public static function entityParams(): array
     {
         $params = [];
-        foreach (self::ENTITIES as [, , $columns]) {
+        foreach (self::entities() as [, , $columns]) {
             foreach ($columns as $param) {
                 $params[$param] = true;
             }
@@ -80,7 +117,7 @@ class VeolabDocuments
     public static function entityTable(array $data): ?string
     {
         $found = [];
-        foreach (self::ENTITIES as $table => [, , $columns]) {
+        foreach (self::entities() as $table => [, , $columns]) {
             $complete = true;
             foreach ($columns as $param) {
                 if (str_ends_with($param, '_codigo') && in_array($data[$param] ?? null, [null, '', 0, '0'], true)) {
@@ -194,6 +231,113 @@ class VeolabDocuments
     }
 
     // ------------------------------------------------------------------
+    // Accesos directos (Veolab 3: DOCFAT.FAT2DEL/FAT2COD)
+    // ------------------------------------------------------------------
+
+    /** ¿Tiene la base de datos los accesos directos? (Veolab 3 con DOCFAT.FAT2DEL y FAT2COD) */
+    public static function shortcutsAvailable(): bool
+    {
+        if (! VeolabVersion::isV3()) {
+            return false;
+        }
+        $database = (string) DB::connection('dynamic')->getDatabaseName();
+        if (! array_key_exists($database, self::$shortcuts)) {
+            try {
+                self::$shortcuts[$database] = Schema::connection('dynamic')->hasColumn('DOCFAT', 'FAT2COD')
+                    && Schema::connection('dynamic')->hasColumn('DOCFAT', 'FAT2DEL');
+            } catch (\Throwable) {
+                self::$shortcuts[$database] = false;
+            }
+        }
+
+        return self::$shortcuts[$database];
+    }
+
+    /** Mensaje de una base de datos sin accesos directos. */
+    public static function shortcutsUnavailableMessage(): string
+    {
+        return VeolabVersion::isV3()
+            ? 'Los accesos directos a documentos requieren el script de conversión que crea DOCFAT.FAT2DEL y FAT2COD'
+            : VeolabVersion::message(VeolabVersion::V3, 'Los accesos directos a documentos');
+    }
+
+    /** ¿Es un acceso directo? Acepta la fila de BD (objeto o array). */
+    public static function isShortcut($document): bool
+    {
+        return (int) (((object) $document)->FAT2COD ?? 0) > 0;
+    }
+
+    /** Restringe una consulta de DOCFAT a los documentos reales (sin accesos directos). */
+    public static function whereNotShortcut($query, string $table = 'DOCFAT'): void
+    {
+        if (self::shortcutsAvailable()) {
+            $query->whereRaw("COALESCE({$table}.FAT2COD, 0) = 0");
+        }
+    }
+
+    /** Restringe una consulta de DOCFAT a los accesos directos de un documento. */
+    public static function whereShortcutsOf($query, string $delegation, int $code, string $table = 'DOCFAT'): void
+    {
+        $query->whereRaw("COALESCE({$table}.FAT2DEL, '') = ?", [$delegation])->where("{$table}.FAT2COD", $code);
+    }
+
+    /**
+     * Documento de destino de un acceso directo (el propio documento si no lo
+     * es), siguiendo accesos encadenados, que no deberían existir. Null si el
+     * destino no existe.
+     */
+    public static function shortcutTarget(object $document): ?object
+    {
+        $seen = [];
+        while (self::isShortcut($document)) {
+            $key = (string) ($document->FAT2DEL ?? '')."\x1B".(int) $document->FAT2COD;
+            if (isset($seen[$key])) {
+                return null;   // ciclo (dato incoherente)
+            }
+            $seen[$key] = true;
+            $document = DB::connection('dynamic')->table('DOCFAT')
+                ->where('DEL3COD', (string) ($document->FAT2DEL ?? ''))->where('FAT1COD', (int) $document->FAT2COD)->first();
+            if (! $document) {
+                return null;
+            }
+        }
+
+        return $document;
+    }
+
+    /** Mensaje de una acción que no se admite en un acceso directo. */
+    public static function shortcutMessage(object $document, string $action): string
+    {
+        return "El documento es un acceso directo: para {$action}, use el documento de destino"
+            .' (delegacion='.(string) ($document->FAT2DEL ?? '').', codigo='.(int) ($document->FAT2COD ?? 0).')';
+    }
+
+    /** BusinessRuleException (422) si el documento es un acceso directo: la acción va sobre su destino. */
+    public static function assertNotShortcut(object $document, string $action): void
+    {
+        if (self::isShortcut($document)) {
+            throw new BusinessRuleException(self::shortcutMessage($document, $action));
+        }
+    }
+
+    /** Copia el nombre y la extensión del documento a sus accesos directos. Devuelve cuántos cambian. */
+    public static function renameShortcuts(string $delegation, int $code): int
+    {
+        if (! self::shortcutsAvailable()) {
+            return 0;
+        }
+        $db = DB::connection('dynamic');
+        $document = $db->table('DOCFAT')->where('DEL3COD', $delegation)->where('FAT1COD', $code)->first(['FATCNOM', 'FATCTIP']);
+        if (! $document) {
+            return 0;
+        }
+        $query = $db->table('DOCFAT');
+        self::whereShortcutsOf($query, $delegation, $code);
+
+        return $query->update(['FATCNOM' => $document->FATCNOM, 'FATCTIP' => $document->FATCTIP]);
+    }
+
+    // ------------------------------------------------------------------
     // Códigos (fuera de la transacción del alta)
     // ------------------------------------------------------------------
 
@@ -219,6 +363,24 @@ class VeolabDocuments
         }
 
         throw new BusinessRuleException('No se ha podido generar un código de documento libre');
+    }
+
+    /**
+     * Columnas de un envío a la papelera de documentos (DIR2COD = 0) en la
+     * delegación $delegation. Desde Veolab 3 guarda antes la carpeta de origen
+     * (FATCDPA/FATNCPA) para que el escritorio pueda restaurarlo; si ya estaba
+     * en la papelera conserva la que tenía. El orden importa: MySQL asigna de
+     * izquierda a derecha, así que el origen se calcula con la carpeta anterior.
+     */
+    public static function trashUpdate(string $delegation): array
+    {
+        $columns = [];
+        if (VeolabVersion::isV3()) {
+            $columns['FATCDPA'] = DB::raw('CASE WHEN DIR2COD = 0 THEN FATCDPA ELSE DIR2DEL END');
+            $columns['FATNCPA'] = DB::raw('CASE WHEN DIR2COD = 0 THEN FATNCPA ELSE DIR2COD END');
+        }
+
+        return $columns + ['DIR2DEL' => $delegation, 'DIR2COD' => 0];
     }
 
     /** Primer código de un rango libre de $count bloques en DOCBLO. */

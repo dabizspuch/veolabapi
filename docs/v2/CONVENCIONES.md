@@ -16,6 +16,7 @@
 8. [Paginación](#8-paginación)
 9. [Formato de respuestas](#9-formato-de-respuestas)
 10. [Códigos de estado HTTP](#10-códigos-de-estado-http)
+    - [10 bis. Bases de datos anteriores a Veolab 3](#10-bis-bases-de-datos-anteriores-a-veolab-3)
 11. [Gestión documental](#11-gestión-documental)
     - [11 bis. Inventario](#11-bis-inventario)
     - [11 ter. Permisos de perfil](#11-ter-permisos-de-perfil)
@@ -27,6 +28,14 @@
     - [11 nonies. Periodicidad](#11-nonies-periodicidad)
     - [11 decies. Préstamos](#11-decies-préstamos)
     - [11 undecies. Residuos](#11-undecies-residuos)
+    - [11 duodecies. ISO 17025: personal, métodos, recepción y proveedores](#11-duodecies-iso-17025-personal-métodos-recepción-y-proveedores)
+    - [11 terdecies. Calidad: incidencias](#11-terdecies-calidad-incidencias)
+    - [11 quaterdecies. Compras: pedidos y entregas](#11-quaterdecies-compras-pedidos-y-entregas)
+    - [11 quindecies. Calidad: ensayos de aptitud](#11-quindecies-calidad-ensayos-de-aptitud)
+    - [11 sexdecies. Calidad: auditorías](#11-sexdecies-calidad-auditorías)
+    - [11 septendecies. Calidad: revisión por la dirección](#11-septendecies-calidad-revisión-por-la-dirección)
+    - [11 octodecies. Tareas pendientes](#11-octodecies-tareas-pendientes)
+    - [11 undevicies. Calidad: objetivos e indicadores](#11-undevicies-calidad-objetivos-e-indicadores)
 12. [Fixes de corrección a arrastrar de la v1](#12-fixes-de-corrección-a-arrastrar-de-la-v1)
     - [12 bis. Auditoría, códigos y Verifactu](#12-bis-auditoría-códigos-y-verifactu) (incluye operaciones, planificaciones, lotes, órdenes, informes, resultados, facturación, relaciones, subtablas y maestros)
 13. [Decisiones tomadas y pendientes](#13-decisiones-tomadas-y-pendientes)
@@ -235,10 +244,11 @@ ORDER BY ope_delegacion, ope_serie, ope_codigo, tec_delegacion, tec_codigo LIMIT
 ```json
 {
   "data": [ { "delegacion": "DEL001", "serie": "25", "codigo": 1, "estado": 5 } ],
-  "meta": { "total": 342, "page": 2, "per_page": 50, "last_page": 7 }
+  "meta": { "total": 342, "page": 2, "per_page": 50, "last_page": 7, "version_bd": "3.0" }
 }
 ```
 (Con keyset, cuando se implemente, `meta` llevará `next_cursor` y `per_page`.)
+`version_bd` es la versión de la base de datos del laboratorio (§10 bis).
 
 - **Registro único:** no hay forma aparte (Opción X); se pide con la clave completa y
   llega como `{data, meta}` con `data` de 1 elemento. `data` vacío = no existe.
@@ -296,6 +306,30 @@ Veolab guarda una FK vacía como `0` (código `int`) o `''` (código texto), no 
   (Corrige el `{error, detalle}` de la v1, que devolvía 500 en validación y filtraba
   `$e->getMessage()`.)
 
+## 10 bis. Bases de datos anteriores a Veolab 3
+
+La API sirve a todos los laboratorios del servidor y cada uno actualiza Veolab cuando
+quiere, así que conviven bases de datos 2.4 y 3.0 (`ACCPAR.PARCVBD`). El contrato de la
+v2 no cambia: lo de Veolab 3 es aditivo y la API se adapta a cada base de datos
+(`App\Support\VeolabVersion`, una consulta por petición):
+
+- **Campos nuevos** (marcados «desde Veolab 3» en este documento y declarados en `$since`
+  de cada controlador): en una base anterior no se devuelven, no filtran ni ordenan, y
+  enviarlos en `POST`/`PUT` da `422` («El campo 'x' requiere la base de datos de Veolab 3
+  (esta base de datos está en la versión 2.4)»).
+- **Recursos nuevos** (tablas que no existen antes: `/envases`, `/lugares`,
+  `/temperaturas`; `$sinceVersion`): `422` con el mismo texto para cualquier método.
+- **Comportamientos**: mensajería (módulo `COM` sin tipo ni lectura antes de 3.0, `MEN`
+  después), contraseñas (cifrado anterior antes de 3.0, hash PBKDF2 después), reglas de
+  subclientes y predeterminados o fórmulas de autodefinibles solo en 3.0.
+- `meta.version_bd` lleva la versión en todos los listados y `GET /configuracion/general`
+  la da en `version_bd`, para que la aplicación cliente sepa de antemano qué admite cada
+  laboratorio.
+
+**Seguimiento comercial (`CLISEG`, `CLITSE`).** `App\Support\VeolabFollowUp` replica `Seguimiento.bas`:
+registra los sucesos automáticos de presupuestos y facturas y borra los del cliente eliminado. Comprueba
+versión y tablas, y un fallo no impide la operación. Aún no hay recursos para consultarlos o crearlos.
+
 ## 11. Gestión documental
 
 Replica `Documentos.bas` y el explorador de Veolab. El filtrado por privilegios
@@ -305,9 +339,12 @@ de usuario final (`DIRCCOM`, `DOCDYP`) lo hace la app consumidora, no la API.
 |---|---|---|
 | `DOCDIR` | Carpetas (`DIRCTAB` = tabla de la funcionalidad, `DIRCCOM` = compartición, jerarquía `DIR2*`) | `/documentos/carpetas` |
 | `DOCDYP` | Perfiles con los que se comparte una carpeta (modo `P`) | `/documentos/carpetas/perfiles` (GET/POST/DELETE) |
-| `DOCFAT` | Documento: nombre, extensión, carpeta y entidad vinculada | `/documentos` |
+| `DOCFAT` | Documento: nombre, extensión, carpeta y entidad vinculada; también los accesos directos (Veolab 3, `FAT2DEL`/`FAT2COD`) | `/documentos`, `/documentos/accesos` (GET) |
 | `DOCVER` | Versiones | `/documentos/versiones` (GET/PUT/DELETE) |
 | `DOCBLO` | Contenido en trozos binarios | `/documentos/contenido` (GET descarga, POST sube) |
+| `DOCLEC` | Lecturas de documentos controlados (Veolab 3) | `/documentos/lecturas` (GET/POST), `/documentos/lecturas/estado` y `/pendientes` (GET) |
+| `DOCDIS` | Destinatarios de un documento o carpeta controlada (Veolab 3, fase 2) | `/documentos/destinatarios` (GET/PUT) |
+| `DOCCOP` | Copias controladas en papel (Veolab 3, fase 2) | `/documentos/copias` |
 
 **Carpetas.** Las raíces (`carpeta_padre` vacía) las crea Veolab, una por
 funcionalidad (`SINCLI`, `LABOPE`… y `ZZZDIR` para las carpetas generales); no
@@ -322,7 +359,11 @@ gestionan desde Veolab.
 `empleado_codigo`, `curso_codigo`, `operacion_serie`+`operacion_codigo`, orden,
 informe, lote, `planificacion_codigo`, `agenda_serie` (usuario)+`agenda_codigo`,
 contrato, presupuesto, factura, `producto_codigo` (+`producto_serie_lote_codigo`
-para una serie o lote), `carta_control_codigo`, `prestamo_codigo`. La carpeta
+para una serie o lote), `carta_control_codigo`, `prestamo_codigo`, pedido (`pedido_serie`+`pedido_codigo`),
+`entrega_codigo`, incidencia, solicitud, `ensayo_serie`+`ensayo_codigo` (ensayo de
+aptitud), `auditoria_calidad_serie`+`auditoria_calidad_codigo` y
+`revision_direccion_serie`+`revision_direccion_codigo`; estas siete solo con base
+de datos 3.0 (antes no existen en `DOCFAT`). La carpeta
 debe ser de la tabla de la entidad (o `ZZZDIR` si no hay entidad); sin carpeta
 va a la raíz de esa tabla. En un PUT los parámetros de entidad sustituyen el
 vínculo entero; si cambia la tabla y no se indica carpeta, pasa a su raíz. El
@@ -370,6 +411,303 @@ propiedades.
 **Límite de tamaño:** lo marcan `upload_max_filesize` y `post_max_size` de
 PHP-FPM y `client_max_body_size` de Nginx; un cuerpo mayor da 413.
 
+### Control de documentos (Veolab 3, ISO 17025 8.3)
+
+Fase 1, según el modelo común con el escritorio (`Documentacion/ISO 17025/Control de
+documentos - modelo de datos.md` del proyecto de Veolab; `App\Support\VeolabDocumentControl`,
+`DocumentoControlController`, `DocumentoLecturaController`). Es una capa sobre la gestión
+documental. Todos los campos llevan `$since` 3.0 y las rutas nuevas responden `422` si la base de
+datos no es de Veolab 3 o aún no tiene `DOCLEC` (script sin aplicar).
+
+**Módulo Calidad.** Como en el escritorio (`DCT_Activo`), el control solo actúa con el módulo
+Calidad activo y licenciado (`ACCMOD.MODBACT = 'T'` para `CAL`; `VeolabDocumentControl::active()`,
+leído una vez por petición; la funcionalidad `DOC_CTL` pertenece a `CAL` en `ACCMYF`). Sin él:
+ninguna carpeta ni ningún documento está controlado (`es_controlado`, `es_controlada` y
+`pendiente_aprobar` son `F`, `?es_controlado=T` no devuelve nada) y se comportan como documentos
+normales con versiones; el alta y la subida en una carpeta controlada no activan el control;
+los campos de control de `/documentos`, `/documentos/versiones` y `/documentos/carpetas` se leen
+pero escribirlos da `422`; y `/documentos/controlados`, aprobar, revisar, descartar y
+`/documentos/lecturas` responden `422` «El control de documentos requiere el módulo Calidad». La
+edición aprobada vigente sigue sin poder borrarse, para no perder datos si se vuelve a activar.
+
+**Campos.**
+
+- `/documentos`: `controlado` (`FATCCTL`: null = según la carpeta, `T`, `F`), `codigo_documento`,
+  `tipo_documento` (`I`/`E`), `entidad_emisora`, `estado_control` (`B` borrador, `V` vigente,
+  `O` obsoleto), `version_aprobada` (`VER2APR`, solo lectura), `elabora_delegacion` +
+  `elabora_codigo` (empleado), `periodicidad_revision` (meses), `ultima_revision`,
+  `proxima_revision` y `fecha_vigencia`. Calculados: `es_controlado` (efectivo) y
+  `pendiente_aprobar`; también como filtros `?es_controlado=T|F` y `?pendiente_aprobar=T|F`.
+  `?search=` busca también en el código.
+- `/documentos/versiones`: `edicion`, `motivo`, `fecha_edicion`, `aprobada_por_delegacion` +
+  `aprobada_por_codigo` y `fecha_aprobacion`; calculado `es_aprobada`.
+- `/documentos/carpetas`: `controlada` (`DIRBCON`), `tipo_documentos` y `periodicidad_revision`
+  (se pueden cambiar también en las raíces, solo ellos); calculado `es_controlada` (con herencia).
+
+**Controlado.** `FATCCTL = T`, o vacío y su carpeta o alguna superior con `DIRBCON = T`;
+`F` lo excluye siempre. Sin CTE recursivas: el árbol de `DOCDIR` se lee una vez por petición y se
+sube en PHP por `DIR2DEL`/`DIR2COD`; los listados filtran con la lista de carpetas controladas
+(las marcadas y sus descendientes). El tipo y la periodicidad por defecto son los de la carpeta
+más cercana que los tenga.
+
+**Usuario y privilegios.** La API no tiene sesión: `?usuario_delegacion=&usuario_codigo=` es
+opcional. Con él, cambiar `controlado` (documento o carpeta), marcar obsoleto o volver a vigente,
+aprobar, revisar y corregir los datos de una edición aprobada exigen el privilegio especial 1 de
+`DOC_CTL` (aprobar documentos); descartar, ese privilegio o ser quien lo elabora. Sin usuario la
+API actúa como privilegiada, como en calidad.
+
+**Reglas.**
+
+- Al pasar a controlado (por el documento, al moverlo a una carpeta controlada o al marcar la
+  carpeta, que alcanza a sus subcarpetas): `FATBVER = T`, la copia dual (`VER2DUA`) pasa a versión
+  visible con el nombre «Versión anterior» y `VER2DUA = 0`, estado `B` si no tenía y el tipo de la
+  carpeta si no tenía. Un documento nuevo en una carpeta controlada nace así. Quitar el control
+  de versiones a un controlado da `422`.
+- Activar el control de versiones a un documento no controlado también convierte la copia dual en
+  versión visible.
+- `POST /documentos/contenido` en un controlado: siempre versión nueva, que pasa a principal
+  (`nueva_version=F` da `422`; la dual no actúa); si ya tenía edición aprobada queda pendiente de
+  aprobar (`data.pendiente_aprobar`). En un obsoleto, `422`. Con control de versiones, sin
+  `version_nombre`, la versión se llama «Versión N» (también la primera, «Versión 1»).
+- `GET /documentos/contenido` sin `version`: si se indica el usuario y el documento es un
+  controlado pendiente de aprobar (no borrador), quien no lo elabora, no puede aprobar y no tiene
+  el especial 3 de `DOC_EXP` recibe la edición aprobada (`VER2APR`); en otro caso, la principal.
+  La cabecera `X-Documento-Version` dice cuál se ha entregado.
+  Con `version` distinta de la principal y un usuario con el especial 2 de `DOC_EXP` (solo la
+  versión principal), `403`. `GET /documentos/versiones` no lo comprueba: allí `usuario_*` filtra
+  por el autor de la versión.
+- Veolab 3, como PropiedadesDocumento: las versiones de un documento controlado no se eliminan
+  (`422`); en un controlado, los datos de control (código, tipo, emisor, periodicidad, elabora,
+  próxima revisión y revisor) solo los cambia quien puede aprobar, y en uno no controlado no se
+  cambian (`422`); una periodicidad nueva sin `proxima_revision` recalcula la próxima revisión desde
+  la última. Al aprobar, revisar sin cambios o grabar los datos de control se rehace el aviso W de
+  la próxima revisión (`CONNRDC` días antes, módulo COM).
+- `estado_control` en `PUT /documentos`: `O` (obsoleto) desde cualquier estado; `V` solo desde
+  obsoleto (sin edición aprobada queda en `B`); nunca vuelve a `B` (para eso, descartar). A `V`
+  desde borrador solo se llega aprobando.
+- `PUT /documentos/versiones`: en un controlado no se restablece una versión anterior
+  (`es_actual`; la última es siempre la principal; se usa descartar). Los datos de edición solo
+  se corrigen en versiones aprobadas. La edición aprobada vigente no se puede borrar.
+
+**Rutas.**
+
+```
+GET  /api/v2/documentos/controlados[?delegacion=&estado=B,V,P,O&tipo=I|E&carpeta_delegacion=&carpeta_codigo=
+                                   [&subcarpetas=F]&revision_vencida=T|F&revision_proxima=T
+                                   &elabora_delegacion=&elabora_codigo=&texto=&sort=&page=&limit=]
+POST /api/v2/documentos/aprobar?delegacion=&codigo=[&usuario_*]    {edicion, motivo, fecha_edicion,
+                                                                    aprobada_por_delegacion, aprobada_por_codigo}
+POST /api/v2/documentos/revisar?delegacion=&codigo=[&usuario_*]
+POST /api/v2/documentos/descartar?delegacion=&codigo=[&usuario_*]
+GET  /api/v2/documentos/lecturas[?delegacion=&documento=&version=&empleado_delegacion=&empleado_codigo=]
+POST /api/v2/documentos/lecturas   {delegacion, documento, [version], empleado_* | usuario_*, [fecha]}
+```
+
+- **Lista** (`/documentos/controlados`): los controlados fuera de la papelera con código, título,
+  tipo, edición vigente y su fecha, motivo, estado efectivo (`B`, `V`, `P` pendiente de aprobar,
+  `O`) y su nombre, aprobado por (con nombre) y fecha de aprobación, quien lo elabora, periodicidad
+  efectiva, última y próxima revisión, `revision_vencida` y `revision_proxima` (30 días; nunca en
+  obsoletos), vigencia comprobada, carpeta y delegación. `estado` admite lista; `carpeta_*` incluye
+  las subcarpetas; `texto` busca en código, título, descripción, entidad emisora y edición. Orden
+  por `codigo_documento` (por defecto), `titulo`, `tipo_documento`, `fecha_edicion`,
+  `fecha_aprobacion`, `proxima_revision`, `ultima_revision`, `carpeta_nombre`, `delegacion` o
+  `estado`, con `-` para descendente. `limit` hasta 500. La API no aplica el acceso a carpetas
+  (`DOC_CarpetaCompartida`): lo filtra la aplicación cliente, como en el resto de la gestión
+  documental.
+- **Aprobar**: la versión principal pasa a ser la edición aprobada vigente. En ella `VERCEDI`
+  (obligatoria), `VERCMOT`, `VERDEDI` (por defecto hoy), `EMA2*` (por defecto el empleado del
+  usuario; si no tiene, quien aprobó la edición vigente anterior; si tampoco, ninguno;
+  `aprobada_por_codigo` 0 o null, ninguno) y `VERDAPR` = hoy; en el documento
+  `VER2APR = VER2COD`, `FATCEST = V`, `FATDULR` = hoy y `FATDREV` = hoy + periodicidad (la del
+  documento o la de la carpeta; vacía si no hay). `422` si está obsoleto o la principal ya es la
+  aprobada.
+- **Revisar sin cambios**: `FATDULR` = hoy y se recalcula `FATDREV`; en los externos, también
+  `FATDVIG` = hoy. Solo con edición aprobada y no obsoleto.
+- **Descartar cambios**: borra las versiones posteriores a `VER2APR` (`DOCVER`, `DOCBLO` y sus
+  lecturas) y `VER2COD = VER2APR`. `422` sin edición aprobada o sin cambios. El escritorio pide
+  confirmación; la API no.
+- **Lecturas**: solo de controlados no obsoletos y de la edición aprobada vigente (`VER2APR`), como `DCT_LecturaPendiente`, una por
+  documento, versión y empleado (`422` si ya está). Con `usuario_*` se toma su empleado; un usuario
+  sin empleado no registra. `fecha` por defecto ahora. El listado añade `empleado_nombre` y
+  `edicion`. Al borrar un documento o una versión se borran sus lecturas.
+
+**Sin hacer:** «Rellenar desde el nombre» (código, título y edición del nombre del fichero; solo en
+el escritorio), el aviso de revisión (notificación `W`, la genera Veolab), ocultar los obsoletos en
+`/documentos` (la app filtra con `estado_control`) y el acceso a carpetas en la lista.
+
+### Control de documentos, fase 2: distribución, lectura, revisión y copias (Veolab 3)
+
+Según `Documentacion/ISO 17025/Analisis distribucion de documentos.md` del proyecto de Veolab
+(modelo en su apartado 5), a la vez que el escritorio. Necesita el script que crea `DOCDIS` y
+`DOCCOP` y las columnas `DOCDIR.DIRNDLE`/`DIRBREV`, `DOCFAT.EMR2*` y `DOCVER.VERBLEC`/`EMR2*`/
+`VERDREV`/`VERCREV`/`VERCEST` (`VeolabDocumentControl::distributionAvailable()`, comprobado con
+`hasTable`/`hasColumn` una vez por petición). Sin él, las rutas nuevas responden `422` «…requieren
+el script de conversión que crea DOCDIS y DOCCOP», los campos nuevos no aparecen (como los de
+`$since` en bases anteriores) y todo sigue como en la fase 1. Como la fase 1, exige el módulo
+Calidad.
+
+**Campos nuevos.**
+
+- `/documentos`: `revisor_delegacion` + `revisor_codigo` (`EMR2*`, grupo FK): un empleado distinto
+  de quien lo elabora.
+- `/documentos/carpetas`: `dias_lectura` (`DIRNDLE`; vacío o 0 = el de la carpeta superior más
+  cercana que lo tenga o 15) y `revision_antes_aprobar` (`DIRBREV`, `T`; vale también para las
+  subcarpetas; cambiarla exige el especial 1 de `DOC_CTL`); calculados `es_revision_antes_aprobar`
+  y `dias_lectura_efectivos`.
+- `/documentos/versiones` (solo lectura): `estado_edicion` (`VERCEST`: `B` borrador, `R` revisada,
+  `A` aprobada; vacío = `A` con fecha de aprobación, si no `B`), `revisada_por_*`,
+  `fecha_revision`, `comentario_revision` (o motivo de la devolución) y `requiere_lectura`
+  (`VERBLEC`; vacío = `T`).
+
+**Destinatarios.** `DOCDIS` con `FAT2COD` (de un documento) o `DIR2COD` (de una carpeta), en la
+delegación del documento o de la carpeta. Un documento sin destinatarios propios usa los de su
+carpeta o los de la primera carpeta superior que los tenga; sin ninguno no se distribuye (acuse
+voluntario, como en la fase 1). Se resuelven en empleados en activo (`EMPBBAJ <> T`), sin repetir y
+por nombre:
+
+| `DISCTIP` | Quién |
+|---|---|
+| `T` | Los empleados de la delegación del documento, o todos si el documento es común |
+| `E` | Ese empleado (`EMP2*`) |
+| `C` | Quien tiene el cargo (`CAR2*`, `GRHEYC`) |
+| `D` | Quien tiene un cargo del departamento (`DEP2*`: `GRHEYC` → `GRHCAR.DEP2*`) |
+| `A` | Los autorizados vigentes (`GRHAUT`, estado `A` sin caducar) en la técnica del documento (`DOCFAT.TEC2COD`, de su delegación); sin técnica, nadie |
+
+**Lecturas pendientes.** Destinatarios − lecturas (`DOCLEC`) de la edición vigente (`VER2APR`) de
+los controlados en vigor (fuera de la papelera, no obsoletos, con edición aprobada). Si la vigente
+tiene `VERBLEC = F` (cambio menor), vale la lectura de cualquier edición aprobada anterior
+posterior a la última que sí requirió lectura (incluida). **Vencida:** `VERDAPR` + días para leer
+(los de la carpeta o 15) anterior a hoy. Se calculan para muchos documentos a la vez con dos
+consultas por delegación (versiones y lecturas) y una lectura del personal por petición
+(`VeolabDocumentControl::readingStatus()`), sin consultas por fila.
+
+**Revisión antes de aprobar.** En una carpeta (o una superior) con `DIRBREV = T`, la edición en
+curso (la principal sin aprobar) pasa por:
+
+1. **Revisar** (`POST /documentos/revisar-edicion`): el especial 2 de `DOC_CTL` (`ESP_DOC_CTL02`) o
+   el revisor del documento; nunca quien lo elabora (tampoco como `revisada_por_*`). Pone
+   `VERCEST = R`, `EMR2*` (por defecto el empleado del usuario), `VERDREV` = ahora y `VERCREV`
+   (`comentario`). `422` si ya está revisada, si la carpeta no exige revisión o si no hay edición en
+   curso.
+2. **Devolver** (`POST /documentos/devolver-edicion`): `motivo` obligatorio; vuelve a `B` con el
+   motivo en `VERCREV` y quién y cuándo. Lo pueden quien revisa y quien aprueba, nunca quien lo
+   elabora.
+3. **Aprobar** (`POST /documentos/aprobar`): solo una edición en `R` (si no, `422`); si quien la
+   revisó es quien la aprueba, la respuesta trae `aviso`. Con la fase 2, aprobar pone siempre
+   `VERCEST = A` y `VERBLEC` = `requiere_lectura` (`T` por defecto).
+
+Sin usuario en la petición la API actúa como privilegiada, como en la fase 1.
+
+**Copias controladas** (`/documentos/copias`, claves `delegacion`, `documento`, `codigo`): `ubicacion`
+(`COPCUBI`), `empleado_*`, `version` (edición entregada; por defecto la vigente, siempre una
+aprobada), `fecha_entrega` (por defecto ahora) y `fecha_retirada`. Hace falta la ubicación o el
+empleado. El número de copia, si no se indica, es el siguiente del documento. Añadidos: `edicion`,
+`version_vigente`, `edicion_vigente`, `empleado_nombre`, `retirada` y `por_retirar` (de una edición
+anterior a la vigente y sin fecha de retirada; también filtro `?por_retirar=T|F`). Escribir exige el
+especial 1 de `DOC_CTL` si se indica el usuario.
+
+**Rutas.**
+
+```
+GET  /api/v2/documentos/destinatarios?delegacion=&codigo=  |  ?carpeta_delegacion=&carpeta_codigo=
+PUT  /api/v2/documentos/destinatarios?…[&usuario_*]   {destinatarios: [{tipo, empleado_*, cargo_*, departamento_*}]}
+GET  /api/v2/documentos/lecturas/estado?delegacion=&codigo=
+GET  /api/v2/documentos/lecturas/pendientes?empleado_delegacion=&empleado_codigo=  |  ?usuario_*[&delegacion=]
+POST /api/v2/documentos/revisar-edicion?delegacion=&codigo=[&usuario_*]   {comentario, revisada_por_*}
+POST /api/v2/documentos/devolver-edicion?delegacion=&codigo=[&usuario_*]  {motivo, revisada_por_*}
+POST /api/v2/documentos/aprobar?…   {…, requiere_lectura: T|F}
+GET|POST|PUT|DELETE /api/v2/documentos/copias[?delegacion=&documento=&codigo=&por_retirar=T|F]
+```
+
+- **Destinatarios:** GET devuelve `destinatarios` (los propios), `heredados` (T si no tiene propios y
+  valen los de una carpeta, con `origen_carpeta_*`), `destinatarios_efectivos` y, en un documento,
+  `controlado` y `personas` resueltas. PUT sustituye la lista entera (vacía = quitar los propios),
+  quita las repetidas, numera `DIS1COD` de nuevo por delegación y exige el especial 1 de `DOC_CTL`
+  si se indica el usuario; un tipo `A` en un documento sin parámetro devuelve `aviso`.
+- **Estado de lecturas:** `version_vigente`, `edicion`, `fecha_aprobacion`, `dias_lectura`,
+  `fecha_limite`, `plazo_vencido`, `desde_version`, `destinatarios_origen` (`documento`, `carpeta`
+  o null), recuentos (`destinatarios`, `leidas`, `pendientes`, `vencidas`, `lecturas` «12/15») y
+  `personas`: cada destinatario con `estado` `leida` (con `fecha_lectura`, `version_leida` y
+  `edicion_leida`), `pendiente` o `vencida`, y quien la leyó sin ser destinatario
+  (`es_destinatario` F).
+- **Pendientes de un empleado:** documento, edición, `fecha_aprobacion`, `dias_lectura`,
+  `fecha_limite` y `vencida`; vencidas primero y después por fecha límite.
+- **Lista de controlados:** con la fase 2 añade `revisor_*`, `revision_antes_aprobar`,
+  `edicion_estado` (de la edición en curso, `B`/`R`) con quién, cuándo y comentario de la
+  revisión, `pendiente_revisar` y `pendiente_aprobar_edicion` (el paso que le toca), y
+  `lecturas` («leídas/destinatarios»), `lecturas_destinatarios`, `lecturas_leidas`,
+  `lecturas_pendientes`, `lecturas_vencidas`, `lecturas_fecha_limite` y `destinatarios_origen`.
+  Filtro nuevo `pendiente=revisar|aprobar`. `pendiente_aprobar` sigue siendo el de la fase 1
+  (estado `P`).
+- **Tareas pendientes** (con el módulo CAL): `DE` revisar edición (el revisor, personal, o el
+  especial 2, por cargo; nunca quien lo elabora), `DA` solo cuando la edición está revisada si la
+  carpeta lo exige, `DL` leer la edición vigente como destinatario (fecha límite y vencida; sin
+  destinatarios, la regla de la fase 1) y `DC` retirar copias (especial 1 de `DOC_CTL`, una por
+  documento con el número de copias).
+- **Revisión por la dirección, tema c:** «Recoger datos» escribe las ediciones de controlados
+  aprobadas en el periodo (con lista si son pocas) y, con la fase 2, las lecturas pendientes y
+  vencidas al fin del periodo y las copias por retirar. No hay histórico de destinatarios ni de
+  ediciones vigentes: las lecturas se aproximan con la situación actual (sin contar las hechas
+  después del fin del periodo) y así lo dice el texto; las copias por retirar son las de hoy.
+
+**Sin hacer:** el filtro «con lecturas pendientes» en `/documentos/controlados` (se calcula en PHP
+y rompería la paginación; la app filtra por `lecturas_pendientes`) y las plantillas «Registro de
+distribución y lectura» y «Hoja de entrega de copias controladas» (exportación del escritorio).
+
+### Accesos directos a documentos (Veolab 3)
+
+Según `Documentacion/ISO 17025/Analisis accesos directos a documentos.md` del proyecto de Veolab.
+Un acceso directo es una fila de `DOCFAT` sin contenido (sin `DOCVER` ni `DOCBLO`) en cualquier
+carpeta o ficha, con `FAT2DEL`/`FAT2COD` apuntando al documento de destino (`FAT2COD` NULL o 0 =
+documento normal). Los campos llevan `$since` 3.0 y, si la base de Veolab 3 aún no tiene las
+columnas (script sin aplicar), se tratan como no disponibles y las rutas de accesos dan `422`
+(`VeolabDocuments::shortcutsAvailable()`).
+
+**Campos en `/documentos`:** `acceso_directo_delegacion` + `acceso_directo_codigo` (grupo FK:
+`?acceso_directo_codigo[null]=F` lista solo accesos) y los calculados `es_acceso_directo` (también
+filtro `?es_acceso_directo=T|F`) y `destino` (solo en los accesos: `delegacion`, `codigo`,
+`existe`, `en_papelera`, `carpeta_*` y, con control de documentos, `es_controlado`, `estado` B/V/P/O
+y `pendiente_aprobar` del destino). Un acceso tiene siempre `es_controlado` y `pendiente_aprobar`
+`F`: el control es el de su destino.
+
+```
+POST /api/v2/documentos   {acceso_directo_delegacion, acceso_directo_codigo, [delegacion],
+                           [carpeta_delegacion, carpeta_codigo], [entidad]}     (JSON o formulario, sin fichero)
+GET  /api/v2/documentos/accesos?delegacion=&codigo=      → accesos que apuntan al documento
+```
+
+- **Alta:** copia `FATCNOM`/`FATCTIP` del destino; `FATNTAM` 0, `FATBZIP`/`FATBLEC`/`FATBVER` `F`,
+  `VER2COD` 0 y sin datos de control aunque la carpeta sea controlada. `nombre`, `extension`,
+  `descripcion`, `es_solo_lectura`, `es_control_versiones` y `version_*` dan `422` (son del destino),
+  igual que enviar `fichero`. Un acceso a otro acceso se resuelve al documento real. `422` si el
+  destino no existe, está en la papelera o es una plantilla de exportación, si el acceso quedaría
+  en la misma carpeta y ficha que el destino o si ya hay otro acceso al mismo destino en esa
+  carpeta y ficha. El destino puede ser de otra delegación.
+- **PUT** de un acceso: solo carpeta y ficha (con la misma comprobación de duplicados); el resto,
+  `422`. `acceso_directo_*` no se cambia nunca (se crea otro acceso).
+- **Renombrar** el destino (`nombre` o `extension` en su PUT) actualiza `FATCNOM`/`FATCTIP` de sus
+  accesos.
+- **Borrar:** un acceso se borra como cualquier documento, sin tocar el destino. Enviar el destino a
+  la papelera no toca sus accesos; borrarlo definitivamente los borra (con auditoría `B` de cada
+  uno y `data.accesos_eliminados` en la respuesta).
+- **Contenido:** `GET /documentos/contenido` de un acceso entrega el destino con sus reglas
+  (`version` es del destino; con usuario, quien solo consulta recibe la edición aprobada) y añade
+  las cabeceras `X-Documento-Destino-Delegacion` y `X-Documento-Destino-Codigo`; destino
+  inexistente `404`, en la papelera `422`. `POST /documentos/contenido` en un acceso, `422`.
+- **Versiones, lecturas, aprobar, revisar y descartar** sobre un acceso: `422` con la clave del
+  destino («use el documento de destino»), en vez de resolverlo en silencio: son acciones que
+  cambian o consultan el documento controlado y la aplicación debe saber cuál es. En los listados
+  de versiones y lecturas basta `?delegacion=&documento=` del acceso para recibir ese `422`.
+- **Controlados:** `/documentos/controlados`, `?es_controlado`, `?pendiente_aprobar` y el marcado
+  de una carpeta como controlada (que activa sus documentos) excluyen siempre los accesos.
+- `GET /documentos/accesos`: delegación, código, nombre y extensión, carpeta (`carpeta_*`,
+  `carpeta_nombre`; null en la papelera), `en_papelera`, `tabla` y `entidad` (parámetros de la
+  ficha) y `fecha_creacion`. Sin paginar.
+
+**Sin hacer:** las restricciones de carpeta del destino (la API no aplica el acceso a carpetas; lo
+filtra la aplicación cliente) y «Añadir también a…» (parámetros con el mismo nombre o método; la
+aplicación crea un acceso por cada uno con el POST).
+
 ## 11 bis. Inventario
 
 En Veolab el **producto** (`ALMPRD`, `/productos`) es el catálogo y los
@@ -391,6 +729,87 @@ predeterminado (vigente, con existencias; "en uso", después "límite de uso",
 después nuevos; para consumibles, si no hay ninguno con existencias, el mayor
 sin existencias). El consumo descuenta existencias sin bajar de cero (se reduce
 a lo disponible). Al borrar la operación se devuelven.
+- Como `ALM_ObtenerSeriesPredeterminadasProductos`, nunca se propone una serie fuera
+  de uso o de baja ni con la caducidad, calibración, verificación o mantenimiento
+  alcanzados hoy; tampoco la serie oculta de un producto sin series (que se toma con o
+  sin existencias), que antes se usaba siempre.
+- Desde Veolab 3, de los equipos alternativos de una técnica (`LABTYQ.TYQNGRU` ≠ 0)
+  solo se registra uno (`EquipoElegidoEnGrupo`): el predeterminado del grupo
+  (`TYQBPRE`) si tiene serie utilizable; si no, el primero del grupo que la tenga; si
+  ninguno, ninguno.
+- La API no registra a mano usos ni consumos en una operación (`/inventario/movimientos`
+  no los admite), así que no hay equivalente de la comprobación de `Consumos`
+  (`CONCVEN`, MEN00656-658) al elegir equipos: los automáticos ya excluyen los vencidos,
+  y al grabar resultados se comprueba `CONCVEN` (§12 bis, resultados).
+
+### Patrones y materiales de referencia (Veolab 3, ISO/IEC 17025 6.5 y 6.4.9)
+
+Análisis en `Documentacion/ISO 17025/Analisis patrones y materiales de referencia.md` del proyecto
+de Veolab. `App\Support\VeolabMetrology`. Las columnas las crea el script de los patrones: en una base
+de Veolab 3 sin él (`VeolabMetrology::available()`, que mira las columnas una vez por base) los campos
+se tratan como los de `$since` en una base anterior: no se devuelven, no filtran y escribirlos da
+`422`; las rutas de trazabilidad y operaciones afectadas funcionan sin los datos del certificado.
+
+| Campo | Recurso | Columna | Notas |
+|---|---|---|---|
+| `tipo_metrologico` | `/productos` | `ALMPRD.PRDCTPR` | `R` patrón de referencia, `T` patrón de trabajo, `C` material de referencia certificado, `M` material de referencia o control; `null` (o vacío al escribir) producto normal. |
+| `dias_validez_apertura` | `/productos` | `ALMPRD.PRDNDAP` | Días de validez tras abrir; 0 se guarda como `NULL`. |
+| `valor_certificado` | `/inventario` | `ALMSEL.SELCVCE` | Texto (100), p. ej. «1413 µS/cm a 25 °C». |
+| `incertidumbre` | `/inventario` | `ALMSEL.SELCINU` | Texto (100). |
+| `trazabilidad` | `/inventario` | `ALMSEL.SELCTRZ` | Texto (255): «NIST SRM 3191», «ENAC 123/LC456». |
+| `numero_certificado` | `/inventario` | `ALMSEL.SELCNCE` | Texto (50). |
+| `fecha_certificado` | `/inventario` | `ALMSEL.SELDCER` | Fecha. |
+| `acreditado` | `/inventario` | `ALMSEL.SELBACR` | `T`/`F`: productor (ISO 17034) o laboratorio (ISO 17025) acreditado. |
+| `tipo_metrologico` | `/inventario` | `ALMPRD.PRDCTPR` | Solo lectura: el del producto. |
+| `caducidad_efectiva` | `/inventario` | — | Solo lectura (`aaaa-mm-dd`): la menor entre `SELDCAD` y `SELDAPE` + `PRDNDAP` días; `null` si no hay ninguna. |
+
+- Filtros: `?tipo_metrologico=R,T` (vacío: productos normales) y `?patrones=T|F` (con o sin tipo), en
+  `/productos` y en `/inventario` (por el producto de la serie).
+- Como en el escritorio, las calibraciones y verificaciones son las operaciones sobre la serie
+  (`LABOPE.PRD2DEL`/`PRD2COD`/`SEL2COD`) con el tipo reservado de la delegación común: `TIO2DEL = ''`
+  y `TIO2COD` 2 (calibración) o 3 (verificación) (`ALM_CampoFechaTipo`). Las anuladas no cuentan.
+  La fecha de un uso es la de inicio de la operación (`OPEDINI`) o, sin ella, la del movimiento
+  (`MOVDFEC`), como `LeerEquiposVencidos`.
+
+```
+GET  /api/v2/inventario/trazabilidad?producto_delegacion=&producto_codigo=&codigo=
+GET  /api/v2/inventario/operaciones-afectadas?producto_delegacion=&producto_codigo=&codigo=[&desde=&hasta=]
+POST /api/v2/inventario/operaciones-afectadas?producto_delegacion=&producto_codigo=&codigo=
+```
+
+(`/series` es la ruta de los contadores `ACCCLT`; las series de inventario van en `/inventario`.)
+
+- **Trazabilidad** (`data`): `serie` (sus datos, los del certificado y la caducidad efectiva);
+  `se_calibra_con`: un elemento por operación y serie usada o consumida (`ALMMOV` `U`/`O`) en sus
+  calibraciones y verificaciones, sin la propia serie, del más reciente al más antiguo, con `fecha`, `operacion` (clave, código,
+  `tipo_operacion` 2/3, fin y dictamen), `movimiento` (tipo, cantidad, técnica), `patron` (producto,
+  serie, tipo metrológico, datos del certificado y caducidad efectiva), `valido_ese_dia` y `motivo`
+  («caducidad efectiva dd/mm/aaaa», «próxima calibración …», «próxima verificación …»: alcanzadas
+  ese día, el mismo día cuenta; sin fecha del uso, con la de hoy; si la serie usada ya no existe,
+  `valido_ese_dia` es `null`, como el escritorio); `se_usa_para`: `series` calibradas o verificadas
+  con ella, sin ella misma (producto,
+  serie, `calibraciones`, `verificaciones`, primera y última fecha) y el recuento de `operaciones` no
+  anuladas con uso o consumo de la serie, con `primera_fecha` y `ultima_fecha`. Las fechas de
+  calibración y verificación del patrón son las actuales (Veolab no guarda su historia), igual que
+  en la comprobación de equipos vencidos del escritorio.
+- **Operaciones afectadas** (6.4.9). Por defecto, `desde` es el fin (`OPEDFIN`) de la última
+  calibración o verificación finalizada y **conforme** de la serie y `hasta`, hoy (los dos
+  incluidos). Veolab no guarda si un dictamen es conforme: se tiene por no conforme la que está
+  enlazada (`CALIYE`, `LABOPE`) a una incidencia de trabajo no conforme (clase `T`) no anulada. Sin
+  ninguna, desde el principio. `data`: `serie`, `desde`, `hasta`, `desde_origen` (`calibracion`,
+  `indicada` o `sin_calibracion`), `calibracion_referencia`, `calibraciones` (las 10 últimas, con
+  `conforme` y `dictamen`) y `operaciones`: las no anuladas con uso o consumo de la serie en el
+  periodo, por fecha de uso, con estado, referencia, cliente, validación y envío, `movimientos`,
+  `tecnicas` e `informes` (`LABIYO`). `meta.total`.
+- **`POST`**: cuerpo `{operaciones: [{delegacion, serie, codigo}], calibracion: {delegacion, serie,
+  codigo}, desde, hasta, delegacion, serie, descripcion, detalle, detectada_por_*, usuario_*}`, todo
+  opcional. Crea con las reglas de `POST /incidencias` (módulo `CAL`) una incidencia de clase `T`,
+  origen `Q` (equipo), título «Equipo no conforme: producto (serie)» y un detalle con el número de
+  operaciones y el periodo si no se indican, detectada por el empleado del usuario si no se indica
+  otro. La enlaza (`CALIYE`) con la serie (`ALMSEL`; la serie oculta, como el producto), la
+  calibración (debe ser una calibración o verificación de la serie; así deja de contar como
+  conforme) y las operaciones, que deben usar o consumir la serie (`422` si no). Para enlazar los
+  informes de esas operaciones, `POST /incidencias/enlaces/informes`.
 
 ## 11 ter. Permisos de perfil
 
@@ -490,6 +909,16 @@ pantalla). Son listados estándar (`{data, meta}`, filtros y orden).
   no se expone.
 - Los nombres de campo agrupan por pantalla; los códigos de letra se documentan en
   los controladores (`ConfiguracionGeneralController`, `ConfiguracionLaboratorioController`).
+- Desde Veolab 3: en general `email_activo`, `seleccion_moderna_listados`,
+  `horas_con_segundos` e `informes_error_automaticos` (el token OAuth del correo,
+  `PARCTOK`, no se expone); en laboratorio las opciones de exportación (superíndices,
+  subíndices, notación científica, formato de líneas y de marcas),
+  `importacion_no_sobrescribir`, `orden_series_lotes`, `presupuesto_solo_incluido`,
+  `notificar_seguimiento_presupuestos`, `dias_seguimiento_presupuestos` y
+  `notificar_errores_igeo`, `autorizaciones_analistas` (`CONCAUT`), `equipos_vencidos`
+  (`CONCVEN`: vacío o nulo bloquear · `A` avisar · `N` no comprobar) y
+  `notificar_evaluaciones_proveedores` (`CONBNEV`) y `notificar_ensayos_aptitud` (`CONBNAP`, aviso
+  `J`, §11 quindecies). En los colores, -1 es automático (texto) o transparente (fondo).
 
 ## 11 sexies. Cartas de control
 
@@ -545,13 +974,21 @@ La API no tiene sesión de usuario: estas rutas trabajan sobre el usuario que se
 |---|---|---|
 | `GET /notificaciones` | `ACCNOT` | Lista de notificaciones (filtrar por `usuario_*`, `tipo`, `fecha[gte]`...). Cada una lleva `tipo_descripcion` y `pendiente` (T si su aviso emergente no se ha visto). Referencias: `operacion_*`, `informe_*`, `producto_*`, `carta_control_*`. |
 | `DELETE /notificaciones?delegacion=&codigo=` | `ACCNOT` | Borra la notificación y sus avisos (Veolab deja los avisos huérfanos). Se audita. |
-| `GET /mensajes` | `MENMEN` | Listado (`origen_*`, `destino_*`, `fecha`...); `leido` = F mientras el destinatario tenga el aviso. |
-| `POST /mensajes` | `MENMEN` | `{origen_delegacion, origen_codigo, destino_delegacion, destino_codigo, texto}`. Como Mensajeria: se guarda en la delegación del remitente con la hora del servidor y crea el aviso `M` del destinatario (que no puede estar de baja). Necesita el módulo COM. No se auditan ni se borran. |
-| `GET /mensajes/conversacion?usuario_*&con_*[&desde=]` | `MENMEN` | Mensajes entre los dos usuarios, en orden de envío (sin paginar). |
-| `POST /mensajes/leidos` | `ACCAVI` | `{usuario_*[, con_*]}`: borra los avisos de mensajes del usuario (de todos o solo de `con`). |
+| `GET /mensajes` | `MENMEN` | Listado (`origen_*`, `destino_*`, `tipo`, `fecha`...); `tipo` U entre empleados, C conversación de un cliente con el laboratorio; `leido` = T cuando tiene `fecha_lectura` (lector en `lector_*`). |
+| `POST /mensajes` | `MENMEN` | `{origen_delegacion, origen_codigo, destino_delegacion, destino_codigo, texto}`. Como Mensajeria: se guarda en la delegación del remitente con la hora del servidor y crea el aviso `M` del destinatario (sin baja y de la misma delegación o común). Un cliente escribe sin destino (buzón del laboratorio) y el aviso va a los empleados con el privilegio de mensajes de clientes. Necesita el módulo MEN. No se auditan ni se borran. |
+| `GET /mensajes/conversacion?usuario_*[&con_*][&desde=]` | `MENMEN` | Mensajes entre los dos usuarios, en orden de envío (sin paginar), con `origen_nombre`. Si uno es cliente, toda su conversación con el laboratorio (`con` opcional si el usuario es el cliente). |
+| `POST /mensajes/leidos` | `MENMEN`, `ACCAVI` | `{usuario_*[, con_*]}`: pone `fecha_lectura` y lector a los mensajes recibidos (de todos o solo de `con`; si `con` es cliente, también los que envió al laboratorio) y borra los avisos de mensajes del usuario. |
 | `GET /avisos` | `ACCAVI` | Avisos pendientes: `tipo` N notificación, M mensaje, A agenda (la fecha de una cita puede ser futura: filtrar `fecha[lte]`). Cada uno lleva un `resumen` de lo avisado. |
 | `DELETE /avisos?delegacion=&codigo=` | `ACCAVI` | Aviso visto (como al mostrarlo en Veolab). |
 | `POST /avisos/vistos` | `ACCAVI` | `{usuario_*[, tipo]}`: todos los avisos vencidos del usuario. |
+
+- Antes de Veolab 3 (bases 2.4) la mensajería es el módulo `COM`: sin `tipo`,
+  `fecha_lectura` ni `lector_*`; `leido` = F mientras el destinatario tenga el aviso, los
+  clientes no escriben sin destinatario y `/mensajes/leidos` solo borra avisos.
+- Tipos de notificación añadidos en Veolab 3: `P` fecha de seguimiento de presupuesto
+  (referencia `presupuesto_*`) y `G` error al recibir una muestra de iGEO; `J` fecha límite de
+  envío de un ensayo de aptitud (referencia `ensayo_delegacion`, `ensayo_serie`, `ensayo_codigo`;
+  §11 quindecies).
 
 Tipos de notificación: B muestra recibida, C fecha de compromiso, A analista asignado, F firma
 pendiente, R resultado rechazado, I nuevo informe, M marca en resultados, S stock mínimo,
@@ -645,6 +1082,1117 @@ Módulo **GDR**. `/residuos` (clave `delegacion` + `codigo`; CRUD estándar), co
   `[{tipo_residuo_delegacion, tipo_residuo_codigo, unidades, valor_unitario, valor_total}]`; crea
   un residuo por línea con algún importe (las demás se descartan) y devuelve sus claves. A
   diferencia de Veolab, cada alta se audita.
+
+## 11 duodecies. ISO 17025: personal, métodos, recepción y proveedores
+
+Todo desde Veolab 3 (§10 bis: en bases anteriores los campos no salen y los recursos dan
+`422`). Réplica de `Autorizaciones.bas`, `FichaAutorizacion`, `FichaEvaluacionProveedor`,
+`ALM_ActualizarEvaluacionProveedor` y `COM_CrearNotificacionesEvaluacion`.
+
+**Conformidad en recepción (7.4).** `conformidad_recepcion` en `/operaciones` y
+`/planificaciones` (`OPECCFR`, `PLOCCFR`): vacía sin evaluar, `C` conforme, `N` no conforme,
+`D` conforme con desviación. Se copia al generar la operación desde la planificación y se
+filtra como cualquier campo (`?conformidad_recepcion=N`, `?conformidad_recepcion=` sin
+evaluar). La incidencia de calidad que propone el escritorio al marcar `N` no la crea la API.
+
+**Validación de métodos (7.2).** En `/parametros` (`LABTEC`): `estado_metodo` (`TECCVME`:
+`V` validado, `F` verificado, vacío sin indicar), `fecha_validacion_metodo` (`TECDVME`),
+`fecha_revision_metodo` (`TECDRME`) y `fecha_proxima_revision` (`TECDPRM`).
+
+**Compromisos del personal (4.1, 4.2).** En `/empleados` (`GRHEMP`):
+`fecha_compromiso_confidencialidad` (`EMPDCON`) y `fecha_compromiso_imparcialidad`
+(`EMPDIMP`).
+
+**Autorizaciones del personal (6.2)** (`/empleados/autorizaciones`, `GRHAUT`; relación con
+clave `empleado_delegacion` + `empleado_codigo` + `tecnica_delegacion` + `tecnica_codigo`):
+`estado` (`F` en formación · `A` autorizado · `S` suspendido; al crear, `A`),
+`fecha_autorizacion` (al crear, hoy), `fecha_caducidad` (vacía: no caduca; no anterior a la
+autorización → `422`), `autorizado_por_*` (empleado), `fecha_supervision` y
+`resultado_supervision`. La lectura añade `es_vigente` (`T`/`F`, hoy) y `situacion`
+(«Autorizado», «Autorizado - Caducada», «En formación», «Suspendido»). Vigente = `A` y sin
+caducar. Auditoría como la ficha: sucesos de `GRHAUT` con la fila "empleado - técnica". Al
+borrar un empleado o una técnica se borran sus autorizaciones.
+- **Sin autorización registrada no cuenta** como no autorizado: quien no las registra no
+  nota nada (`VeolabAuthorizations::notAuthorized`).
+- **Asignación automática del analista** (`AUP_ElegirAnalista`): donde la API pone el
+  titular de la técnica (`LABTYE`, `TYENPOS` 1) al crear operaciones, planificaciones o
+  generar operaciones (`VeolabOperationServices::techniqueExtras`), si el titular tiene
+  autorización registrada y no vigente se toma el primer empleado de `LABTYE`, por
+  posición, que no la tenga así; si no hay ninguno, se queda el titular. El analista que ya
+  lleva una línea de la planificación se respeta.
+- **Al grabar resultados** (`PUT /resultados`, `RevisarAutorizaciones`), según
+  `LABCON.CONCAUT` (`autorizaciones_analistas` en `/configuracion/laboratorio`: `N` no
+  comprobar, el de las bases convertidas · `A` avisar · `B` bloquear): en las técnicas con
+  valores o marcas en la petición que estén acreditadas (`LABTEC.TECDACR`) y cuyo analista
+  (el que queda tras la grabación) tenga autorización registrada y no vigente en la fecha de
+  inicio de la operación (hoy si no la tiene), con `A` se graba y se añade un aviso por
+  técnica en `avisos` (`columna` nula); con `B` no se graba nada (`422`).
+
+**Proveedores (6.6).** En `/proveedores` (`SINPRO`): acreditación del laboratorio
+subcontratado `numero_acreditacion` (`PROCNAC`), `organismo_acreditacion` (`PROCOAC`),
+`fecha_caducidad_acreditacion` (`PRODCAC`) y `alcance_acreditacion` (`PROCALC`);
+`requisitos_compra` (`PROCREQ`, los que se proponen en los pedidos); y, de solo lectura,
+`fecha_ultima_evaluacion` (`PRODUEV`) y `fecha_proxima_evaluacion` (`PRODPEV`).
+
+**Evaluaciones de proveedores** (`/proveedores/evaluaciones`, `SINEVA`; subtabla con clave
+`proveedor_delegacion` + `proveedor_codigo` + `codigo`): `fecha` (al crear, hoy; no se vacía),
+`resultado` (`P` positiva · `N` negativa · vacío sin resultado), `descripcion`,
+`fecha_proxima`, `evaluador_*` (usuario) y `tipo_evaluacion_*` (`/tipos-evaluacion`). A
+diferencia de las demás subtablas, el código sale del contador `ACCCLT 'SINEVA'` de la
+delegación del proveedor, como `DBS_Autoincremento`.
+- Al crear, cambiar o borrar una evaluación, la **última** (por fecha y código) se lleva al
+  proveedor: `PRODUEV`, `PRODPEV`, `es_proveedor_aceptado` (`P` → `T`, `N` → `F`; sin
+  resultado queda como estaba) y su tipo de evaluación si lo tiene. Sin evaluaciones, las dos
+  fechas quedan vacías.
+- Y se rehace el **aviso de la próxima evaluación**: se borra la notificación `H` del
+  proveedor (`ACCNOT.PRO2*`) con sus avisos y, si hay fecha próxima, el módulo `COM` está
+  activo y `LABCON.CONBNEV` (`notificar_evaluaciones_proveedores`), se crea para el
+  evaluador de la última si sigue activo, con fecha la próxima y texto "proveedor: fecha".
+  Veolab usa el usuario en sesión si el evaluador no vale; la API no tiene sesión y en ese
+  caso no crea el aviso.
+- Auditoría como la ficha: sucesos de `SINEVA` con la fila "proveedor - código". Un tipo de
+  evaluación usado en evaluaciones no se borra (`422`).
+- Pedidos (`ALMPED`, con `PEDCREQ`) y entregas (`ALMALB`, con su verificación
+  `ALBCEST`/`ALBCVER`/`ALBDVER`/`USV2*`), en §11 quaterdecies. El módulo Calidad, en §11 terdecies.
+
+## 11 terdecies. Calidad: incidencias
+
+Módulo `CAL` de Veolab 3 (ISO/IEC 17025 7.9 quejas, 7.10 trabajo no conforme, 8.5-8.7 riesgos,
+mejora y acciones correctivas). Réplica de `Calidad.bas`, `FichaIncidencia`, `Incidencias`,
+`TiposIncidencia` y de `COM_CrearNotificacionesIncidencia` / `COM_CrearNotificacionesAccionesCalidad`
+(`App\Support\VeolabQuality`). Todos los recursos tienen `$sinceVersion` 3.0 (§10 bis) y escribir
+exige el módulo `CAL` activo en `ACCMOD` y licenciado (`422` si no), como cartas de control y
+residuos; leer, no. `VeolabLicense` incluye ahora `MEN`, `CAL` y `SOL` en las licencias, como
+`Recursos.frm` de Veolab 3 (antes `MEN` no contaba como licenciado con licencia leída y la
+mensajería de Veolab 3 respondía `422`).
+
+**Incidencias** (`/incidencias`, `CALINC`; clave `delegacion` + `serie` + `codigo`, código del
+contador `ACCCLT` de la serie con las reglas de `ACCCFC 'CALINC'`; serie sin `#`):
+
+| Parámetro | Columna | Notas |
+|---|---|---|
+| `clase` | `INCCCLA` | `Q` queja · `T` trabajo no conforme · `N` hallazgo de auditoría · `M` mejora · `R` riesgo u oportunidad. Obligatoria; si falta, la que propone el tipo. |
+| `origen` | `INCCORI` | `C` cliente · `P` personal · `I`/`E` auditoría interna/externa · `V` proveedor · `A` ensayo de aptitud · `K` carta de control · `Q` equipo · `R` recepción · `D` revisión por la dirección · `O` otro. |
+| `tipo_*` | `TIN2DEL`, `TIN2COD` | `/tipos-incidencia`. |
+| `estado` | `INCCEST` | `R` registrada · `T` en tratamiento · `V` en verificación · `C` cerrada · `A` anulada. Solo lectura (ver abajo). |
+| `fecha_deteccion` | `INCDDET` | Solo el día; al crear, hoy. Obligatoria. |
+| `fecha_registro` | `INCTREG` | Fecha y hora de alta; la pone la API. |
+| `descripcion` | `INCCDES` | Título, hasta 255; obligatorio. |
+| `detalle`, `correccion_inmediata`, `causa`, `otros_casos`, `decision`, `cambios_sistema`, `verificacion_eficacia` | `INCCDET`, `INCCCOI`, `INCCCAU`, `INCCSIM`, `INCCDEC`, `INCCSIS`, `INCCVEF` | Textos (vacío = `''`, como la ficha). |
+| `gravedad` | `INCNGRA` | 1 leve · 2 moderada · 3 grave. En riesgos la calcula la API: `probabilidad` × `impacto`. |
+| `probabilidad`, `impacto` | `INCNPRO`, `INCNIMP` | 1-3, solo en riesgos (en otras clases se guardan vacíos). |
+| `hallazgo` | `INCCGRV` | `M` mayor · `N` menor · `O` observación; solo en hallazgos de auditoría. |
+| `apartado` | `INCCAPA` | Apartado de la norma del hallazgo (`4.1` … `8.9`, la lista fija de §11 sexdecies; otro, `422`); solo en hallazgos de auditoría (en otras clases se guarda vacío). |
+| `no_conformidad` | `INCBNCO` | Nunca en mejoras ni riesgos. Al cambiar la gravedad se marca con la grave y se quita con las demás (`cmbGravedad_Click`), salvo que se envíe. |
+| `puede_darse_en_otros_casos`, `afecta_resultados_emitidos`, `informes_retenidos`, `comunicado_cliente`, `avisar_a_todos` | `INCBSIM`, `INCBAFI`, `INCBRET`, `INCBCCL`, `INCBTOD` | `T`/`F` (al crear, `F`). |
+| `fecha_comunicacion_cliente` | `INCDCCL` | Con `comunicado_cliente`, solo en quejas y trabajo no conforme (7.10.1 e). |
+| `fecha_acuse_recibo` | `INCDACU` | Solo en quejas. |
+| `reanudacion_autorizada_por_*`, `fecha_reanudacion` | `EMA2DEL`, `EMA2COD`, `INCDREA` | Empleado y fecha. |
+| `fecha_cierre`, `motivo_anulacion` | `INCDCIE`, `INCCANU` | Solo lectura: los pone el cambio de estado. |
+| `coste` | `INCNCOS` | Número (se acepta texto con coma). |
+| `cliente_*` | `CLI2DEL`, `CLI2COD` | En quejas, el que reclama. |
+| `detectada_por_*`, `responsable_*`, `verificador_*` | `EMP2*`, `EMR2*`, `EMV2*` | Empleados; `detectada_por` es obligatorio. Al asignar uno distinto, debe estar de alta. |
+| `usuario_*` | `USU2DEL`, `USU2COD` | Quien la registra; solo al crear. |
+
+- Las referencias vacías se guardan como `NULL` (como la ficha, no `0`/`''`): estos recursos no
+  declaran `$foreignKeys`. Un filtro de vacío es `?responsable_codigo[null]=T`.
+- La lectura añade `acciones`, `acciones_vencidas` (abiertas con fecha prevista pasada y sin fecha
+  real, `CAL_SQLAccionesVencidas`) y `tratamiento_completo` (`T` si pasa por verificación).
+- Filtros: los campos (`clase`, `origen`, `estado=R,T,V`, `tipo_*`, `responsable_*`, `cliente_*`,
+  `fecha_deteccion[gte]`/`[lte]`, `no_conformidad=T`, `search` en título y detalle) y además
+  `abiertas=T|F`; `enlace_tabla` + `enlace_codigo` (+ `enlace_delegacion`, `enlace_serie`): las que
+  afectan a ese registro, como `CAL_IncidenciasDe` (las de un cliente incluyen las que lo tienen como
+  cliente; las de un producto, las de sus series); `propias_usuario_codigo` (+ `_delegacion`): las
+  que ve un usuario sin privilegio de ver todas (`CAL_CondicionPropias`: registradas por él, «avisar
+  a todos», o su empleado la detectó, es responsable, verificador, implicado o responsable de una
+  acción). Veolab compara solo el código del usuario que registró; la API, delegación y código.
+- `estado`, `fecha_registro`, `fecha_cierre` y `motivo_anulacion` se aceptan en `POST`/`PUT` solo si
+  no cambian (para devolver lo leído); si cambian, `422`. Igual `usuario_*` en `PUT`.
+- **Cerrada o anulada: solo lectura** (`PUT` y las rejillas dan `422`) hasta que se reabre. La
+  gestión documental de la incidencia (que Veolab permite tras el cierre) aún no está en la API.
+
+- `apartado` (apartado de la norma de los hallazgos, 4.1-8.9) se devuelve y filtra con `?apartado=8.8`.
+- **Historial** (`GET /incidencias/historial?delegacion=&serie=&codigo=`), como la pestaña Historial de la
+  ficha: sucesos I, F, C, M y B de `ACCAUD` y `ACAAUD` con `AUDCTAB` CALINC, CALACC, CALIYE o CALIEM y el
+  código formateado de la incidencia en `AUDCFIL`, lo más reciente primero. Cada fila: `fecha`, `usuario`
+  (o las observaciones de la sesión de la API), `tipo`/`tipo_texto`, `campo`/`campo_texto`, `valor_anterior`,
+  `valor_nuevo` y `archivado`. `meta.nivel_registro` (PARNAUN) y `meta.aviso` (MEN01015-01017).
+
+**Estados** (`PUT /incidencias/estado?delegacion=&serie=&codigo=`, cuerpo `{estado,
+motivo_anulacion, usuario_delegacion, usuario_codigo}`), como `CambiarEstado` y el botón principal
+de la ficha. Camino completo = no conformidad, queja o alguna acción correctiva
+(`CAL_TratamientoCompleto` + `CaminoCompleto`); el resto, corto. Desde cada estado solo se admite
+el paso de la ficha (si no, `422` diciendo cuál es):
+
+| Paso | Exige |
+|---|---|
+| R → T iniciar el tratamiento | Clase, responsable y gravedad (en riesgos, probabilidad e impacto). |
+| T → V (completo) | Causa y al menos una acción correctiva; todas las acciones con fecha real. |
+| T → C (corto) | Corrección inmediata o alguna acción; todas con fecha real. |
+| V → C | Verificación de eficacia, al menos una acción correctiva y todas hechas (se vuelve a comprobar), y verificador. |
+| → C (los dos) | Trabajo no conforme: la decisión (7.10.1 d). Queja: la fecha de comunicación al cliente. |
+| R/T/V → A | `motivo_anulacion` (hasta 255). |
+| C/A → R o T reabrir | Queda en tratamiento si tiene responsable; si no, registrada. |
+
+Al cerrar se pone `fecha_cierre` (ahora); al pasar a R, T o V se vacía; al anular se guarda el
+motivo y al reabrir una anulada se borra. Se audita como la ficha: fila y campo `CALINCINCCEST` con
+los nombres de los estados. Responde `{message, data: {delegacion, serie, codigo, estado}}`.
+
+**Privilegios sin sesión.** El escritorio decide por el usuario conectado (`CAL_INC`: especial 1
+responsable de calidad, 0 registrar y tratar las suyas, 2 consultar todas). La API no tiene sesión:
+- `usuario_*` en `POST /incidencias` es quien la registra (`USU2*`), a quien no se avisa.
+- En el cambio de estado, `usuario_*` es opcional. Con él se comprueba como `PuedeAvanzar`: que
+  tenga escritura en `CAL_INC`; iniciar, anular, reabrir y cerrar por el camino corto, solo el
+  responsable de calidad; pasar a verificación, también el responsable del tratamiento (su
+  empleado); cerrar desde verificación, también el verificador. Y no se le avisa de su propio paso. Sin él, la
+  API actúa como responsable de calidad.
+- En `PUT` y en las rejillas no se comprueba quién edita cada campo (la ficha bloquea por usuario:
+  lo registrado, quien la registró mientras está registrada; la eficacia de las acciones, el
+  verificador...): eso lo hace la aplicación cliente; la API aplica lo que depende del estado y de la
+  clase.
+
+**Borrado** (`CAL_IncidenciaBorrable` + `CAL_BorrarIncidencia`): las quejas nunca (se anulan,
+7.9). Con `?usuario_delegacion=&usuario_codigo=` en el `DELETE`: el responsable de calidad borra
+las registradas y las anuladas; los demás, solo las registradas que registraron ellos (Veolab
+compara solo el código; la API, delegación y código); además, escritura en `CAL_INC`. Sin usuario,
+como responsable de calidad. Se borran sus acciones, enlaces (también los de otras incidencias hacia
+ella), implicados, notificaciones con sus avisos y sus documentos van a la papelera. Una queja
+grabada tampoco cambia de clase (`PUT` con otra `clase` → `422`).
+
+**Acciones** (`/incidencias/acciones`, `CALACC`; clave `incidencia_delegacion` + `incidencia_serie`
++ `incidencia_codigo` + `codigo`): `tipo` (`C` corrección · `A` correctiva · `M` mejora o
+tratamiento del riesgo), `descripcion`, `responsable_*`, `fecha_prevista`, `fecha_real`,
+`resultado`, `eficaz` (`T`/`F`/vacío sin verificar), `fecha_eficacia`, `verificador_*`. Solo con la
+incidencia en tratamiento o en verificación. Nueva: número siguiente de la incidencia; tipo `A` (en
+riesgos y mejoras, `M`) y el responsable de la incidencia, como `AnadirAccion`.
+
+**A qué afecta** (`/incidencias/enlaces`, `CALIYE`; solo `GET`, `POST`, `DELETE`): `tabla`
+(`LABOPE`, `LABINF`, `SINCLI`, `SINPRO`, `GRHEMP`, `LABTEC`, `ALMSEL`, `ALMPRD`, `LABCDC`, `CALINC` y,
+desde la ficha del ensayo de aptitud, `CALEAP`, §11 quindecies, de la auditoría, `CALAUI`, §11 sexdecies, de la revisión por la dirección, `CALRDI`, §11 septendecies, o del objetivo de calidad, `CALOBJ` con serie `''`, §11 undevicies) y la clave en texto `enlace_delegacion`, `enlace_serie`, `enlace_codigo` (en `ALMSEL`, el producto
+va en `enlace_serie`; la serie oculta `-` se enlaza como el producto). El registro debe existir, no
+se repite ni se enlaza la incidencia consigo misma. La lectura añade `tabla_descripcion`,
+`enlace_codigo_formateado`, `enlace_descripcion` y `existe`. `POST /incidencias/enlaces/informes`
+(`InformesAfectados`) enlaza los informes (`LABIYO`) de las operaciones enlazadas. Los enlaces
+`CALAUI`, `CALRDI`, `CALOBJ` y `CALEAP` solo los quita el responsable de calidad (`QuitarEnlaces`):
+con `?usuario_delegacion=&usuario_codigo=` en el `DELETE` se comprueba (`422` si no lo es); sin
+usuario, como responsable de calidad. Al quitar un `CALAUI`, las preguntas de la lista de
+verificación de esa auditoría que tenían la incidencia como hallazgo se quedan sin él
+(`CALAUP.INC2SER`/`INC2COD` a `NULL`).
+
+**Implicados** (`/incidencias/implicados`, `CALIEM`; solo `GET`, `POST`, `DELETE`): empleados de
+alta que reciben los avisos; la lectura añade `empleado_nombre`.
+
+Las tres rejillas: con la incidencia abierta y el módulo activo; auditoría de la incidencia con la
+tabla modificada (`CALACC`, `CALIYE`, `CALIEM`), como `FichaIncidencia.Grabar`.
+
+**Tipos** (`/tipos-incidencia`, `CALTIN`; contador `ACCCLT 'CALTIN'`): `descripcion` única entre
+los comunes y los de la delegación, `clase` que proponen (opcional) y `es_baja`. Uno usado en
+incidencias no se borra (`422`).
+
+**Avisos** (tras el commit, en su propia transacción; un fallo no deshace la grabación):
+- `Q` (`COM_CrearNotificacionesIncidencia`, con los módulos `COM` y `CAL` y `LABCON.CONBNIN`) al
+  registrar y en cada cambio de estado: registrada → responsables de calidad; en tratamiento →
+  responsable, verificador e implicados (al reabrir, solo el responsable); en verificación →
+  verificador; cerrada o anulada → quien la detectó e implicados; con «avisar a todos», además
+  todos los usuarios con acceso a incidencias. Texto «estado: título»; cada usuario conserva solo la
+  última de cada incidencia.
+- `K` (`COM_CrearNotificacionesAccionesCalidad`, con `LABCON.CONBNAC`) al registrar, al cambiar de
+  estado y al tocar las acciones: se borran y se crea una por usuario del responsable de cada acción
+  pendiente, con aviso en su fecha prevista, mientras la incidencia esté abierta.
+- Un `PUT` de la incidencia sin cambio de estado no avisa, como la ficha.
+
+**Registros enlazados que se borran.** Al borrar operaciones, informes, clientes, proveedores,
+empleados, técnicas o series, Veolab no toca `CALIYE` ni las referencias de `CALINC`: el enlace
+queda y la ficha lo muestra sin descripción. La API hace lo mismo (`existe` = `F`).
+
+**Sin hacer:** documentos de la incidencia en `/documentos` (`DOCFAT.INC2SER`/`INC2COD`), la
+exportación con plantilla, la advertencia de la ficha cuando en una queja el verificador coincide
+con el responsable o con quien la detectó (7.9.6; es una pregunta, no un bloqueo) y abrir una
+incidencia desde la recepción no conforme.
+
+## 11 quaterdecies. Compras: pedidos y entregas
+
+Desde Veolab 3 (§10 bis: en bases anteriores los dos recursos dan `422`) y con el módulo
+**ALM** activo y licenciado para escribir (`422` si no; la lectura no lo exige, como
+`/prestamos`). Réplica de `FichaPedido`, `Pedidos`, `FichaEntrega`, `Entregas` y
+`Almacen.bas` (`ALM_PrecioProveedor`, `ALM_FormatoCompra`, `ALM_CantidadPorUnidad`,
+`ALM_RecalcularEstadoPedido`, `ALM_EntregaBorrable`, `ALM_BorrarEntrega`,
+`ALM_AvisoProveedor`), en `App\Support\VeolabPurchases`. Las líneas van **embebidas** en
+`lineas`, como en presupuestos, contratos, facturas y préstamos.
+
+**Pedidos** (`/pedidos`, `ALMPED` + `ALMLPE`; clave `delegacion` + `serie` + `codigo`,
+contador `ACCCLT 'ALMPED'` por serie con el múltiplo y las reglas de `ACCCFC`; sin serie, la
+predeterminada de la delegación (`CLTBPRE`), como `ConstruirListaSeries`; `#` no se admite en
+la serie).
+
+| Campo | Columna | Notas |
+|---|---|---|
+| `fecha` | `PEDDFEC` | Al crear, ahora. |
+| `estado` | `PEDCEST` | `B` borrador (al crear) · `E` enviado · `P` recibido en parte · `R` recibido · `C` cancelado. |
+| `referencia` (50), `fecha_prevista`, `fecha_envio`, `observaciones`, `es_archivado` | `PEDCREF`, `PEDDPRE`, `PEDDENV`, `PEDCOBS`, `PEDBARC` | |
+| `requisitos` | `PEDCREQ` | Al crear, si vienen vacíos, los del proveedor (`SINPRO.PROCREQ`, `requisitos_compra`), como `RequisitosProveedor`. |
+| `proveedor_*` | `PRO2*` | Obligatorio. Fijo en cuanto se ha recibido algo o con el pedido recibido o cancelado (`422`). |
+| `empleado_*` | `EMP2*` | Quien pide. Al crear sin él, el empleado del `usuario_*` (`ACCUSU.EMP2*`, `EmpleadoUsuario`). |
+| `usuario_*` | `USU2*` | Quien lo crea: solo al crear (la API no tiene sesión); después, `422`. |
+| `total` | `PEDNTOT` | Solo lectura: suma de los importes de las líneas, sin impuestos. |
+
+`lineas` `[{linea, producto_delegacion, producto_codigo, referencia, descripcion, cantidad,
+precio, descuento, formato_codigo, contenido}]` sustituye la rejilla (`ALMLPE`); la lectura
+añade `formato`, `importe`, `cantidad_recibida`, `cantidad_pendiente` y `orden`:
+- Una línea sin producto es un artículo fuera del catálogo (`PRD2*` nulos). El número de línea
+  (`LPE1COD`) lo citan las entregas: se conserva, y una línea sin `linea` toma el siguiente.
+  Lo recibido (`LPENREC`) lo ponen las entregas y se conserva por número.
+- Lo que no se envía se propone como al añadir el producto: `referencia` y `precio` del
+  proveedor (`ALMPYP` o, si es el predeterminado del producto, `ALMPRD`); `descripcion` la del
+  producto; `cantidad` 1; formato de compra (`ALM_FormatoCompra`: el de `ALMPYP.FOR2COD`, si no
+  el predeterminado o el primero de `ALMFOR`, y sin formatos el contenido del último lote; los
+  equipos, por unidades sin formato). `formato_codigo` indicado: un formato del producto (no
+  en equipos), del que se copian descripción (`LPECFOR`) y contenido (`LPENFAC`, salvo que se
+  dé `contenido`); `formato_codigo: null` deja la línea sin formato.
+- `descuento` (`"10%"` o importe) con el separador decimal del laboratorio; `importe`
+  (`LPENTOT`) = cantidad × precio con el descuento.
+- `422` (mensajes de la ficha): cantidad por debajo de lo recibido, quitar una línea con algo
+  recibido, cambiar el producto de una línea con algo recibido, y cambiar las líneas de un
+  pedido recibido o cancelado (el estado que queda tras la petición).
+- Al cambiar de proveedor sin enviar `lineas`, las líneas sin formato o sin referencia ni
+  precio toman los del nuevo (`CompletarPreciosProveedor`).
+
+**Estado** (`cmbEstadoPedido_Click`, `EstadoPermitido`): a mano, `B` o `E` solo mientras no ha
+llegado nada; `C` siempre; `P` o `R` solo si es el que corresponde a lo recibido (al reabrir
+un cancelado): los ponen las entregas (`422` con el texto de la ficha). Pasar a `E` pone
+`fecha_envio` si no la tiene; dar una `fecha_envio` nueva a un borrador sin indicar estado lo
+pasa a `E`. Cambiar líneas no recalcula el estado (como la ficha).
+
+**Borrado** (`Pedidos.Borrar`): solo si ninguna línea de entrega lo cita (`422`: «ya se ha
+recibido parte de él. Puede cancelarlo o archivarlo.»); borra sus líneas. Como Veolab, no toca
+sus documentos.
+
+**Auditoría** como la ficha: `I`/`B` con la fila del pedido; en una modificación `F` (nivel 2)
+o un `C` por campo cambiado (nivel 3; sin el total) y un `C` `ALMLPE` si cambian las líneas.
+
+**Entregas** (`/entregas`, `ALMALB` + `ALMLAL`; clave `delegacion` + `codigo`, contador
+`ACCCLT 'ALMALB'` sin serie).
+
+| Campo | Columna | Notas |
+|---|---|---|
+| `fecha` | `ALBDFEC` | Fecha de recepción; al crear, ahora. |
+| `numero_albaran` (50), `observaciones`, `es_archivado` | `ALBCNUM`, `ALBCOBS`, `ALBBARC` | |
+| `proveedor_*` | `PRO2*` | Al crear; sin él, el del pedido de la primera línea que lo cite. Fijo tras el alta. |
+| `usuario_*` | `USU2*` | Quien recibe: solo al crear; también va en los movimientos de compra. |
+| `verificacion` | `ALBCEST` | Vacía sin verificar · `A` aceptada · `N` no conforme (ISO 17025 6.6.2). |
+| `resultado_verificacion` | `ALBCVER` | |
+| `fecha_verificacion`, `verificador_*` | `ALBDVER`, `USV2*` | Al cambiar `verificacion`: a `A`/`N`, ahora y el `verificador_*` de la petición (vacío si no se envía: la API no tiene sesión); a vacía, se borran. Enviar `verificador_*` sin cambiar la verificación da `422`. |
+| `poner_fuera_de_uso` | — | `T` al pasar a `N` (en el alta o después): como `EntregaNoConforme`, sus series y lotes sin estado, nuevos, en uso o en límite de uso pasan a fuera de uso (`SELCESA = 'F'`), nunca la serie oculta `-`; un suceso `C` `ALMSELSELCESA` por serie. En otro caso, `422`. |
+| `actualizar_precios` | — | Solo al crear. Ver precios. |
+
+`lineas` (solo al crear; después `422`) `[{pedido_delegacion, pedido_serie, pedido_codigo,
+pedido_linea, producto_delegacion, producto_codigo, descripcion, cantidad, precio,
+serie_lote_codigo, lote_fabricante, fecha_caducidad, formato_codigo, contenido}]`. La lectura
+devuelve las grabadas (una por unidad en los equipos) con `linea`, `serie_lote_codigo` (la
+creada, o `-`), `formato`, `verificacion`, `observaciones` y `orden`. `?pedido_codigo=` (con
+`pedido_delegacion` y `pedido_serie`) lista las entregas con líneas de ese pedido.
+
+**Alta, paso a paso** (`FichaEntrega.Grabar` → `GrabarLineas`):
+1. Validación (`CamposValidos`): proveedor (`422` si falta); fecha de caducidad válida; en las
+   líneas de producto, cantidad > 0; en las de equipo, unidades enteras; las series indicadas
+   no pueden existir ni repetirse en la entrega (ni ser `-`). Una línea de pedido exige
+   `pedido_linea`, que exista, que el pedido sea del proveedor de la entrega y que no esté
+   recibido ni cancelado (en Veolab no se puede recibir de ellos); toma de esa línea el
+   producto (si se indica otro, `422`), la descripción, lo pendiente como cantidad, el precio
+   neto pedido (importe ÷ cantidad, con su descuento) y su formato (sin contenido, el que
+   propone `ALM_FormatoCompra`). Una línea de producto sin pedido toma la descripción, el
+   precio del proveedor y su formato; una sin producto es un artículo suelto.
+2. Precios (`PreciosDistintos`, antes de grabar): líneas de producto con precio cuyo precio
+   del proveedor no coincide (salvo las de pedido al precio pedido). Veolab pregunta; la API
+   los guarda solo con `actualizar_precios: "T"` (por defecto no, para no cambiar el catálogo
+   del proveedor sin pedirlo) y, si no, lo dice en `avisos`. Las líneas cuyo proveedor aún no
+   tiene precio lo toman siempre.
+3. Cabecera `ALMALB` y suceso `I`.
+4. Por línea (en equipos, por unidad), según el producto (`TipoProducto`):
+   - **Sin series** (`PRDBSEL = F` o inventario básico): la serie oculta (`ALM_ObtenerSerieUnica`,
+     que la crea si falta) suma cantidad × contenido del formato (o su cantidad por unidad).
+   - **Con series o lotes y equipos**: serie nueva con el código indicado, el lote del fabricante
+     (en lotes) o el siguiente número; en equipos con varias unidades, los números siguientes o
+     `código-2`, `código-3`... (`SerieDeUnidad`). `SELCESA` y `SELCESR` `N`, alta ahora, recepción
+     la fecha de la entrega, caducidad, cantidad por unidad = contenido del formato (en equipos o
+     sin él, `ALM_CantidadPorUnidad`), unidades del lote y en existencias = cantidad, precio,
+     proveedor y la entrega (`ALB2*`).
+   - Movimiento de compra `C` en la delegación de la entrega: fecha de recepción, cantidad,
+     usuario que recibe, entrega, proveedor y precio (`MOVNPRE`).
+   - Línea `ALMLAL` (sin producto, sin pedido o sin serie, con esos campos nulos) y, si viene de
+     un pedido, `LPENREC` += cantidad.
+5. Estado de cada pedido tocado (`ALM_RecalcularEstadoPedido`: `R` si no falta nada, `P` si
+   falta algo y llegó algo, `E` si no llegó nada; los cancelados no cambian), precios del
+   proveedor (`ALMPYP` con `PYPDPRE`, o alta con referencia vacía; y `ALMPRD.PRDNPRE` si es su
+   proveedor predeterminado) y existencias de los productos (`ALM_RecalcularExistenciasProductos`).
+6. Con `verificacion: "N"` y `poner_fuera_de_uso: "T"`, fuera de uso lo recibido.
+
+La respuesta añade `avisos` (`[{aviso}]`) con el aviso del proveedor (`ALM_AvisoProveedor`:
+evaluación vencida o proveedor no aceptado), los precios distintos no guardados y las series
+puestas fuera de uso. Los pedidos dan el aviso del proveedor al crear o cambiarlo.
+
+**Modificación**: fecha, número de albarán, observaciones, archivado y verificación. La
+auditoría es un suceso de fila (`F`), como la ficha. La incidencia de calidad que propone
+Veolab al marcar no conforme no la crea la API.
+
+**Borrado** (`ALM_EntregaBorrable`): solo si ninguna de las series que creó tiene más
+movimientos que su compra, préstamos, materias primas, operaciones o planificaciones (`422`).
+Deshace como `ALM_BorrarEntrega`: resta de las series que no creó (la oculta) lo que les sumó,
+resta lo recibido de las líneas de pedido y recalcula su estado, borra sus movimientos, las
+series que creó y sus líneas, manda sus documentos (`DOCFAT.ALB2COD`) a la papelera y
+recalcula las existencias. Suceso `B`.
+
+**Sin exponer:** los formatos de compra de los productos (`ALMFOR`) y `PYPDPRE`/`FOR2COD` en
+`/proveedores/productos` (se usan, pero se mantienen en Veolab); los documentos de pedidos y
+entregas en `/documentos`; la exportación del pedido con plantilla y su envío al proveedor.
+
+## 11 quindecies. Calidad: ensayos de aptitud
+
+Ensayos de aptitud e intercomparaciones, fase 1 (módulo `CAL` de Veolab 3; ISO/IEC 17025:2017
+7.7.2): rondas o participaciones, sus muestras y los resultados por parámetro con la puntuación y
+la evaluación del organizador y las que calcula Veolab (ISO 13528). Réplica de `Aptitud.bas`,
+`FichaEnsayoAptitud`, `EnsayosAptitud` y `ResultadosAptitud` (`App\Support\VeolabProficiency`).
+Como las incidencias (§11 terdecies): `$sinceVersion` 3.0 (§10 bis) y escribir exige el módulo
+`CAL` activo y licenciado (`422` si no); leer, no. Las referencias vacías se guardan como `NULL`
+(sin `$foreignKeys`). La fase 2 (familias de ensayos, plan de intercomparaciones, tendencia por
+parámetro y aviso `J` de la fecha límite) está al final de esta sección
+(`App\Support\VeolabProficiencyPlan`).
+
+**Rondas** (`/ensayos-aptitud`, `CALEAP`; clave `delegacion` + `serie` + `codigo`, código del
+contador `ACCCLT` de la serie con las reglas de `ACCCFC 'CALEAP'`; serie sin `#`):
+
+| Parámetro | Columna | Notas |
+|---|---|---|
+| `organizador_delegacion`, `organizador_codigo` | `PRO2DEL`, `PRO2COD` | Un proveedor (`/proveedores`); al asignarlo, de alta. Obligatorio. |
+| `programa`, `ronda` | `EAPCPRG`, `EAPCRON` | Hasta 100 y 50. Obligatorio uno de los dos. |
+| `descripcion` | `EAPCDES` | Matriz o descripción, hasta 255. |
+| `fecha_recepcion`, `fecha_limite`, `fecha_envio`, `fecha_informe` | `EAPDREC`, `EAPDLIM`, `EAPDENV`, `EAPDINF` | Recepción de la muestra, límite de envío, envío de resultados e informe del organizador. Solo el día. |
+| `estado` | `EAPCEST` | `P` pendiente de enviar · `E` enviada · `V` evaluada · `C` cerrada. Al crear, `P`. |
+| `limite_satisfactorio`, `limite_insatisfactorio`, `limite_en` | `EAPNLSA`, `EAPNLIN`, `EAPNLEN` | Límites del programa para \|z\|, z′ y zeta (vacíos = 2 y 3) y para \|En\| (vacío = 1). Número con coma o punto; si no es un número, `422` (la ficha lo vacía). Los informados deben ser mayores que cero y el satisfactorio, menor que el insatisfactorio (`422`, como la ficha). |
+| `conclusion` | `EAPCCON` | Conclusión del laboratorio; obligatoria para cerrar. |
+| `revisor_delegacion`, `revisor_codigo`, `fecha_conclusion` | `EMR2DEL`, `EMR2COD`, `EAPDCON` | Quién revisa la conclusión (empleado; al asignarlo, de alta) y cuándo. |
+| `observaciones` | `EAPCOBS` | Texto. |
+| `fecha_registro`, `usuario_*` | `EAPTREG`, `USU2DEL`, `USU2COD` | Alta y quién la registra: la fecha la pone la API; el usuario, solo al crear. Se aceptan en `PUT` si no cambian. |
+
+- **Estado** (`EstadoAGrabar`): se indica como en la ficha (cualquiera de los cuatro), con dos
+  pasos automáticos al grabar: pendiente con `fecha_envio` → `E`; pendiente o enviada con
+  `fecha_informe` → `V`.
+- **Cerrar** (`C`) exige `conclusion`, aunque todo sea satisfactorio (ENAC NT-03; `422`). Sin
+  `fecha_conclusion`, la de hoy. Veolab pone además como revisor al empleado del usuario
+  conectado si no hay ninguno; la API no tiene sesión: envíe `revisor_*`.
+- **Cerrada: solo lectura** (`EstadoSegunRonda`): un `PUT` que la deja cerrada solo admite los
+  valores que ya tiene (`422` si cambia algo); cambiando el `estado` se reabre y se puede cambiar
+  todo en la misma petición. Sus muestras y resultados tampoco cambian (`422`). Abrir la
+  incidencia sí se puede.
+- Al cambiar los límites se vuelven a evaluar todos sus resultados (`RecalcularRejilla`).
+- Lectura: añade `organizador_nombre`, `muestras`, `resultados`, `peor_evaluacion`
+  (`EAP_SQLPeorEvaluacion`: 0 sin evaluar, 1 satisfactorios, 2 algún cuestionable, 3 algún
+  insatisfactorio o falso), `fuera_de_plazo` (`T` pendiente con la fecha límite pasada; el color
+  rosado del listado), `incidencias` (enlazadas a la ronda) y `proponer_incidencia` (`T` con algún
+  insatisfactorio, falso positivo o falso negativo y sin incidencias: lo que la ficha pregunta).
+- Filtros: los campos (`estado=P,E`, `organizador_*`, `programa[like]=`, `fecha_recepcion[gte]=`,
+  `search` en programa, ronda y descripción…) y además `abiertas=T|F` (sin cerrar o cerradas),
+  `anio=AAAA` (por la recepción o, si falta, la fecha límite, `EAP_SQLAnio`),
+  `con_insatisfactorios=T|F`, `parametro_delegacion` + `parametro_codigo` (con resultados de ese
+  parámetro) y `operacion_delegacion` + `operacion_serie` + `operacion_codigo` (las que tienen esa
+  operación como muestra, `EAP_SQLRondasOperaciones`).
+- **Borrado** (`EAP_Borrable` + `EAP_Borrar`): una cerrada no se elimina (es el registro de la
+  participación; `422`). Se borran sus resultados, sus muestras y los enlaces de las incidencias
+  hacia ella (`CALIYE`; la incidencia queda), y sus documentos (`DOCFAT.EAP2SER`/`EAP2COD`) van a
+  la papelera.
+
+**Muestras** (`/ensayos-aptitud/muestras`, `CALEAO`; clave `ensayo_delegacion` + `ensayo_serie` +
+`ensayo_codigo` + `operacion_delegacion` + `operacion_serie` + `operacion_codigo`): operaciones
+normales de Veolab que son las muestras de la ronda (cualquiera salvo las anuladas, `OPEBANU`; no
+se repiten), con `muestra` (`EAOCMUE`, identificación para el organizador, hasta 50; al crear sin
+ella, la letra siguiente A, B… por el número de muestras) y `orden` (`EAONORD`; al crear sin él,
+al final). En `PUT` solo cambian `muestra` y `orden`. Al quitar una, sus resultados se quedan sin
+muestra (`QuitarMuestras`). La lectura añade `operacion_codigo_formateado`,
+`operacion_fecha_registro` y `operacion_descripcion`.
+
+**Resultados** (`/ensayos-aptitud/resultados`, `CALEAR`; clave `ensayo_*` + `codigo`, número de
+línea, el siguiente al crear):
+
+| Parámetro | Columna | Notas |
+|---|---|---|
+| `operacion_*` | `OPE2DEL`, `OPE2SER`, `OPE2COD` | La muestra: una operación de la ronda (`422` si no lo es) o ninguna. |
+| `parametro_delegacion`, `parametro_codigo` | `TEC2DEL`, `TEC2COD` | Técnica (`/parametros`). Al asignarla se toman su nombre (si no se envía `parametro_nombre`) y, si están vacíos, su unidad y su método (`ElegirParametro`). |
+| `parametro_nombre`, `resultado`, `unidad`, `metodo` | `EARCPAR`, `EARCRES`, `EARCUNI`, `EARCMET` | Lo enviado al organizador (texto; hasta 255, la unidad 50). |
+| `valor_asignado` | `EARCVAS` | Texto (admite cualitativos), hasta 50. |
+| `desviacion` | `EARNDES` | σ para la evaluación; en D %, la desviación admitida en %. |
+| `incertidumbre_asignado`, `incertidumbre_laboratorio` | `EARNINV`, `EARNINL` | u(X) (en En, expandida) y la del laboratorio (zeta típica, En expandida). |
+| `tipo_puntuacion` | `EARCTPU` | `Z` z · `P` z′ · `T` zeta · `E` En · `D` D % · `C` cualitativo. Vacío = `Z`. |
+| `sobre_log10` | `EARBLOG` | `T` puntuación sobre log10 (recuentos), salvo en D %. |
+| `puntuacion_organizador`, `evaluacion_organizador` | `EARNPOR`, `EARCEVO` | Tal como da el informe. Evaluación: `S` satisfactorio · `Q` cuestionable · `I` insatisfactorio · `C` correcto · `P` falso positivo · `N` falso negativo. |
+| `puntuacion_calculada`, `evaluacion`, `evaluacion_propuesta` | `EARNPCA`, `EARCEVA`, `EARBPRO` | **Calculados por la API** al grabar (si se envían, se ignoran). |
+| `observaciones` | `EARCOBS` | Hasta 255. |
+
+- Números (`desviacion`, incertidumbres, `puntuacion_organizador`) con coma o punto y sin
+  separador de miles; si no es un número, `422` (`MEN00838`). Textos vacíos, `NULL`.
+- **Cálculo** (`EAP_CalcularPuntuacion`), con x el resultado y X el valor asignado (sus log10 con
+  `sobre_log10`, salvo en D %): z = (x − X) / σ; z′ = (x − X) / √(σ² + u(X)²); zeta y En =
+  (x − X) / √(u(x)² + u(X)²); D % = 100 (x − X) / X. Sin datos numéricos (resultado «<10»,
+  cualitativo, denominador 0, log de un valor ≤ 0) no hay puntuación. Se guarda redondeada a 2
+  decimales.
+- **Evaluación** (`EAP_EvaluarFila`): la del organizador si la da (`evaluacion_propuesta` = `F`);
+  si no, la propone Veolab (`T`): en cualitativos, correcto si coincide con el valor asignado o los
+  dos son negativos («<», «nd», «ausencia», «no detectado», «negativo»…), falso positivo si el
+  asignado es negativo y el resultado no, falso negativo al revés; en el resto, con la puntuación
+  del organizador o, si no la da, con la calculada (\|·\| redondeada a 2 decimales): z, z′ y zeta
+  satisfactorio hasta `limite_satisfactorio`, insatisfactorio desde `limite_insatisfactorio`,
+  cuestionable entre ambos; En satisfactorio hasta `limite_en`, si no insatisfactorio; D %
+  satisfactorio si no pasa de `desviacion` (sin ella, sin evaluación).
+- Nueva fila sin muestra ni tipo: los de la última fila (o la primera muestra y z), como
+  `AnadirResultado`.
+- Lectura: añade `muestra` (su identificación en la ronda), `difiere` (`T` si la calculada se
+  aparta de la del organizador más de 0,1, o 1 punto en D %: el rojo de la ficha) y, de la ronda,
+  `organizador_*`, `programa`, `ronda`, `fecha_recepcion` y `estado_ensayo`.
+- Filtros (listado `ResultadosAptitud`): los campos (`parametro_*`, `evaluacion=I,P,N`,
+  `tipo_puntuacion`, `ensayo_*`…) y además `no_satisfactorias=T` (`Q`, `I`, `P`, `N`),
+  `difiere=T`, y de la ronda `organizador_delegacion` + `organizador_codigo`, `programa` y `ronda`
+  (contienen; la ronda también en la descripción), `anio=AAAA` y `estado_ensayo=P,E,V,C`.
+
+**Traer resultados de las operaciones** (`POST /ensayos-aptitud/resultados/traer`, cuerpo
+`{ensayo_delegacion, ensayo_serie, ensayo_codigo}`, `TraerResultados`): por cada muestra (en su
+orden) y cada parámetro de la operación (`LABRES`, en su orden) con resultado, añade una fila con
+nombre, unidad, método y el resultado tal como se informa (`EAP_ResultadoTecnica`: la primera
+columna de `LABCOR` con valor marcada para el informe o, si no hay, la primera con valor; ni
+vacíos ni `N/A`). No repite los que ya están (misma operación y parámetro). Tipo y log10 de la
+última fila (o z). Sin muestras, `422`. Responde `{message, data: [filas añadidas]}`.
+
+**Incidencia de la ronda** (ISO 17025 7.7.2 y 7.10). La ficha, al grabar con algún
+insatisfactorio, falso positivo o falso negativo y sin incidencias enlazadas, pregunta si se abre
+una, y su pestaña Incidencias tiene el botón de nueva. En la API:
+- `POST /ensayos-aptitud/incidencia?delegacion=&serie=&codigo=` (el botón; siempre crea una).
+  Responde `201` con la clave de la incidencia.
+- `abrir_incidencia=T` en el `PUT` de la ronda o en el `POST`/`PUT` de un resultado (la
+  pregunta): solo si, tras grabar, hay algún insatisfactorio o falso y ninguna incidencia
+  enlazada; si no, no hace nada.
+- En los dos, `incidencia_serie` (vacía por defecto), `incidencia_detectada_por_delegacion` +
+  `incidencia_detectada_por_codigo` e `incidencia_usuario_delegacion` + `incidencia_usuario_codigo`
+  (quién la registra; con escritura en `CAL_INC`). Quien la detecta es obligatorio (`422`): el
+  indicado o, si no, el empleado del usuario; debe estar de alta.
+- Se registra como `NuevaIncidencia`: trabajo no conforme (`T`), origen ensayo de aptitud (`A`),
+  título «Ensayo de aptitud *programa ronda* (o el código): resultados insatisfactorios»,
+  detectada hoy, el cliente de la primera muestra que lo tenga, en la delegación de la ronda, y
+  enlazada (`CALIYE`) a la ronda y a sus muestras. Veolab abre la ficha para completarla; la API
+  la deja registrada (se completa con `PUT /incidencias`). Código como `POST /incidencias`; si
+  `ACCCFC 'CALINC'` no es autonumérico, `422` (créela con `/incidencias` y
+  `/incidencias/enlaces`). Avisos `Q` y `K` tras el commit.
+- `/incidencias/enlaces` admite la tabla `CALEAP` (en `enlace_serie`, la serie de la ronda) y
+  `GET /incidencias?enlace_tabla=CALEAP&enlace_delegacion=&enlace_serie=&enlace_codigo=` da las
+  incidencias de una ronda.
+
+**Auditoría**: la ronda como las demás fichas (inserción, fila y campos, borrado); los cambios en
+muestras y resultados, y traer resultados, como suceso de la ronda con la tabla modificada
+(`CALEAO`, `CALEAR`), como `FichaEnsayoAptitud.Grabar`.
+
+### Fase 2: familias, plan, tendencia y aviso J
+
+Réplica de `PlanAptitud`, `FichaFamiliaAptitud`, `GraficoAptitud`, el filtro de tendencia de
+`ResultadosAptitud` y `EAP_CalcularPlan`, `EAP_MarcarAvisos` y `COM_CrearNotificacionesAptitud`
+(funcionalidad `CAL_EAF` en Veolab). Veolab limita el plan y la tendencia a la delegación del
+usuario y las comunes (`EAP_SQLDelegacion`); la API no tiene sesión: el plan admite
+`?delegacion=` (esa y la común, `''`) y la tendencia y los avisos usan todas.
+
+**Familias de ensayos** (`/ensayos-aptitud/familias`, `CALFAE`; clave `delegacion` + `codigo`,
+código del contador `ACCCLT` de `CALFAE` como `DBS_Autoincremento`): ensayos con la misma técnica
+que se representan entre sí (ENAC NT-03).
+
+| Parámetro | Columna | Notas |
+|---|---|---|
+| `nombre` | `FAECNOM` | Hasta 100. Obligatorio (`422`, `MEN00850`). |
+| `descripcion` | `FAECDES` | Descripción o justificación (técnica común, programas disponibles…). |
+| `frecuencia` | `FAENFRE` | Frecuencia mínima de participación en años, de 1 a 10 (la ficha); vacía = 1 (se graba 1). |
+| `programa` | `FAECPRG` | Programa o esquema previsto, hasta 100. |
+| `organizador_delegacion`, `organizador_codigo` | `PRO2DEL`, `PRO2COD` | Organizador previsto: un proveedor; al asignarlo, de alta. |
+| `baja` | `FAEBBAJ` | `T` de baja (fuera del plan por defecto y de la cobertura). Al crear, `F`. Atajo `?is_deleted=`. |
+| `parametros` | `CALFAT` | `[{parametro_delegacion, parametro_codigo}]`: **sustituye** los de la familia (la ficha los reescribe al grabar). Técnicas existentes y sin repetir (`422`); un parámetro puede estar en varias familias. |
+
+- Textos recortados y vacíos como `NULL` (`TextoSQL` de la ficha).
+- Lectura: añade `frecuencia_texto` («Cada año», «Cada 3 años»), `organizador_nombre`,
+  `parametros` (con `parametro_nombre`, el de la técnica o su código, en el orden de la ficha) y
+  `numero_parametros`. Filtro `?parametro_delegacion=&parametro_codigo=` (familias con ese
+  parámetro) además de los campos y `search` (nombre, programa y descripción).
+- Escribir exige el módulo `CAL`. Al eliminar se borran sus parámetros; las rondas y sus
+  resultados no se tocan (`PlanAptitud.Eliminar`).
+- Auditoría como la ficha: fila «código - nombre» (inserción, modificación, borrado); al cambiar
+  solo los parámetros, suceso de fila y, con nivel 3, campo `CALFAT` sin valores.
+
+**Plan de intercomparaciones** (`GET /ensayos-aptitud/plan?desde=&hasta=&bajas=T&delegacion=`,
+solo lectura; `EAP_CalcularPlan`): el cuadro por años de `desde` a `hasta` (años de cuatro
+cifras; por defecto los cuatro anteriores al actual y el actual; `hasta` menor que `desde` pasa a
+`desde`; como máximo 8 años, moviendo `desde`). Sin `bajas=T`, sin las familias de baja. Responde
+`{data: {desde, hasta, anio_actual, anios, familias, sin_familia, resumen, resultados_anio}}`:
+
+- `familias[]`: los campos de la familia (`delegacion`, `codigo`, `nombre`, `frecuencia`,
+  `frecuencia_texto`, `programa`, `organizador_*`, `organizador_nombre`, `baja`, `parametros`,
+  `numero_parametros`) y lo calculado: `ultima` (último año con participación hasta el actual, o
+  null), `proxima`, `situacion` (`A` al día · `E` prevista este año · `S` sin participación en su
+  periodo, en rojo en Veolab) con `situacion_texto`, `rondas` (en los años del cuadro) y
+  `anios[] = {anio, estado, texto}`, con `estado` `S` · `Q` · `I` (realizado, con la peor
+  evaluación) · `R` en curso · `V` previsto · `N` no realizado · null nada.
+- **Realizado**: las rondas con resultados (`CALEAR`) de alguno de sus parámetros, en el año de la
+  recepción de la muestra o, si falta, de la fecha límite (`EAP_SQLAnio`), sea cual sea su estado.
+  El año toma la peor evaluación de esos resultados: correcto cuenta como satisfactorio y los
+  falsos como insatisfactorio; sin evaluar, `R` en curso (gravedad nada < en curso < `S` < `Q` <
+  `I`).
+- **Previsto**: la próxima participación es el año de la última (hasta el actual) más la
+  frecuencia, y luego cada tantos años; sin ninguna, el actual. `situacion` `S` si ese año ya pasó
+  (o nunca hubo), `E` si es el actual y `A` si es posterior. Los años sin nada desde la próxima y
+  cada `frecuencia` años salen `N` (pasados) o `V` (el actual y futuros).
+- `sin_familia[]`: parámetros acreditados (`LABTEC.TECDACR`) y no de baja que no están en
+  ninguna familia activa (la cobertura del alcance), con `parametro_*`, `parametro_nombre` y
+  `fecha_acreditacion`.
+- `resumen` (`EAP_ResumenPlan`, marcador `resumenplan`): `{familias, al_dia, este_anio,
+  sin_participacion, sin_familia, texto}`, de las familias que no están de baja (`MEN00852`).
+- `resultados_anio` (`EAP_ResumenResultadosAnio` del año `hasta`, marcador
+  `resultadosanioplan`): `{anio, resultados, rondas, por_evaluacion: {S: n, …}, texto}`
+  (`MEN00853`).
+
+**Tendencia y avisos** (`EAP_MarcarAvisos`, política por defecto de Eurachem; ENAC NT-03 deja la
+política al laboratorio). Los resultados de cada parámetro, en el orden del tiempo (por la
+recepción o, si falta, la fecha límite; sin fecha al final; luego ronda y línea), con la
+puntuación del organizador o, si no la da, la calculada (los cualitativos no tienen):
+- **Cuestionables seguidos**: 2 o más evaluaciones `Q` seguidas (`EAP_RACHA_CUESTIONABLES`); un
+  resultado sin evaluar no cuenta ni corta; cualquier otra evaluación corta.
+- **Sesgo**: 4 o más puntuaciones seguidas del mismo signo (`EAP_RACHA_SESGO`; signo de la
+  puntuación redondeada a 2 decimales); los puntos sin puntuación no cuentan ni cortan; una
+  puntuación cero corta.
+
+`GET /ensayos-aptitud/tendencia?parametro_delegacion=&parametro_codigo=` (el gráfico, solo
+lectura; sin parámetro, `422`) responde `{data: {parametro_*, parametro_nombre, politica,
+puntos, rachas, avisos}}`: cada punto con la ronda y la línea (`ensayo_*`, `codigo`), `fecha`,
+`ronda` («programa - ronda»), `tipo_puntuacion`, `sobre_log10`, `puntuacion`,
+`puntuacion_calculada` (`T` si es la de Veolab), `evaluacion`, los límites de su ronda (si no son
+mayores que 0, 2, 3 y 1) y `aviso` (`Q`, `S`, `QS` o null); cada racha `{tipo (Q|S), desde, hasta
+(posiciones en puntos), numero, signo (1 por encima, -1 por debajo; null en Q), texto}` y
+`avisos` los textos (`MEN00844`, `MEN00845`).
+
+En `/ensayos-aptitud/resultados` la lectura añade `aviso_tendencia` (`Q`, `S`, `QS` o null, como
+el granate del listado; `EAP_ResultadosConAviso` sobre todos los resultados de cada parámetro) y
+el filtro `?aviso_tendencia=T` (con aviso; la casilla «Con aviso de tendencia»), `Q` o `S`. Se
+calcula en cada petición leyendo todos los resultados con parámetro (cientos en un laboratorio).
+
+**Aviso J** (`COM_CrearNotificacionesAptitud`; ISO 17025 7.7.2): al crear o modificar una ronda
+(`POST`/`PUT /ensayos-aptitud`) se borra su notificación `J` (y sus avisos) y, si queda pendiente
+de enviar (`P` o vacío) con `fecha_limite`, el módulo `COM` está activo y `LABCON.CONBNAP` = `T`
+(`notificar_ensayos_aptitud` en `/configuracion/laboratorio`), se crea otra para quien la registró
+(`usuario_*` de la ronda) si sigue activo: fecha 7 días antes de la fecha límite
+(`EAP_DIAS_AVISO_ENVIO`) o hoy si ya pasó, texto «programa - ronda: dd/mm/aaaa» (sin programa ni
+ronda, el código formateado; hasta 240 más la fecha) y referencia `EAP2DEL`/`EAP2SER`/`EAP2COD`
+(`ensayo_*` en `/notificaciones`), con su aviso emergente. Enviada, evaluada o cerrada, o sin
+fecha límite, solo se borra. Al eliminar la ronda se borra (`EAP_Borrar`). Veolab, si quien la
+registró ya no es un usuario activo, avisa al usuario en sesión; la API avisa entonces al usuario
+de la petición (`?usuario_delegacion=&usuario_codigo=` en el `POST`/`PUT`) si está activo, y sin él
+no avisa a nadie. Los cambios en muestras y resultados no la tocan (como la ficha).
+
+**Sin hacer:** los documentos de la ronda en `/documentos` (`DOCFAT.EAP2SER`/`EAP2COD`) y la
+exportación con plantilla (informe de ronda y plan con sus marcadores).
+
+## 11 sexdecies. Calidad: auditorías
+
+Auditorías internas y externas, fase 1 (módulo `CAL` de Veolab 3; ISO/IEC 17025:2017 8.8;
+funcionalidad `CAL_AUI` en Veolab, que la API no comprueba: §11 ter). Sigue el modelo común con el
+escritorio (`Documentacion/ISO 17025/Auditorias - modelo de datos.md` del proyecto de Veolab;
+`App\Support\VeolabQualityAudits`). Como las incidencias y los ensayos de aptitud: `$sinceVersion`
+3.0 (§10 bis), escribir exige el módulo `CAL` activo y licenciado (`422` si no) y las referencias
+vacías se guardan como `NULL` (sin `$foreignKeys`).
+
+**Ruta.** `/auditorias` ya es el registro de auditoría de cambios (`ACCAUD`, §12 bis) y no se
+cambia; las auditorías de calidad van en `/auditorias-calidad`.
+
+**Auditorías** (`/auditorias-calidad`, `CALAUI`; clave `delegacion` + `serie` + `codigo`, código
+del contador `ACCCLT` de la serie con las reglas de `ACCCFC 'CALAUI'`, como `CALEAP`; serie sin
+`#`):
+
+| Parámetro | Columna | Notas |
+|---|---|---|
+| `tipo` | `AUICTIP` | `I` interna · `C` interna contratada (auditor externo) · `E` externa de acreditación · `X` externa de certificación o de cliente. Al crear sin tipo, `I`. |
+| `anio` | `AUINANI` | Año del programa. Vacío: el de la fecha prevista, el de inicio o el actual. |
+| `descripcion` | `AUICDES` | Hasta 255. |
+| `fecha_prevista`, `fecha_inicio`, `fecha_fin`, `fecha_informe`, `fecha_comunicacion_direccion` | `AUIDPRE`, `AUIDINI`, `AUIDFIN`, `AUIDINF`, `AUIDDIR` | Solo el día. |
+| `estado` | `AUICEST` | `P` prevista · `R` realizada · `I` informe emitido · `C` cerrada · `A` anulada. Al crear, `P`. |
+| `auditor_jefe_delegacion`, `auditor_jefe_codigo` | `EMA2DEL`, `EMA2COD` | Empleado; al asignarlo, de alta. Solo en la interna (`I` o sin tipo). |
+| `entidad_delegacion`, `entidad_codigo` | `PRO2DEL`, `PRO2COD` | Entidad auditora externa: un proveedor; al asignarlo, de alta. Solo en `C`, `E` y `X`. |
+| `auditor_externo` | `AUICAUD` | Nombre de la persona, hasta 100. Solo en `C`, `E` y `X`. |
+| `criterios`, `conclusion`, `observaciones` | `AUICCRI`, `AUICCON`, `AUICOBS` | Textos (norma, procedimientos, requisitos del cliente…). |
+| `fecha_registro`, `usuario_*` | `AUITREG`, `USU2DEL`, `USU2COD` | Alta y quién la registra: la fecha la pone la API; el usuario, solo al crear. Se aceptan en `PUT` si no cambian. |
+
+- Textos recortados; vacíos, `NULL` (el escritorio hace lo mismo).
+- **Auditor según el tipo**, como el escritorio: en la interna (`I` o sin tipo) se guarda el auditor
+  jefe y se vacían `entidad_*` y `auditor_externo`; en `C`, `E` y `X` se guardan la entidad y el
+  auditor externo y se vacía `auditor_jefe_*`. Se aplica en cada escritura y queda en la auditoría
+  de cambios como un cambio más.
+- **Estado** (`422` si no se cumple): `R` exige `fecha_inicio`; `I`, `fecha_informe`; pasar a `C`
+  exige que ningún hallazgo enlazado siga abierto (registrado, en tratamiento, en verificación o
+  sin estado; 8.8.2 d). Una cerrada no es de solo lectura (el modelo no lo pide).
+- **Listas embebidas**, que **sustituyen** la lista guardada si vienen en el `POST`/`PUT` (ausentes,
+  no se tocan; `[]` o `null`, la vacían):
+  - `equipo` y `auditados`: `[{empleado_delegacion, empleado_codigo}]` (`CALAUQ`, papel `A` y `D`).
+    Empleados existentes y sin repetir en cada lista; los que se añaden, de alta. Un empleado puede
+    estar en las dos (da el aviso de independencia).
+  - `apartados`: `[{apartado}]` (`CALAUX`), de la lista fija de abajo y sin repetir.
+  - `delegaciones`: `[{delegacion}]` (`CALAUL`), existentes y sin repetir. Sin ninguna, la auditoría
+    cubre todo el laboratorio.
+  - `ensayos_presenciados`: `[{parametro_*, analista_*, operacion_*, observaciones}]` (`CALAUV`):
+    parámetro obligatorio y existente (código hasta 30); analista (empleado) y operación opcionales y existentes;
+    observaciones hasta 255. Se renumeran 1, 2… (`codigo`) en el orden dado.
+- **Avisos** (no bloquean; en `avisos: [{aviso}]` de la respuesta, como pedidos y entregas): el
+  auditor jefe o uno del equipo está entre los auditados (independencia, en cualquier tipo); una
+  interna (`I` o sin tipo) sin auditor jefe ni equipo, y una contratada (`C`) sin entidad ni nombre
+  del auditor externo.
+- Lectura: añade `codigo_formateado`, `tipo_texto`, `estado_texto`, `auditor_jefe_nombre`,
+  `entidad_nombre`, las listas con sus nombres (`empleado_nombre`; `titulo` del apartado, en el
+  orden de la norma; `nombre` de la delegación; `parametro_nombre`, `analista_nombre` y
+  `operacion_codigo_formateado`), `origen_hallazgos` (`I` en las internas, `E` en las externas: el
+  origen que deben llevar sus hallazgos), `hallazgos` y `hallazgos_abiertos`.
+- `hallazgos[]`: las incidencias enlazadas (`CALIYE` con `tabla` = `CALAUI`) con `delegacion`,
+  `serie`, `codigo`, `codigo_formateado`, `descripcion`, `clase`, `hallazgo` (`INCCGRV`),
+  `apartado` (`INCCAPA`) y `apartado_titulo`, `estado`, `estado_texto`, `abierta` (`T`/`F`),
+  `fecha_deteccion` y `fecha_cierre`.
+- Filtros: los campos (`anio`, `tipo=I,C`, `estado`, `auditor_jefe_*`, `entidad_*`,
+  `fecha_prevista[gte]`…, `search` en descripción, auditor externo y criterios) y además
+  `auditor_delegacion` + `auditor_codigo` (auditor jefe o del equipo), `auditado_delegacion` +
+  `auditado_codigo`, `con_hallazgos_abiertos=T|F`, `apartado` y `parametro_delegacion` +
+  `parametro_codigo` (con ese ensayo presenciado).
+- **Borrado**: sin restricciones de estado (el modelo no las pone). Se borran su equipo y auditados,
+  apartados, ensayos presenciados, delegaciones y los enlaces de las incidencias hacia ella
+  (`CALIYE`; las incidencias quedan) y sus documentos (`DOCFAT.AUI2SER`/`AUI2COD`) van a la
+  papelera, como los de los ensayos de aptitud.
+- **Auditoría** (`ACCAUD`): la auditoría como las demás fichas (inserción, fila y campos, borrado);
+  al cambiar las listas, suceso de fila y, con nivel 3, campo con la tabla modificada (`CALAUQ`,
+  `CALAUX`, `CALAUV`, `CALAUL`) sin valores, como las familias de ensayos de aptitud.
+
+**Hallazgos.** Son incidencias (`/incidencias`) de clase `N` (hallazgo de auditoría) con origen
+`I` (tipos `I` y `C`) o `E` (tipos `E` y `X`), su clasificación (`hallazgo`, `INCCGRV`), el
+`apartado` de la norma (`INCCAPA`) y enlazadas a la auditoría con `POST /incidencias/enlaces`
+(`tabla` `CALAUI`, `enlace_serie` la serie de la auditoría).
+`GET /incidencias?enlace_tabla=CALAUI&enlace_delegacion=&enlace_serie=&enlace_codigo=` da los de una
+auditoría. La API no tiene aún un atajo como el botón «Nuevo hallazgo» de la ficha: se registra la
+incidencia y luego el enlace.
+
+**Apartados de la norma** (lista fija; el título corto en español, en `titulo`, el del escritorio,
+`ETI01120`-`ETI01148`): `4.1`
+Imparcialidad · `4.2` Confidencialidad · `5` Requisitos relativos a la estructura · `6.1` Recursos:
+generalidades · `6.2` Personal · `6.3` Instalaciones y condiciones ambientales · `6.4`
+Equipamiento · `6.5` Trazabilidad metrológica · `6.6` Productos y servicios suministrados
+externamente · `7.1` Revisión de solicitudes, ofertas y contratos · `7.2` Selección, verificación y
+validación de métodos · `7.3` Muestreo · `7.4` Manipulación de los ítems de ensayo ·
+`7.5` Registros técnicos · `7.6` Evaluación de la incertidumbre de medición · `7.7` Aseguramiento
+de la validez de los resultados · `7.8` Informe de resultados · `7.9` Quejas · `7.10` Trabajo no
+conforme · `7.11` Control de los datos y gestión de la información · `8.1` Opciones del sistema de
+gestión · `8.2` Documentación del sistema de gestión · `8.3` Control de los documentos · `8.4`
+Control de los registros · `8.5` Acciones para abordar riesgos y oportunidades · `8.6` Mejora ·
+`8.7` Acciones correctivas · `8.8` Auditorías internas · `8.9` Revisiones por la dirección.
+
+**Cobertura del programa** (`GET /auditorias-calidad/cobertura?desde=&hasta=&delegacion=&ciclo_desde=`,
+solo lectura). Los años como el plan de intercomparaciones (§11 quindecies: por defecto los cuatro
+anteriores y el actual; como máximo 8). Responde `{data: {desde, hasta, anio_actual, anios,
+apartados, ciclo_desde, parametros_sin_ensayo_presenciado, resumen}}`:
+
+- `apartados[]`: cada apartado de la lista con `apartado`, `titulo`, `ultimo_anio_auditado` y
+  `anios[] = {anio, estado, texto, auditorias}`, con `estado` `A` auditado (alguna auditoría
+  interna, `I`, `C` o sin tipo, no anulada, en estado `R`, `I` o `C`, con el apartado en su
+  alcance) · `P` previsto (solo en auditorías previstas) · `S` sin auditar (solo hasta el año
+  actual) · `null` (año futuro sin nada; `texto` null); `auditorias` las que lo cubren
+  (`delegacion`, `serie`, `codigo`, `codigo_formateado`, `estado`). `ultimo_anio_auditado` mira
+  todos los años, no solo los del cuadro. El año de una auditoría es el del programa (`AUINANI`)
+  o, si falta, el de inicio o el de la fecha prevista.
+- `parametros_sin_ensayo_presenciado[]`: técnicas acreditadas (`LABTEC.TECDACR`) y no de baja sin
+  ninguna línea de `CALAUV` en una auditoría interna no anulada del ciclo (fecha de inicio o, si
+  falta, prevista, desde `ciclo_desde`, `AAAA-MM-DD`; por defecto, hoy menos un año; sin
+  ninguna de las dos fechas no cuenta, como el escritorio), con `parametro_*`, `parametro_nombre`, `fecha_acreditacion` y
+  `ultimo_ensayo_presenciado` (la fecha del último, si lo hubo antes).
+- `resumen`: del año `hasta` o, si `hasta` es un año futuro, del año actual (`anio` dice cuál),
+  `{anio, apartados, auditados, previstos, sin_auditar, parametros_sin_ensayo_presenciado}`.
+- Con `delegacion`, solo las auditorías que tienen esa delegación entre las auditadas o no tienen
+  ninguna (todo el laboratorio), y los parámetros de esa delegación y los comunes (`''`).
+
+**Listas de verificación** (fase 2; tablas `CALLVE`, `CALLVQ` y `CALAUP` del script de conversión:
+sin ellas, 422). Modelo común con el escritorio («Analisis listas de verificacion de auditorias.md»).
+
+- `/auditorias-calidad/listas` (`CALLVE`; clave `delegacion` + `codigo`, `''` = común): `descripcion`
+  (obligatoria), `uso` `G` auditoría (por defecto) o `T` ensayo presenciado, `predeterminada`
+  (al marcar una se desmarcan las demás del mismo uso y delegación; una de baja no lo es), `baja`,
+  `observaciones` y `preguntas[] = {orden, apartado, pregunta, que_revisar, referencia}`, que se
+  sustituyen (líneas 1, 2...). El código no se indica: es el siguiente al mayor de todas las
+  delegaciones (`CALAUP.LVE2COD` guarda solo el código). La lectura añade `uso_texto`, `de_veolab`,
+  `usada`, `num_preguntas` y las preguntas. No se eliminan si alguna auditoría las ha usado ni las
+  comunes 1 y 2 de Veolab (422). `POST /auditorias-calidad/listas/duplicar?delegacion=&codigo=`.
+- `/auditorias-calidad/lista` (`CALAUP`; clave de la auditoría + `linea`): `orden`,
+  `ensayo_presenciado` (línea de `CALAUV` o null; solo al añadir), `apartado`, `pregunta`,
+  `que_revisar`, `resultado` (`C` conforme, `N` no conforme, `O` observación, `X` no aplica; null sin
+  responder), `evidencia`, `hallazgo_serie` + `hallazgo_codigo` (incidencia de la misma delegación
+  enlazada a la auditoría) y `lista` (origen, solo lectura). El GET exige la auditoría, admite
+  `?auv=` (0 = solo las de la auditoría) y devuelve `meta.resumen = {total, respondidas,
+  sin_responder, conformes, no_conformes, observaciones, no_aplican}` y `meta.resumen_apartados`
+  (una entrada por apartado con preguntas, en el orden de la norma, los ajenos detrás y sin apartado
+  —`apartado` null— al final: `{apartado, titulo, preguntas, conformes, no_conformes, observaciones,
+  no_aplican, sin_responder}`; sin `?auv=`, solo las de la auditoría, como el marcador
+  `resumenapartadoslistaauditoria` del escritorio). Como en el escritorio, la lista se puede editar
+  en cualquier estado de la auditoría; los cambios se auditan en la auditoría (campo `CALAUP`).
+- `POST /auditorias-calidad/lista/cargar?delegacion=&serie=&codigo=` `{listas[], solo_alcance,
+  auv}`: copia las preguntas (listas comunes o de la delegación, no de baja) detrás de las que hay,
+  sin repetir las del mismo apartado y texto; con `solo_alcance` (por defecto) solo las de los
+  apartados de `CALAUX` y las que no tienen apartado (si el alcance está vacío, todas).
+- `POST /auditorias-calidad/lista/hallazgo?delegacion=&serie=&codigo=&linea=` `{serie,
+  detectada_por_*, hallazgo, usuario_*}`: en una pregunta `N` u `O` sin hallazgo, crea la
+  incidencia con las reglas de `POST /incidencias` (clase N, origen I o E según el tipo, apartado
+  de la pregunta, título = la pregunta recortada, detalle = la evidencia; quien la detecta, por
+  defecto el auditor jefe), la enlaza a la auditoría (`CALIYE` tipo `CALAUI`) y la guarda en la pregunta.
+- Al borrar la auditoría se borran sus preguntas; al quitar un ensayo presenciado, las suyas (en
+  `ensayos_presenciados[].codigo` va la línea actual para conservarlas; sin ella se empareja con la
+  anterior del mismo parámetro); al borrar una incidencia, las preguntas pierden el hallazgo. Al
+  pasar a informe emitido con preguntas sin responder, aviso en `avisos`. La revisión por la
+  dirección (tema e) añade «Listas de verificación: … preguntas respondidas de …».
+
+**Sin hacer:** el atajo «Nuevo hallazgo», los documentos de la auditoría en `/documentos`
+(`DOCFAT.AUI2*`), las comprobaciones de referencias al borrar empleados, técnicas, proveedores u
+operaciones usados en auditorías, y la fase 2 (lista de comprobación y avisos).
+
+## 11 septendecies. Calidad: revisión por la dirección
+
+Revisión por la dirección, fase 1 (módulo `CAL` de Veolab 3; ISO/IEC 17025:2017 8.9; funcionalidad
+`CAL_RDI` en Veolab, especial 1 = responsable de calidad). Sigue el modelo común con el escritorio
+(`Documentacion/ISO 17025/Revision por la direccion - modelo de datos.md` del proyecto de Veolab;
+`App\Support\VeolabManagementReview`). Como las auditorías: `$sinceVersion` 3.0, escribir exige el
+módulo `CAL` activo y licenciado (`422` si no) y las referencias vacías se guardan como `NULL`. Si la
+base de datos aún no tiene `CALRDI` (sin actualizar), todo el recurso responde `422`.
+
+**Revisiones** (`/revisiones-direccion`, `CALRDI`; clave `delegacion` + `serie` + `codigo`, código
+del contador `ACCCLT` de la serie con las reglas de `ACCCFC 'CALRDI'`; serie sin `#`). Las rutas del
+modelo (`/revisiones-direccion/{del}/{ser}/{cod}`) siguen aquí la convención de la API: la clave va
+en la query string.
+
+| Parámetro | Columna | Notas |
+|---|---|---|
+| `titulo` | `RDICDES` | Hasta 255. Al crear sin él, «Revisión por la dirección <año de `fecha_fin`>». |
+| `fecha_inicio`, `fecha_fin` | `RDIDINI`, `RDIDFIN` | Periodo revisado (solo el día; inicio ≤ fin; no se vacían). Al crear sin ellas: desde el día siguiente al fin de la última revisión no anulada hasta hoy; sin ninguna, el año natural anterior. |
+| `fecha_reunion`, `lugar` | `RDIDFEC`, `RDICLUG` | Lugar hasta 100. |
+| `estado` | `RDICEST` | `B` borrador · `C` celebrada · `P` aprobada · `A` anulada. Al crear, `B` (otro, `422`). |
+| `aprobada_por_delegacion`, `aprobada_por_codigo` | `EMA2DEL`, `EMA2COD` | Empleado; al asignarlo, de alta. |
+| `fecha_aprobacion` | `RDIDAPR` | Al aprobarla sin ella, hoy. Al reabrir una aprobada (`P` → `B`) se vacía. |
+| `asistentes_externos` | `RDICEXT` | Texto libre. |
+| `eficacia_sistema`, `mejoras`, `recursos`, `cambios` | `RDICEFI`, `RDICMEJ`, `RDICREC`, `RDICCAM` | Salidas de 8.9.3 a-d. |
+| `observaciones` | `RDICOBS` | |
+| `fecha_recogida_datos` | `RDITDAT` | Última «Recoger datos» (solo lectura; se acepta en `PUT` si no cambia). |
+| `fecha_registro`, `usuario_*` | `RDITREG`, `USU2DEL`, `USU2COD` | Alta y quién la registra, como en auditorías. |
+
+- Textos recortados; vacíos, `NULL`.
+- **Permisos.** Solo el responsable de calidad crea, modifica, cambia de estado, recoge datos y
+  elimina. La API no tiene sesión: al crear, `usuario_*` del cuerpo (quien la registra); al
+  modificar, recoger datos o eliminar, `?usuario_delegacion=&usuario_codigo=`. Con usuario se
+  comprueba que existe, está activo y tiene `CAL_RDI` con escritura y el especial 1 (`422` si no);
+  sin él, la API actúa como responsable de calidad (§11 ter, §11 terdecies).
+- **Estados** (`422` si no se cumple): `B → C → P`; `A` desde `B` o `C` (una aprobada no se anula);
+  reabrir = pasar de `C` o `P` a `B`. De `B` a `P` hay que pasar antes por `C`; una anulada no cambia.
+  - `C` (y `P`) exige `fecha_reunion`, algún asistente (de la plantilla o `asistentes_externos`) y
+    el `analisis` de los quince temas (vale «Sin cambios»); se comprueba al cambiar de estado o al
+    tocar esos datos.
+  - `P` exige `aprobada_por_*` y pone `fecha_aprobacion` si está vacía.
+  - Aprobada o anulada: solo lectura (un `PUT` que cambie algo, salvo reabrir, da `422`; lo que
+    llega igual a lo guardado se acepta). Los documentos se gestionan en Veolab.
+- **Listas embebidas:**
+  - `asistentes`: `[{empleado_delegacion, empleado_codigo}]` (`CALRDA`): sustituye la lista;
+    empleados existentes y sin repetir; los que se añaden, de alta.
+  - `delegaciones`: `[{delegacion}]` (`CALRDL`): sustituye la lista; existentes y sin repetir. Sin
+    ninguna, la revisión cubre todas las delegaciones.
+  - `temas`: `[{tema, datos, analisis}]` (`CALRDX`): **no** sustituye; cambia solo los temas y los
+    campos indicados (`tema` de la `a` a la `o`, sin repetir). Al crear se graban los quince.
+- Lectura: añade `codigo_formateado`, `estado_texto`, `aprobada_por_nombre`, `asistentes` (con
+  `empleado_nombre`), `temas` (siempre los quince en el orden de la norma: `tema`, `titulo`,
+  `automatico` `T`/`F`, `datos`, `analisis`, `tratado` `T`/`F`), `temas_sin_analisis`,
+  `delegaciones` (con `nombre`), `decisiones` (número) y `decisiones_abiertas`.
+- Filtros: los campos (`estado=B,C`, `fecha_reunion[gte]=`, `fecha_fin[lte]=`…, `search` en título,
+  lugar y observaciones) y además `anio` (el de la fecha de la reunión o, si falta, el de `fecha_fin`, como el listado del escritorio), `asistente_delegacion` +
+  `asistente_codigo` y `con_decisiones_abiertas=T|F`.
+- **Borrado**: solo en borrador y sin decisiones (una revisión con decisiones se anula) ni documentos
+  (`DOCFAT.RDI2SER`/`RDI2COD` fuera de la papelera, si la columna existe). Se borran sus asistentes,
+  temas y delegaciones.
+- **Auditoría** (`ACCAUD`): como las auditorías de calidad; al cambiar las listas, suceso de fila y,
+  con nivel 3, campo con la tabla modificada (`CALRDA`, `CALRDX`, `CALRDL`) sin valores.
+
+**Temas de entrada** (8.9.2; títulos del escritorio en español): `a` Cambios internos y externos ·
+`b` Cumplimiento de los objetivos · `c` Políticas y procedimientos · `d` Acciones de revisiones
+anteriores · `e` Auditorías internas · `f` Acciones correctivas · `g` Evaluaciones externas · `h`
+Volumen y tipo de trabajo · `i` Opinión de clientes y personal · `j` Quejas · `k` Eficacia de las
+mejoras · `l` Recursos · `m` Riesgos · `n` Validez de los resultados · `o` Otros (formación, plazos).
+Con datos automáticos, la `b` (objetivos de calidad, §11 undevicies), la `c` (control de documentos,
+desde la fase 2) y de la `d` a la `o`.
+
+**Recoger datos** (`POST /revisiones-direccion/recoger-datos?delegacion=&serie=&codigo=`, cuerpo
+opcional `{"sobrescribir": "T"}`). Solo en borrador y con el periodo indicado. Sustituye los `datos`
+de los temas `b` a `o` y pone `fecha_recogida_datos`. Si alguno ya tiene datos y no se pide
+`sobrescribir`, `422` con `errors.temas_con_datos` (el escritorio lo pregunta). Responde los temas
+con su texto. Los textos son los del escritorio (`RevisionDireccion.bas`, `RDI_RecogerDatos`; cadenas
+`ETI01211`-`ETI01240` en español, porque la API no tiene idioma de usuario), una línea por dato
+separadas por CR+LF y, si hay pocos registros abiertos (hasta 10), «Abiertas:» y «- código título».
+Periodo de `fecha_inicio` a `fecha_fin`, ambos incluidos; delegaciones, las de la revisión o todas
+(en los maestros, también los comunes `''`). Un dato cuya consulta falla (tabla o columna que no
+existe) se omite.
+
+| | Datos (en el periodo) |
+|---|---|
+| b | Una línea por objetivo de calidad (`CALOBJ`) del año de `fecha_fin`, por delegación y código: los de las delegaciones de la revisión y los de todo el laboratorio (`''`); sin delegaciones, todos. «Descripción (delegación): valor unidad (meta >= x unidad), estado» (descripción del objetivo o, si falta, del indicador; la delegación por su nombre, si tiene; sin meta, sin el paréntesis): cerrado, el valor alcanzado y el texto del resultado en minúsculas (cumplido, cumplido en parte, no cumplido; sin resultado, cerrado); abierto, el valor del 1 de enero a `fecha_fin` y «se cumple» o «no se cumple» si hay valor y meta; sin valor, «sin datos». Sin objetivos, «No hay objetivos de calidad definidos para <año>». Sin las tablas, nada. |
+| c | Con el control de documentos activo: «Ediciones de documentos controlados aprobadas: N» (`DOCVER.VERDAPR` en el periodo, documentos de las delegaciones y comunes) y su lista «- código título (edición)» si son pocas. Con la fase 2: «Lecturas pendientes de las ediciones vigentes: N en M documentos, V vencidas (aproximado con los destinatarios y ediciones vigentes de hoy)», sin contar las lecturas posteriores al fin del periodo y con el plazo comparado con el fin del periodo (o hoy si no ha terminado), con la lista por documento si son pocos; y «Copias controladas por retirar: N» (las de hoy). Sin control de documentos, nada. |
+| d | Revisión anterior no anulada (la de `fecha_reunion` más reciente anterior a la reunión de esta o, si no tiene, al día siguiente al fin del periodo): sus decisiones cerradas, abiertas (R/T/V o sin estado) y abiertas con acciones vencidas; lista de las abiertas. |
+| e | Auditorías internas (`I`, `C` o sin tipo) de las delegaciones: previstas (`fecha_prevista`, no anuladas) y realizadas (estado R/I/C con `fecha_inicio` en el periodo); hallazgos no anulados de las realizadas por gravedad (`M`/`N`/`O`) y abiertos; lista de las realizadas si son pocas. |
+| f | Incidencias no anuladas detectadas en el periodo con alguna acción correctiva (`CALACC` tipo `A`): total, cerradas, abiertas y con acciones vencidas; no conformidades (`INCBNCO`, todas las detectadas en el periodo); lista de las abiertas. |
+| g | Auditorías `E` y `X` realizadas en el periodo y sus hallazgos, como en la `e`. |
+| h | Operaciones no anuladas por `fecha_registro` e informes por `fecha_creacion` (`LABINF.INFDCRE`) frente al periodo anterior de igual duración, con la variación en % (entera; «-» si antes no hubo ninguno); clientes dados de alta en el periodo con operaciones en él. Las técnicas no tienen fecha de alta: no se cuentan. |
+| i | Incidencias de origen `C` o `P` que no son quejas, total y por clase. |
+| j | Quejas detectadas en el periodo: recibidas, cerradas, abiertas, tiempo medio de cierre (días de la detección al cierre); lista de las abiertas. |
+| k | Mejoras cerradas en el periodo y, de ellas, con la verificación de la eficacia (`INCCVEF`) escrita. |
+| l | Altas y bajas de personal (`GRHEMP`); autorizaciones concedidas (`AUTDAUT`) y caducadas (`AUTDCAD`) en el periodo; equipos (productos con `PRDBEQU`) no de baja ni fuera de uso con calibración, verificación o mantenimiento alcanzados hoy; con el script de los patrones, «Patrones y materiales de referencia: N caducados y M con la calibración vencida» (series de productos con tipo metrológico no de baja ni fuera de uso con la caducidad efectiva o `SELDCAL` alcanzadas hoy); evaluaciones de proveedores (`SINEVA`) por resultado; proveedores no de baja con reevaluación vencida (`PRODPEV`). |
+| m | Riesgos abiertos ahora y detectados hasta el fin del periodo; tratados (cerrados) en el periodo; lista de los abiertos. |
+| n | Rondas de ensayos de aptitud con informe (`EAPDINF`) en el periodo; sus resultados satisfactorios (`S`, `C`), cuestionables (`Q`) e insatisfactorios (`I`, `P`, `N`); familias del plan no de baja sin participación en su periodo (el plan de §11 quindecies, de la delegación del usuario que recoge los datos —`usuario_delegacion`— y las comunes, como el escritorio; sin ella, de todo el laboratorio); cartas de control con algún punto del periodo en error (`RCDCTII` = `E`) y, aparte, con aviso (`A`); trabajos no conformes y abiertos, con lista. |
+| o | Formación: cursos del plan (`GRHPAF` por `PAFDINI`, sin cancelados `C` ni rechazados `H`) y registros de formación del personal (`GRHFOR` por `FORDINI`); informes emitidos en el periodo después de la fecha de compromiso, «x de y» (y = operaciones con informe en el periodo y fecha de compromiso). |
+
+**Decisiones** (`GET /revisiones-direccion/decisiones?delegacion=&serie=&codigo=`, solo lectura):
+las incidencias enlazadas (`CALIYE` con `tabla` = `CALRDI`) con `delegacion`, `serie`, `codigo`,
+`codigo_formateado`, `descripcion`, `clase`, `origen`, `responsable_*` y `responsable_nombre`,
+`fecha_prevista` (la de la acción pendiente más próxima), `estado`, `estado_texto`, `abierta`,
+`fecha_deteccion` y `fecha_cierre`; `meta.total` y `meta.abiertas`. Una decisión es una incidencia
+de clase `M` con origen `D` enlazada a la revisión con `POST /incidencias/enlaces` (`tabla`
+`CALRDI`, `enlace_serie` la serie de la revisión); la API no tiene aún el atajo «Nueva decisión».
+
+**Sin hacer:** el atajo «Nueva decisión», los documentos de la revisión en `/documentos`
+(`DOCFAT.RDI2*`, carpeta especial 28), y la exportación del acta con plantilla.
+
+## 11 octodecies. Tareas pendientes
+
+Lo que un usuario tiene por hacer, como la opción «Tareas pendientes» de Veolab 3 (funcionalidad `COM_TAR`
+del menú Notificaciones, módulo `COM`; `Tareas.bas` del escritorio; análisis en `Documentacion/ISO
+17025/Analisis tareas pendientes.md` del proyecto de Veolab). `App\Support\VeolabTasks` y
+`TareaPendienteController`. **Solo lectura y sin tabla**: cada tarea se calcula al vuelo con una
+consulta por tipo sobre los registros de origen y desaparece sola cuando se hace en su registro.
+
+```
+GET /api/v2/tareas-pendientes?usuario_delegacion=&usuario_codigo=[&tipo=IC,IT&grupo=Q,D&solo_vencidas=T&solo_mias=T]
+GET /api/v2/tareas-pendientes/recuento   (mismos parámetros)
+```
+
+- **Usuario obligatorio** (la API no tiene sesión; `422` sin `usuario_codigo`). Su delegación hace de
+  delegación conectada: si no es vacía, solo los registros de esa delegación y de las comunes (`''`).
+- **Acceso** (`422`, como el resto de reglas de la API, que no usa `403`): base de Veolab 3; usuario que
+  existe, no está de baja ni es de tipo cliente; módulo `COM` activo y licenciado; su perfil con acceso
+  a `COM_TAR`. Las tareas de Calidad (incidencias, auditorías, aptitud, revisión por la dirección y
+  documentos controlados) solo se calculan si además está activo el módulo `CAL`. Cada tipo exige además
+  el acceso del perfil (`ACCPYF`) a la funcionalidad de su ficha: incidencias `CAL_INC`, auditorías
+  `CAL_AUI`, aptitud `CAL_EAP`, revisión `CAL_RDI` (y su especial 1), proveedores `FIC_PRO` o `ALM_PRO`,
+  documentos `DOC_CTL` con el control de documentos activo, firmas `LAB_INF`, solicitudes `LAB_SOL` con
+  escritura y el módulo `SOL`, fecha de compromiso `LAB_OPE` o `LAB_REC` (cualquier operación con fecha; `CONBAFC` solo la activa por defecto al crearla)
+  (y, para las de cargo, escritura en `LAB_RES`), equipos y stock escritura en `ALM_INV` con el módulo `ALM`,
+  presupuestos `VEN_PRE` con el módulo `VEN`, gráficos de control escritura en `LAB_CDC` con el módulo
+  `CDC`, plan de intercomparaciones escritura en `CAL_EAF` con el módulo `CAL`, objetivos de calidad el especial 1
+  de `CAL_OBJ` con el módulo `CAL`;
+  las autorizaciones, solo tener empleado. «Responsable de calidad» es el especial 1 de `CAL_INC` (también en auditorías y
+  proveedores); «puede aprobar documentos», el especial 1 de `DOC_CTL`. Los bits se comprueban como
+  `SES_ObtenAcceso`: `(PYFNACC & bit) = bit`.
+- **Fechas**: hoy es `CURDATE()` del servidor de base de datos. «Próxima» = vence dentro de 30 días
+  (fecha < hoy + 31); la fecha de compromiso, dentro de 7 días (`TAR_DIAS_AVISO`: fecha < hoy + 8). Revisión por la dirección anual: 12 meses después de la última celebrada o aprobada.
+- Si la consulta de un tipo falla (tabla o columna que aún no existe), ese tipo se omite, se registra en
+  el log y se indica en `meta.omitidos`.
+
+| Tipo | Texto | Grupo | Condición | Para quién | Fecha (¿vence?) |
+|---|---|---|---|---|---|
+| `IC` | Clasificar incidencia | Q | `CALINC.INCCEST = 'R'` | Responsables de calidad (cargo) | `INCTREG` (no) |
+| `IT` | Tratar incidencia | Q | `T` y responsable `EMR2*` = su empleado | Personal | Menor `ACCDPRE` de las acciones sin fecha real (sí) o, sin ella, `INCTREG` (no) |
+| `IA` | Hacer acción | Q | `CALACC.ACCDREA` nula, incidencia en R/T/V, `CALACC.EMP2*` = su empleado | Personal | `ACCDPRE` (sí) |
+| `IV` | Verificar incidencia | Q | `V` y verificador `EMV2*` = su empleado o, sin verificador, responsables de calidad | Personal o cargo | Última `ACCDREA` o `INCTREG` (no) |
+| `AR` | Realizar auditoría | Q | `CALAUI.AUICEST = 'P'` con `AUIDPRE` próxima o pasada | Auditor jefe `EMA2*` o, sin él, responsables de calidad | `AUIDPRE` (sí) |
+| `AC` | Cerrar auditoría | Q | `I` sin hallazgos abiertos (incidencias enlazadas en R/T/V o sin estado) | Ídem | `AUIDINF` (no) |
+| `EE` | Enviar resultados de aptitud | Q | `CALEAP.EAPCEST = 'P'` con `EAPDLIM` próxima, pasada o vacía | Quien la registró (`USU2*`) o, si ya no es un usuario activo, quien tiene escritura en `CAL_EAP` | `EAPDLIM` (sí) o `EAPTREG` (no) |
+| `EV` | Evaluar ronda de aptitud | Q | `E` con `EAPDINF` | Ídem | `EAPDINF` (no) |
+| `EC` | Cerrar ronda de aptitud | Q | `V` | Quien revisa la conclusión (`EMR2*`) o, sin él, como `EV` | `EAPDINF` o `EAPTREG` (no) |
+| `RD` | Completar revisión por la dirección | Q | `CALRDI.RDICEST` en B o C | Especial 1 de `CAL_RDI` (cargo) | `RDIDFEC` (sí, en borrador) o `RDITREG` (no) |
+| `RA` | Convocar la revisión por la dirección | Q | Ninguna en borrador (B) y la última celebrada o aprobada (C/P, por `RDIDFEC`) cumple los 12 meses dentro de 30 días, o no hay ninguna | Ídem | Última `RDIDFEC` + 12 meses (sí) o sin fecha |
+| `PE` | Evaluar proveedor | P | `SINPRO.PRODPEV` próxima o pasada, no de baja | Quien hizo la última evaluación (`SINEVA.USU2*`) o, si no hay o no es un usuario activo, responsables de calidad | `PRODPEV` (sí) |
+| `AU` | Renovar autorización | E | `GRHAUT.AUTCEST = 'A'` con `AUTDCAD` próxima o pasada, empleado no de baja | El autorizado o quien autoriza (`EMA2*`) | `AUTDCAD` (sí) |
+| `DE` | Revisar edición | D | Fase 2: edición en curso (borrador o `VER2APR` distinto de `VER2COD`) en una carpeta con revisión antes de aprobar (`DIRBREV`) y `VERCEST` distinto de `R` | El revisor (`DOCFAT.EMR2*`, personal) o el especial 2 de `DOC_CTL` (cargo); nunca quien lo elabora | `VERTEMI` de la principal (no) |
+| `DA` | Aprobar edición | D | Controlado en borrador o con `VER2APR` distinto de `VER2COD`; con revisión antes de aprobar, solo con la edición en `R` | Quien puede aprobar (cargo) | `VERTEMI` de la principal (no) |
+| `DR` | Revisar documento | D | Vigente con `FATDREV` próxima o pasada | Quien lo elabora (`EME2*`) o, sin él, quien puede aprobar | `FATDREV` (sí) |
+| `DL` | Leer nueva edición | D | Fase 2: su empleado es destinatario de la edición vigente y la tiene pendiente (ver el control de documentos, fase 2). Sin destinatarios (o sin la fase 2): vigente cuya edición aprobada no ha leído su empleado, que sí leyó una anterior (`DOCLEC`) | Personal | Fase 2: `VERDAPR` + días para leer (sí); si no, `VERDAPR` o `VERTEMI` (no) |
+| `DC` | Retirar copias | D | Fase 2: copias controladas (`DOCCOP`) de una edición anterior a la vigente sin `COPDRET`; una por documento, «título (N copias por retirar)» | Especial 1 de `DOC_CTL` (cargo) | `VERDAPR` de la vigente (no) |
+| `FI` | Firmar informe | I | Sin validar ni enviar, ni rechazado ni sustituido; sin la firma del tipo del perfil del usuario (`ACCPER.TIF2*`, no de baja) y con las de orden (`TIFNORD`) anterior puestas; con alguna operación sin archivar (`OPENEST` 7) ni anular | Personal | `INFDCRE` (no) |
+| `SO` | Decidir solicitud | S | `LABSOL.SOLCEST = 'P'` | Escritura en `LAB_SOL` (cargo) | `SOLTFEC` (no) |
+| `OC` | Fecha de compromiso | O | `LABOPE.OPEDCOM` dentro de 7 días o pasada, sin enviar (`OPEDENV` nula), `OPENEST < 6` y sin anular | Las que tienen a su empleado en `LABOYE` (personal); las que no tienen ningún empleado, escritura en `LAB_RES` (cargo); sin empleado y con escritura en `LAB_RES`, todas | `OPEDCOM` (sí) |
+| `MC` | Calibrar equipo | M | `ALMSEL.SELDCAL` próxima o pasada; serie no de baja ni fuera de uso (`SELCESA` no `F` ni `B`) | Escritura en `ALM_INV` (cargo) | `SELDCAL` (sí) |
+| `MV` | Verificar equipo | M | Ídem con `SELDVER` | Ídem | `SELDVER` (sí) |
+| `MM` | Mantener equipo | M | Ídem con `SELDMAN` | Ídem | `SELDMAN` (sí) |
+| `MP` | Renovar patrón o material de referencia | M | Con el script de los patrones: serie de un producto con tipo metrológico (`PRDCTPR`), no de baja ni fuera de uso, que sigue en uso (equipo o con existencias) y con la caducidad efectiva (la menor entre `SELDCAD` y `SELDAPE` + `PRDNDAP` días) próxima o pasada. La calibración y la verificación vencidas salen en `MC` y `MV` | Escritura en `ALM_INV` (cargo) | Caducidad efectiva (sí) |
+| `ST` | Reponer stock | M | `ALMPRD.PRDNSMI > 0` y `PRDNCAE < PRDNSMI`, producto no de baja | Escritura en `ALM_INV` (cargo) | Sin fecha |
+| `PS` | Seguimiento de presupuesto | V | `FACPRE.PRECEST` en P o E con `PREDSEG` dentro de 7 días o pasada | Su comercial `EMP2*` (personal) o, sin comercial, escritura en `VEN_PRE` (cargo) | `PREDSEG` (sí) |
+| `GC` | Revisar gráfico de control | Q | `LABCDC.CDCCEST = 'E'` y `CDCDCIE` nula; con `CAL`, sin incidencia abierta (R/T/V) enlazada (`CALIYE`, `IYECTAB = 'LABCDC'`) | Escritura en `LAB_CDC` (cargo) | `CDCDCRE` (no) |
+| `FA` | Participar en intercomparación | Q | Familia del plan (`CALFAE`, no de baja) que le toca este año o sin participación en su periodo | Escritura en `CAL_EAF` (cargo) | 31 de diciembre del año de la próxima participación o del actual (sí) |
+| `OB` | Definir los objetivos de calidad | Q | Desde el 1 de febrero, ningún `CALOBJ` del año actual. «Objetivos de calidad de <año> sin definir»; `codigo` = el año | Especial 1 de `CAL_OBJ` (cargo) | 1 de febrero (no) |
+| `OA` | Cerrar los objetivos de calidad | Q | Una por cada año anterior con objetivos de `OBJCEST` distinto de `C`. «Objetivos de calidad de <año>: <n> sin cerrar»; `codigo` = el año | Ídem | 1 de enero del año siguiente (no) |
+
+- Grupos: `Q` calidad, `P` proveedores, `E` personal, `D` documentos, `I` informes, `S` solicitudes,
+  `O` operaciones, `M` inventario y `V` ventas.
+- Plan de intercomparaciones: el de `VeolabProficiencyPlan::families` (`EAP_CalcularPlan`) con los años
+  por defecto (los 4 anteriores y el actual) y la delegación del usuario.
+- Documentos: los controlados de verdad (`VeolabDocumentControl::whereControlled`, sin accesos directos)
+  con `DIR2COD > 0` y distinto de 4. La API no aplica el acceso a carpetas del usuario
+  (`DCT_CarpetasVisibles` del escritorio), como en la lista de controlados (§11).
+- **Cada tarea**: `tipo`, `tipo_texto`, `grupo`, `tabla` (la del registro que se abre: `CALINC`,
+  `CALAUI`, `CALEAP`, `CALRDI`, `SINPRO`, `GRHEMP`, `DOCFAT`, `LABINF`, `LABSOL`, `LABOPE`, `ALMSEL`,
+  `ALMPRD`, `FACPRE`, `LABCDC`, `CALFAE`),
+  `delegacion`, `serie` y `codigo` (clave del registro; `null` lo que no tiene, y todo en `RA`; en `ALMSEL`,
+  `serie` es el producto `PRD3COD` y `codigo` la serie `SEL1COD`), `registro` (código con el formato de
+  la tabla; el código del proveedor, el nombre del empleado, el código del documento o, en equipos, el
+  producto o «producto / serie» si la serie no es la oculta `-`; el código del producto en stock y del
+  gráfico; el nombre de la familia en el plan),
+  `descripcion` («Clase: título» en incidencias, «Decisión de revisión: título» en las de origen D,
+  «Acción N: texto (Clase: título)» en acciones, programa, ronda y descripción en aptitud, «Estado:
+  título» en revisiones, la técnica en autorizaciones, el cliente en firmas, «Cliente: descripción» en
+  solicitudes, «cliente - referencia» en la fecha de compromiso, «producto - serie» (`PRDCDES` y
+  `SELCDES`) en equipos, «producto (existencias / mínimo)» en stock, «Cliente: descripción» en
+  presupuestos, el nombre del gráfico y «programa: parámetros» en el plan), `fecha` (`aaaa-mm-dd` o `null`), `vence` (la fecha es un vencimiento; si no, es desde
+  cuándo espera), `dias` (desde hoy; negativo = pasada; `null` sin fecha), `vencida` (vence y la fecha ya
+  pasó) y `asignada` (`personal` o `cargo`).
+- **Orden** (el del escritorio): vencidas primero; después por fecha, sin fecha al final; a igualdad, por
+  el tipo en el orden de la tabla.
+- **Filtros**: `tipo` y `grupo` (listas con comas; un valor desconocido da `422`), `solo_vencidas=T` y
+  `solo_mias=T` (sin las de cargo). Sin paginación.
+- **Respuesta**: `{data: [...], meta: {total, vencidas, con_empleado, omitidos, version_bd}}`.
+  `con_empleado` = `F` si el usuario no está enlazado con un empleado (solo ve las de su cargo). El
+  recuento: `{data: {total, vencidas, por_tipo: {IC: n, ...}}, meta: {con_empleado, omitidos, version_bd}}`
+  (`por_tipo` con los veintiocho tipos).
+- `/usuarios` expone `abrir_tareas_al_iniciar` (`ACCUSU.USUBTAP`, `T`/`F`: abrir la lista al iniciar
+  sesión en el escritorio), desde Veolab 3 y solo si la base ya tiene la columna.
+
+**Sin hacer:** los colores (ámbar a 7 días) y el texto del plazo, que son de presentación; posponer La tarea «Valorar la actualización de Veolab» (`VV`, validación del software, `ACCPAR.PARCVVA`) es solo del escritorio: la API no conoce la versión del ejecutable instalado.
+tareas y lo que el escritorio tampoco tiene (resultados).
+
+## 11 undevicies. Calidad: objetivos e indicadores
+
+Objetivos e indicadores de calidad, fase 2 de la revisión por la dirección (módulo `CAL` de Veolab 3;
+ISO/IEC 17025:2017 8.2.1 y 8.9.2 b; funcionalidad `CAL_OBJ`, especial 1 = responsable de calidad).
+Sigue el modelo común con el escritorio (`Documentacion/ISO 17025/Analisis objetivos e
+indicadores.md`, apartado 5, y `Objetivos.bas`; `App\Support\VeolabQualityIndicators`). Como la
+revisión por la dirección: `$sinceVersion` 3.0, escribir exige el módulo `CAL` activo y licenciado, y
+si la base aún no tiene `CALKPI`, `CALKPV` y `CALOBJ`, todo responde `422`.
+
+**Permisos.** Solo el responsable de calidad escribe (indicadores, valores, objetivos, cerrar, reabrir,
+duplicar y mejora). La API no tiene sesión: `?usuario_delegacion=&usuario_codigo=` en la query string
+de cualquier escritura; con él se comprueba que existe, está activo y tiene `CAL_OBJ` con escritura y
+el especial 1 (`422` si no); sin él, la API actúa como responsable de calidad.
+
+**Indicadores** (`/indicadores-calidad`, `CALKPI`; clave `delegacion` (`''` = común) + `codigo`).
+
+| Parámetro | Columna | Notas |
+|---|---|---|
+| `descripcion` | `KPICDES` | Obligatoria; hasta 255. |
+| `calculo` | `KPICCAL` | `INF_PLAZO`… en los 18 de Veolab (códigos 1 a 18, comunes, los crea la conversión); vacío = manual. La API solo crea manuales. |
+| `unidad` | `KPICUNI` | `%`, `días`, `nº`, `horas`…; hasta 20. |
+| `sentido` | `KPICSEN` | `S` mejor si sube (por defecto) · `B` mejor si baja. |
+| `periodicidad` | `KPICPER` | Valores manuales: `M`, `T`, `S`, `A` (por defecto). |
+| `decimales` | `KPINDEC` | 0-6; al crear sin ellos, 2 (al formatear, nulos = 0, como el escritorio). |
+| `definicion` | `KPICDEF` | Definición o fórmula en texto, para el auditor. |
+| `baja` | `KPIBBAJ` | `T`/`F`. |
+
+- El código no se indica: `MAX(KPI1COD) + 1` de todas las delegaciones y nunca menos de 19.
+- Los de Veolab solo admiten cambiar `baja` (lo demás, si llega igual, se acepta) y no se eliminan.
+- No se elimina un indicador que use algún objetivo (`422`); al eliminarlo se borran sus valores.
+- Lectura: añade `codigo_formateado`, `automatico` `T`/`F`, `sentido_texto`, `periodicidad_texto`,
+  `objetivos` (cuántos lo usan) y `valores` (cuántos valores manuales). Filtros: los campos,
+  `para_delegacion` (comunes y de esa delegación) y `automatico=T|F`.
+
+**Valores manuales** (`/indicadores-calidad/valores`, `CALKPV`; `?delegacion=&codigo=` del indicador):
+
+- `GET` (con `?desde=&hasta=` opcionales, por `fecha_inicio`): `fecha_inicio`, `fecha_fin`, `valor`,
+  `valor_texto`, `observaciones`.
+- `PUT ...&fecha_inicio=` `{valor (obligatorio), fecha_fin, observaciones}`: crea (`201`) o sustituye
+  (`200`) el valor del periodo que empieza ese día. Sin `fecha_fin`, el último día del periodo según la
+  periodicidad. Solo en indicadores manuales (`422` en los automáticos).
+- `DELETE ...&fecha_inicio=`. Cada cambio se audita como un cambio del indicador (campo `CALKPV`).
+
+**Valor calculado** (`GET /indicadores-calidad/valor?codigo=&desde=&hasta=&delegacion=`). El código del
+indicador es único entre delegaciones (`?indicador_delegacion=` lo fija si hiciera falta); `delegacion`
+es la de los datos (vacía = todo el laboratorio). Por defecto, del 1 de enero del año de `hasta` a hoy.
+Devuelve `valor` (número o `null`) y `valor_texto` («96,2 %»).
+
+**Cálculo** (`VeolabQualityIndicators::value`). Periodo de `desde` a `hasta`, ambos incluidos
+(`>= desde` y `< hasta + 1 día`). Lo que se mide «al final del periodo» (acciones, equipos y proveedores) se mide
+en el **corte**: el día siguiente al fin (excluido) o, si `hasta` es hoy o posterior, hoy (excluido). Con delegación, los registros de
+esa delegación; en los maestros comunes (equipos, proveedores y gráficos de control), también los de
+`''`. `null` si no hay datos, si el denominador es 0 o si la consulta falla (tabla o columna que no
+existe). Los recuentos sin registros valen 0. Manuales: la media de `KPVNVAL` (no nulos) de los
+valores con `KPVDINI` en el periodo, sin mirar la delegación (son del indicador).
+
+| Cálculo | Condición |
+|---|---|
+| `INF_PLAZO` | `LABOPE` no anuladas (`OPEBANU` ≠ `T`) con `OPEDINF` en el periodo y `OPEDCOM` no nula; % con `DATE(OPEDINF) <= DATE(OPEDCOM)`. |
+| `INF_DIAS` | Media de `DATEDIFF(OPEDINF, OPEDREG)` de las `LABOPE` no anuladas con `OPEDINF` en el periodo. |
+| `INF_SUST` | `LABINF` con `INFDCRE` en el periodo; % de las que sustituyen a otro (`INF2COD` no nulo). |
+| `QUE_MIL` | Quejas (`CALINC` clase `Q`, no anuladas) con `INCDDET` en el periodo × 1.000 / `LABOPE` no anuladas con `OPEDREG` en el periodo. |
+| `QUE_DIAS` | Media de `DATEDIFF(INCDCIE, INCDDET)` de las quejas cerradas (`C`) con `INCDCIE` en el periodo. |
+| `INC_NC` | Incidencias no anuladas con `INCBNCO` = `T` e `INCDDET` en el periodo. |
+| `INC_DIAS` | Media de `DATEDIFF(INCDCIE, INCDDET)` de las incidencias (todas las clases) cerradas con `INCDCIE` en el periodo. |
+| `INC_EFIC` | Acciones `CALACC` tipo `A` de incidencias no anuladas con `ACCDEFI` en el periodo y `ACCBEFI` `T` o `F`; % de `T`. |
+| `ACC_VENC` | Acciones con `ACCDPRE <` corte, de incidencias no anuladas (delegación de `CALINC`). Corte en hoy: `ACCDREA` nula e incidencia no cerrada; periodo pasado: `ACCDREA` nula o `>=` corte, e incidencia no cerrada o con `INCDCIE >=` corte. |
+| `EAP_SAT` | Resultados `CALEAR` de rondas con `EAPDINF` en el periodo y `EARCEVA` en `S`, `C`, `Q`, `I`, `P`, `N`; % de `S` y `C`. |
+| `EAP_PLAN` | Familias `CALFAE` no de baja (de la delegación y comunes); cubiertas, las que tienen alguna ronda con resultados de sus parámetros (`CALFAT` → `CALEAR` → `CALEAP`, rondas de la delegación) con `COALESCE(EAPDREC, EAPDLIM) < hasta + 1` y año `>=` año de `hasta` − `FAENFRE` + 1 (frecuencia mínima 1); % de cubiertas. |
+| `AUD_PROG` | Auditorías internas (`AUICTIP` `I`, `C`, vacío o nulo) no anuladas con `AUIDPRE` en el periodo; % en estado `R`, `I` o `C`. |
+| `AUD_HALL` | Incidencias de clase `N` no anuladas con `INCDDET` en el periodo. |
+| `FOR_PLAN` | Cursos `GRHPAF` con `COALESCE(PAFDPRE, PAFDINI)` en el periodo, sin `C` ni `H`; % en estado `R` o `E`. |
+| `FOR_HORAS` | Suma de `PAFNHOR` por alumno asistente (`GRHALU` con `ALUBNAS` ≠ `T`) de los cursos `R` o `E` con `COALESCE(PAFDINI, PAFDPRE)` en el periodo / empleados en activo en algún momento del periodo (`EMPDALT` nula o `< hasta + 1`, y `EMPDBAJ >= desde` o, sin `EMPDBAJ`, `EMPBBAJ` ≠ `T`). |
+| `EQU_VENC` | Series `ALMSEL` de productos con `PRDBEQU` = `T`, sin `SELDBAJ` ni estado `B` o `F`, con `SELDCAL` o `SELDVER <` corte. |
+| `PRO_EVAL` | Proveedores no de baja con `PRODUEV` o `PRODPEV` no nula; % con `PRODPEV` nula o `>=` corte. |
+| `GCO_FUERA` | Puntos `LABRCD` con `RCDTFEC` en el periodo y `RCDCTII` = `E`. |
+
+**Objetivos** (`/objetivos-calidad`, `CALOBJ`; clave `delegacion` (`''` = todo el laboratorio) +
+`codigo`, `MAX(OBJ1COD) + 1` de todas las delegaciones, no se indica).
+
+| Parámetro | Columna | Notas |
+|---|---|---|
+| `anio` | `OBJNANI` | Al crear sin él, el actual. |
+| `descripcion` | `OBJCDES` | Hasta 255; sin ella, la del indicador. |
+| `indicador_delegacion`, `indicador_codigo` | `KPI2DEL`, `KPI2COD` | Obligatorio; existe y, si cambia, no de baja y común o de la delegación del objetivo. |
+| `meta` | `OBJNMET` | Obligatoria. |
+| `responsable_delegacion`, `responsable_codigo` | `EMR2DEL`, `EMR2COD` | Empleado; si cambia, de alta. |
+| `plan` | `OBJCPLA` | Plan para conseguirlo. |
+| `estado` | `OBJCEST` | `A` abierto · `C` cerrado. Lo ponen `/cerrar` y `/reabrir`. |
+| `valor_alcanzado`, `resultado`, `fecha_cierre` | `OBJNVAL`, `OBJCRES`, `OBJDCIE` | Al cerrar; `resultado` `S` cumplido · `P` en parte · `N` no cumplido. |
+| `conclusion` | `OBJCCON` | |
+
+- Solo los abiertos se modifican y se eliminan (cerrado, `422` salvo lo que llega igual). Como el
+  escritorio, uno con mejoras enlazadas no se elimina (`422`).
+- Lectura: añade `codigo_formateado`, `estado_texto`, `resultado_texto`, `indicador_descripcion`,
+  `indicador_unidad`, `indicador_sentido`, `indicador_automatico`, `indicador_decimales`,
+  `responsable_nombre`, `meta_texto` («>= 95,00 %»), `valor` (el congelado si está cerrado; si no, el
+  calculado del 1 de enero a hoy, o al 31 de diciembre si el año ya pasó; `null` si el año aún no ha
+  empezado), `valor_texto`, `cumple` (`T`/`F`/`null`), `semaforo` y `mejoras`. Filtros: los campos
+  (`anio`, `delegacion`, `estado`…) y `para_delegacion` (los de `''` y los de esa delegación).
+- **Cumplimiento:** mejor si sube, `valor >= meta`; mejor si baja, `valor <= meta`. **Semáforo:**
+  `verde` si cumple; `ambar` si no, pero `|valor − meta| <= |meta| × 0,1`; `rojo` en el resto; `null`
+  sin valor o sin meta.
+- `POST /objetivos-calidad/cerrar?delegacion=&codigo=` `{valor, resultado (obligatorio), conclusion}`:
+  solo abiertos; sin `valor`, el calculado del año redondeado a los decimales del indicador y, si no
+  hay valor calculado, `422` (como CerrarObjetivo, el valor es obligatorio). Pone `estado` `C` y
+  `fecha_cierre` = hoy.
+- `POST /objetivos-calidad/reabrir?delegacion=&codigo=`: vuelve a `A` y vacía `fecha_cierre`. Como el
+  escritorio, conserva `valor_alcanzado`, `resultado` y la conclusión del cierre anterior.
+- `POST /objetivos-calidad/duplicar?anio=[&delegacion=]`: copia los del año al siguiente, abiertos,
+  con la misma delegación, descripción, indicador, meta, responsable y plan. Omite (en
+  `data.omitidos`) los de un indicador de baja y los que ya existen en el año siguiente (misma
+  delegación, indicador y descripción), así que se puede repetir.
+- `GET /objetivos-calidad/seguimiento?delegacion=&codigo=`: `periodos` `T1`-`T4` (cada uno hasta hoy
+  como mucho; los que no han empezado, sin valor) y `A` (el año), con `valor`, `valor_texto`, `cumple`
+  y `semaforo`; además `valor_alcanzado` si está cerrado.
+- `POST /objetivos-calidad/mejora?delegacion=&codigo=` `{delegacion, serie, descripcion, detalle,
+  detectada_por_*, usuario_*}`: crea con las reglas de `POST /incidencias` la incidencia de clase `M`
+  y origen `D` (delegación, la del objetivo; título «Mejora del objetivo: …»; detalle, «Indicador: …. Meta: ….
+  Valor alcanzado: ….», con el valor solo si está cerrado, como el escritorio; quien la detecta, el responsable del objetivo) y la enlaza (`CALIYE` tipo `CALOBJ`, serie
+  `''`, código del objetivo). Al borrar la incidencia se borran sus enlaces, también este.
+- **Auditoría** (`ACCAUD`): alta, borrado y modificación como el resto; cerrar y reabrir, suceso de
+  fila y, con nivel 3, uno por campo que cambia; duplicar, una inserción por objetivo.
+
+Tareas pendientes `OB` y `OA` (objetivos sin definir o sin cerrar): §11 octodecies.
+
+**Sin hacer:** el gráfico de evolución y los marcadores de exportación.
 
 ## 12. Fixes de corrección a arrastrar de la v1
 
@@ -763,6 +2311,23 @@ servicio) solo se admite uno. Réplica de `FichaOperacion.frm` (`AñadirServicio
   autodefinibles editables estando validada (`AUTBVAL = 'T'`).
 - Incremento especial: solo actúa cuando Veolab crea varias operaciones a la vez;
   la API crea una por petición, así que el valor se guarda tal cual.
+- **Desde Veolab 3, valor predeterminado y fórmulas** (`LABAUT.AUTCPRE`;
+  `VeolabCustomFields::applyDefaults`, `App\Support\VeolabFieldFormulas`): al crear, los
+  autodefinibles vacíos reciben su valor fijo y se calculan las fórmulas (`=...`) de los
+  campos vacíos (un valor recibido se respeta, como al importar); al generar desde una
+  planificación solo las fórmulas. En `PUT` se recalculan las fórmulas de los campos no
+  indicados cuando la petición toca autodefinibles o campos de recolección. Los
+  autodefinibles vinculados a servicios solo lo reciben si la operación tiene alguno.
+  Las fórmulas leen `field("ªNombre")` y los campos fijos por su marcador
+  (`field("temperaturaoperacion")`); mismo evaluador que el escritorio y la web
+  (`Documentacion\Formulas autodefinibles\casos.csv`).
+- **Campos de recolección de Veolab 3** (pestaña Recolección; desde 3.0):
+  `fecha_elaboracion`, `fecha_caducidad` (sin hora), `cloro_libre`, `ph`, `conductividad`
+  (texto), `condiciones_recepcion`, `informacion_cliente`, `pedido`, `transporte` y
+  `conservacion`; y `conformidad_recepcion` (`C`, `N`, `D` o vacía, §11 duodecies). La pantalla «Campos» de Veolab configura cuáles se ven y su
+  predeterminado o fórmula (filas `X` de `LABAUT`); la API aplica esos predeterminados y
+  fórmulas a los campos visibles. `/envases`, `/lugares` y `/temperaturas` son los valores
+  predefinidos de `envase`, `lugar_recogida` y `temperatura`.
 
 **Planificaciones** (`/planificaciones`, `LABPLO`; clave `delegacion` + `codigo`, sin
 serie). "Preoperaciones" con los mismos campos que la operación (mismos nombres de
@@ -773,6 +2338,9 @@ parámetro), `serie_operaciones` (serie de las operaciones que genera),
   calculados como en la operación, salvo que las técnicas salen siempre de `LABSYT`
   (no del presupuesto); sin consumos, columnas de resultado ni referencias. Precio,
   tipo de operación, matriz y envases se heredan como en la operación.
+- **Servicios al leer**: la respuesta incluye `servicios: [{delegacion, codigo, nombre}]` en el
+  orden de la rejilla (`LABPYS.PYSNPOS`, nombre de `LABSER.SERCNOM`). En un `PUT` se aceptan si son
+  los mismos que ya tiene (se ignoran); si cambian → `422`.
 - **Autodefinibles**: mismas definiciones y reglas que en la operación; valores
   propios en `LABPYA` (se auditan solo al modificar, como Veolab).
 - **Fechas** (`LABFEP`): la respuesta incluye `fechas: [{codigo, fecha, completada}]`
@@ -797,6 +2365,10 @@ parámetro), `serie_operaciones` (serie de las operaciones que genera),
 - **Borrado**: desvincula sus operaciones, documentos a la papelera, borra
   autodefinibles, fechas, servicios/técnicas/gastos (Veolab deja estos tres
   huérfanos) y los eventos de agenda.
+- **Desde Veolab 3**: los mismos campos de recolección que la operación (columnas
+  `PLO*`), con sus predeterminados y fórmulas, y `empleado_comercial_*`: al indicar el
+  presupuesto, la planificación sin comercial toma el del presupuesto
+  (`HeredarComercialPresupuesto`), salvo que la petición indique el comercial.
 
 **Generar operaciones** (`POST /planificaciones/generar`, cuerpo
 `{"delegacion": "", "codigo": 1, "fecha": 12, "operacion": {...}}`): como
@@ -821,7 +2393,8 @@ texto de hasta 50). Réplica de `FichaLote`/`Lotes`:
 - **Autodefinibles de lote** (`LABAUT` con `AUTCTIP = 'L'`, valores en `LABLYA`):
   mismas reglas que los de operación (nombre, delegación del lote o generales, tipos,
   fichero como `{delegacion, codigo}`), salvo que no hay fila "cero" ni vínculo con
-  servicios, y como en Veolab solo se auditan al modificar.
+  servicios, y como en Veolab solo se auditan al modificar. Desde Veolab 3 reciben
+  también su valor predeterminado o fórmula (`AUTCPRE`), como los de operación.
 - Las operaciones se vinculan desde la operación (`lote_*`; `lote_relacionado_*` para
   las relacionadas). Para listarlas: `GET /operaciones?lote_delegacion=&lote_serie=&lote_codigo=`.
 - **Borrado** (sin comprobaciones, como Veolab): desvincula sus operaciones, documentos
@@ -937,6 +2510,19 @@ de `FichaResultados` (`App\Support\VeolabResults`):
   (`MARCSUS`). `marcas` aplica marcas a mano (`null` la quita).
 - **Analista**: las técnicas con resultado sin analista toman el empleado del usuario
   indicado (`ACCUSU.EMP2*`), como la ficha con el usuario en sesión.
+- **Autorizaciones** (Veolab 3, `LABCON.CONCAUT`): analista sin autorización vigente en una
+  técnica acreditada → aviso (`A`) o `422` (`B`), ver §11 duodecies.
+- **Equipos vencidos o fuera de uso** (Veolab 3, módulo `ALM`, `LABCON.CONCVEN`,
+  `equipos_vencidos` en `/configuracion/laboratorio`; `RevisarEquiposVencidos`): en las
+  técnicas con valores o marcas en la petición que tienen registrado el uso (`ALMMOV` tipo
+  `U`) de un equipo (`ALMPRD.PRDBEQU = 'T'`) cuya serie, en la fecha de inicio de la
+  operación (hoy si no la tiene), está fuera de uso (`F`) o de baja (`B`) o tiene la próxima
+  calibración, verificación, mantenimiento o la caducidad (`SELDCAL`, `SELDVER`, `SELDMAN`,
+  `SELDCAD`) en esa fecha o antes: con `CONCVEN` vacío o nulo (bloquear, el predeterminado de
+  las bases nuevas) no se graba nada (`422`, con los equipos y el motivo); con `A` se graba y
+  se añade un aviso por técnica en `avisos` (`columna` nula); con `N` (el de las bases
+  convertidas) no se comprueba. Para desbloquear hay que cambiar el equipo en los consumos de
+  la operación o poner la serie al día. En bases 2.4 no se comprueba.
 - **Fechas y estado** (con `LABCON.CONBMAI`/`CONBMAF`): con algún valor la operación y la
   técnica toman fecha de inicio (iniciada, 3); con todas las celdas editables cubiertas
   (`CONCFIN = 'P'`: solo la primera columna), fecha de fin (finalizada, 4) y dictamen
@@ -995,7 +2581,10 @@ de `FichaPresupuesto`/`Presupuestos` (`App\Support\VeolabBillingLines`):
   (`P` pendiente · `E` enviado · `A` aceptado · `R` rechazado · `V` validado ·
   `C` cancelado), `es_acreditado`, `es_archivado`, `tipo_desglose` (`S` servicio ·
   `T` técnica · `N` sin desglose), `descuento`, `tipo_impuesto_1/2`, `valor_impuesto_1/2`,
-  `cliente_*`, `empleado_comercial_*`, `tarifa_*`.
+  `cliente_*`, `empleado_comercial_*`, `tarifa_*`. Desde Veolab 3, `fecha_seguimiento`
+  (sin hora): al pasar a enviado se pone a hoy más los días de Configurar ventas
+  (`dias_seguimiento_presupuestos`) si estaba vacía; la notificación al comercial al
+  alcanzarla la crea Veolab.
 - **Calculados** (solo lectura): `subtotal`, `base_imponible`, `importe_impuesto_1/2`,
   `suplidos`, `total` y `precios_modificados`. Base = subtotal − descuento; total =
   base + impuesto 1 − impuesto 2 (retención) + suplidos. Descuentos e impuestos son texto:
@@ -1146,6 +2735,7 @@ relación y `DELETE` la quita (clave completa en query string).
 | `/cursos/profesores` | `GRHPRO` | `curso`, `empleado` | |
 | `/tipos-operacion/matrices` | `LABOYM` | `tipo_operacion`, `matriz` | |
 | `/proveedores/productos` | `ALMPYP` | `proveedor`, `producto` | `referencia`, `precio` |
+| `/empleados/autorizaciones` | `GRHAUT` | `empleado`, `tecnica` | Desde Veolab 3: `estado`, fechas, `autorizado_por_*`, `resultado_supervision`; auditoría propia (§11 duodecies) |
 
 - `posicion` (orden en la ficha): sin indicarla, al final. Las técnicas de un servicio
   empiezan en 2 (la ficha reserva la 1 para la fila del servicio).
@@ -1191,6 +2781,7 @@ las relaciones.
 | `/empleados/ausencias` | `GRHAUS` | `empleado` | `fecha_inicio`, `fecha_fin`, `descripcion` |
 | `/empleados/curriculum` | `GRHCUR` | `empleado` | `fecha_inicio`, `fecha_fin`, `cargo_*`, `departamento_*` |
 | `/empleados/formacion` | `GRHFOR` | `empleado` | `descripcion`, `observaciones`, fechas, `es_evidencia_adjunta`, `es_plan_empresa` |
+| `/proveedores/evaluaciones` | `SINEVA` | `proveedor` | Desde Veolab 3: `fecha`, `resultado`, `descripcion`, `fecha_proxima`, `evaluador_*`, `tipo_evaluacion_*`; código del contador `ACCCLT` (§11 duodecies) |
 | `/clientes/puntos-muestreo` | `LABPUM` | `cliente` | `descripcion`, `referencia`, `es_baja`, `es_categoria`, `categoria_codigo`, ubicación, campos `sinac_*`… |
 
 - Puntos de muestreo: árbol de un nivel; un punto cuelga de la raíz (`categoria_codigo`
@@ -1211,6 +2802,7 @@ las relaciones.
 | `/tipos-residuo` | `LABTDR` | Descripción única en la delegación y las generales; usado en residuos → `422`. |
 | `/festivos` | `AGEFES` | `fecha` obligatoria. |
 | `/autodefinibles` | `LABAUT` | Ver abajo. |
+| `/envases`, `/lugares`, `/temperaturas` | `LABENV`, `LABLUG`, `LABTEM` | Desde Veolab 3 (antes `422`): valores predefinidos de envase, lugar y temperatura de las operaciones y planificaciones, como `/recolectores`. |
 
 - **Autodefinibles** (definición): `ambito` O operaciones / L lotes (obligatorio, no se
   cambia), `tipo_dato` (N, D, V, T, E, S, F, I), `formato` (opciones de S, tabla de F),
@@ -1220,6 +2812,11 @@ las relaciones.
   Al crear se añade a los campos de operación (`PERCCAO`) de los perfiles de su
   delegación; al borrar se quita, y se borran sus servicios y valores. Con valor en alguna
   operación o lote no se borra (`422`). Auditoría con el nombre como fila.
+  Desde Veolab 3, `predeterminado` (`AUTCPRE`): valor fijo o fórmula (`=...`, se valida la
+  sintaxis → `422`; los ficheros no lo admiten). La pantalla «Campos» guarda además la
+  configuración de los campos fijos de recolección como filas con `tipo_dato` `X`
+  (`formato` = columna de `LABOPE`, `es_baja` = oculto, `predeterminado`), que salen en el
+  listado y no se crean por la API.
 - Fuera de la API por ahora: estadísticas, plantillas de exportación y tablas de
   sistema (idiomas, licencias, semáforos, registros internos).
 
@@ -1272,4 +2869,12 @@ Pendientes:
   valorar (con cuidado, es esquema compartido con Veolab escritorio) añadir
   columna/trigger de modificación.
 - **Avisos que Veolab crea al grabar** (`ACCNOT` al analista, de fecha de compromiso, de
-  marcas en resultados, de firmas): la API aún no los genera.
+  marcas en resultados, de firmas): la API aún no los genera. Tampoco la notificación de
+  seguimiento de presupuestos (`P`, la crea Veolab) ni las de iGEO (`G`, el servicio de iGEO).
+- **Veolab 3 pendiente de la sesión de usuario de Veolab Web:** licencias por usuario
+  concurrente (`ACCCNX`: conexiones W/M al iniciar sesión, latido y recuento del número
+  de licencias de `PARCLBD`), latido `ACCUSU.USUTACT`, privilegio `DOC_EXP` especial 2
+  (solo versión principal) en `/documentos/versiones` y `/documentos/contenido?version=`
+  (sin `version`, el control de documentos ya entrega la aprobada a quien solo consulta si se
+  indica el usuario),
+  y tomar el remitente de los mensajes de la sesión en lugar de la petición.

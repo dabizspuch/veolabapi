@@ -6,6 +6,7 @@ use App\Exceptions\BusinessRuleException;
 use App\Support\ServerError;
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
+use App\Support\VeolabVersion;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
@@ -25,6 +26,9 @@ use Illuminate\Validation\ValidationException;
  *  - Orden configurable con desempate determinista por la clave primaria.
  *  - Paginación offset con envoltorio {data, meta} y tope de 'limit'.
  *  - Errores: 422 para validación y reglas de negocio; nunca se filtra el detalle interno.
+ *  - Versión de la base de datos (ver VeolabVersion): los campos de $since que la
+ *    base del laboratorio aún no tiene se omiten en las respuestas y los filtros y
+ *    se rechazan (422) al escribir; un recurso con $sinceVersion responde 422 entero.
  */
 abstract class BaseController extends Controller
 {
@@ -39,6 +43,21 @@ abstract class BaseController extends Controller
 
     /** Columnas usadas para la búsqueda de texto libre (?search=). */
     protected array $searchFields = [];
+
+    /**
+     * Campos que solo existen desde una versión de la base de datos:
+     * parámetro API => versión mínima (p. ej. 'fecha_elaboracion' => '3.0').
+     * En bases anteriores no se devuelven, no filtran y no se pueden escribir.
+     */
+    protected array $since = [];
+
+    /** Versión mínima de la base de datos para todo el recurso (tabla nueva), o null. */
+    protected ?string $sinceVersion = null;
+
+    /** Campos de $since que la base de datos actual no tiene (parámetro => versión). */
+    protected array $unsupported = [];
+
+    private bool $prepared = false;
 
     /**
      * Claves foráneas: nombre del grupo => tipo del código ('int' | 'string').
@@ -107,6 +126,9 @@ abstract class BaseController extends Controller
         return $data;
     }
 
+    /** Filtros del listado propios de la entidad, además de los campos mapeados. */
+    protected function applyCustomFilters(Request $request, $query): void {}
+
     /** Completa las filas ya mapeadas de un listado (datos de otras tablas). */
     protected function appendRelatedData(array $rows): array
     {
@@ -123,10 +145,14 @@ abstract class BaseController extends Controller
      */
     public function index(Request $request)
     {
+        if ($unavailable = $this->prepareForDatabase()) {
+            return $unavailable;
+        }
         $query = DB::connection('dynamic')->table($this->table);
 
         try {
             $this->applyFilters($request, $query);
+            $this->applyCustomFilters($request, $query);
         } catch (BusinessRuleException $e) {
             return response()->json(['message' => 'Parámetros de consulta no válidos', 'errors' => ['filtro' => [$e->getMessage()]]], 422);
         }
@@ -158,6 +184,7 @@ abstract class BaseController extends Controller
                 'page'      => $paginator->currentPage(),
                 'per_page'  => $paginator->perPage(),
                 'last_page' => $paginator->lastPage(),
+                'version_bd' => VeolabVersion::current(),
             ],
         ]);
     }
@@ -171,6 +198,10 @@ abstract class BaseController extends Controller
     /** Alta a partir de los datos ya decodificados (store y altas derivadas). */
     protected function create(array $data)
     {
+        if ($unavailable = $this->prepareForDatabase()) {
+            return $unavailable;
+        }
+
         try {
             DB::connection('dynamic')->beginTransaction();
 
@@ -240,6 +271,9 @@ abstract class BaseController extends Controller
     /** Actualiza el registro identificado por la clave completa (query string). */
     public function update(Request $request)
     {
+        if ($unavailable = $this->prepareForDatabase()) {
+            return $unavailable;
+        }
         $keyCols = $this->fullKeyColumns($request);
 
         try {
@@ -291,6 +325,9 @@ abstract class BaseController extends Controller
     /** Elimina el registro identificado por la clave completa (query string). */
     public function destroy(Request $request)
     {
+        if ($unavailable = $this->prepareForDatabase()) {
+            return $unavailable;
+        }
         $keyCols = $this->fullKeyColumns($request);
 
         $before = $this->keyQuery($keyCols)->first();
@@ -317,6 +354,65 @@ abstract class BaseController extends Controller
         } catch (\Throwable $e) {
             DB::connection('dynamic')->rollBack();
             return ServerError::response("v2 destroy {$this->table}", $e, 'Error al eliminar el registro');
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Versión de la base de datos
+    // ------------------------------------------------------------------
+
+    /**
+     * Adapta el controlador a la versión de la base de datos del laboratorio:
+     * quita de $mapping (y de sus grupos FK) los campos de $since que aún no
+     * existen, para que no entren en SELECT, filtros, orden ni escritura. Si
+     * el recurso entero es posterior a la base de datos, devuelve la
+     * respuesta 422 que debe darse; si no, null. Idempotente.
+     */
+    protected function prepareForDatabase()
+    {
+        if ($this->sinceVersion !== null && ! VeolabVersion::atLeast($this->sinceVersion)) {
+            return response()->json(['message' => VeolabVersion::message($this->sinceVersion, 'Este recurso')], 422);
+        }
+        if ($this->prepared) {
+            return null;
+        }
+        $this->prepared = true;
+
+        foreach ($this->since as $param => $version) {
+            if (VeolabVersion::atLeast($version)) {
+                continue;
+            }
+            $this->unsupported[$param] = $version;
+            $column = $this->mapping[$param] ?? null;
+            unset($this->mapping[$param]);
+            if ($column !== null && ($pos = array_search($column, $this->searchFields, true)) !== false) {
+                unset($this->searchFields[$pos]);
+            }
+        }
+
+        // Un grupo FK cuyo código ya no está mapeado deja de ser un grupo.
+        foreach (array_keys($this->foreignKeys) as $group) {
+            if (! isset($this->mapping["{$group}_codigo"])) {
+                unset($this->foreignKeys[$group]);
+            }
+        }
+
+        return null;
+    }
+
+    /** ¿El campo está disponible en la base de datos actual? (tras prepareForDatabase) */
+    protected function supports(string $param): bool
+    {
+        return ! isset($this->unsupported[$param]);
+    }
+
+    /** Rechaza los campos de $since que la base de datos actual no tiene. */
+    private function rejectUnsupported(array $data): void
+    {
+        foreach ($this->unsupported as $param => $version) {
+            if (array_key_exists($param, $data)) {
+                throw new BusinessRuleException(VeolabVersion::message($version, "El campo '{$param}'"));
+            }
         }
     }
 
@@ -689,7 +785,10 @@ abstract class BaseController extends Controller
             throw new ValidationException($validator);
         }
 
-        return $validator->validated();
+        $validated = $validator->validated();
+        $this->rejectUnsupported($validated);
+
+        return $validated;
     }
 
     /**

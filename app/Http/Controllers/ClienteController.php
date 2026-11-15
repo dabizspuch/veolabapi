@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\VeolabDocuments;
+use App\Support\VeolabFollowUp;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 class ClienteController extends BaseController
@@ -245,6 +248,8 @@ class ClienteController extends BaseController
         $code = $keys['codigo'] ?? null;
         $delegation = $keys['delegacion'] ?? '';
 
+        $this->checkPrincipal($data, $isCreating, (string) $delegation, (string) $code);
+
         // El nombre de cliente no puede estar repetido.
         if (! empty($data['nombre'])) {
             $query = DB::connection('dynamic')->table('SINCLI')->where('CLICNOM', $data['nombre']);
@@ -271,6 +276,51 @@ class ClienteController extends BaseController
         return $data;
     }
 
+    /**
+     * Veolab 3 (ClientePrincipalValido): un solo nivel de subclientes y
+     * facturar al principal exige indicarlo. Como la ficha, solo se comprueba
+     * lo que cambia la petición, para no impedir grabar fichas antiguas.
+     */
+    private function checkPrincipal(array $data, bool $isCreating, string $delegation, string $code): void
+    {
+        if (! VeolabVersion::isV3()) {
+            return;
+        }
+        $principalGiven = array_key_exists('cliente_principal_codigo', $data);
+        $billingGiven = array_key_exists('modo_facturacion', $data);
+        if (! $principalGiven && ! $billingGiven) {
+            return;
+        }
+
+        $db = DB::connection('dynamic');
+        $current = $isCreating ? null : $db->table('SINCLI')
+            ->where('DEL3COD', $delegation)->where('CLI1COD', $code)->first(['CLI2DEL', 'CLI2COD', 'CLICMDF']);
+        $principalCode = $principalGiven ? (string) ($data['cliente_principal_codigo'] ?? '') : (string) ($current->CLI2COD ?? '');
+        $principalDel = $principalCode === '' ? ''
+            : ($principalGiven ? (string) ($data['cliente_principal_delegacion'] ?? '') : (string) ($current->CLI2DEL ?? ''));
+        $billing = $billingGiven ? (string) ($data['modo_facturacion'] ?? '') : (string) ($current->CLICMDF ?? '');
+
+        if ($billing === 'P' && $principalCode === '') {
+            throw new BusinessRuleException('Para facturar al cliente principal hay que indicar cuál es');
+        }
+        if (! $principalGiven || $principalCode === '') {
+            return;
+        }
+
+        $ownDel = $isCreating ? (string) ($data['delegacion'] ?? '') : $delegation;
+        $ownCode = $isCreating ? (string) ($data['codigo'] ?? '') : $code;
+        if ($ownCode !== '' && $principalDel === $ownDel && $principalCode === $ownCode) {
+            throw new BusinessRuleException('El cliente no puede ser su propio cliente principal');
+        }
+        $grandparent = (string) $db->table('SINCLI')->where('DEL3COD', $principalDel)->where('CLI1COD', $principalCode)->value('CLI2COD');
+        if ($grandparent !== '') {
+            throw new BusinessRuleException('Solo se permite un nivel de subclientes: el cliente principal elegido ya es subcliente de otro');
+        }
+        if (! $isCreating && $db->table('SINCLI')->where('CLI2DEL', $delegation)->where('CLI2COD', $code)->exists()) {
+            throw new BusinessRuleException('El cliente tiene subclientes y no puede depender de otro cliente principal');
+        }
+    }
+
     protected function validateBeforeDelete(array $keys): void
     {
         $delegation = $keys['delegacion'] ?? '';
@@ -288,6 +338,9 @@ class ClienteController extends BaseController
             ['LABLOT', 'CLI2DEL', 'CLI2COD', 'está siendo referenciado en algún lote'],
             ['LABEQU', 'CLI2DEL', 'CLI2COD', 'está siendo referenciado en algún equipo de cliente'],
         ];
+        if (VeolabVersion::isV3()) {
+            $references[] = ['LABSER', 'CLI2DEL', 'CLI2COD', 'tiene servicios exclusivos'];
+        }
 
         foreach ($references as [$table, $delCol, $codCol, $reason]) {
             $used = DB::connection('dynamic')->table($table)
@@ -319,9 +372,11 @@ class ClienteController extends BaseController
         DB::connection('dynamic')->table('LABTYC')
             ->where('CLI3DEL', $delegation)->where('CLI3COD', $code)->delete();
 
+        VeolabFollowUp::deleteClient((string) $delegation, (string) $code);
+
         // Documentos del cliente a la papelera.
         DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)->where('CLI2COD', $code)
-            ->update(['DIR2DEL' => $delegation, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($delegation));
     }
 }

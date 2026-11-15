@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\VeolabDocuments;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 class ProveedorController extends BaseController
@@ -19,6 +21,17 @@ class ProveedorController extends BaseController
 
     protected array $foreignKeys = [
         'tipo_evaluacion' => 'int',
+    ];
+
+    /** ISO 17025 6.6, desde Veolab 3: acreditación del subcontratado, requisitos de compra y evaluaciones. */
+    protected array $since = [
+        'numero_acreditacion'          => VeolabVersion::V3,
+        'organismo_acreditacion'       => VeolabVersion::V3,
+        'fecha_caducidad_acreditacion' => VeolabVersion::V3,
+        'alcance_acreditacion'         => VeolabVersion::V3,
+        'requisitos_compra'            => VeolabVersion::V3,
+        'fecha_ultima_evaluacion'      => VeolabVersion::V3,
+        'fecha_proxima_evaluacion'     => VeolabVersion::V3,
     ];
 
     protected array $mapping = [
@@ -48,6 +61,15 @@ class ProveedorController extends BaseController
         'es_baja'                      => 'PROBBAJ',
         'tipo_evaluacion_delegacion'   => 'TIE2DEL',
         'tipo_evaluacion_codigo'       => 'TIE2COD',
+        // Veolab 3: acreditación del laboratorio subcontratado y requisitos que se proponen en los pedidos
+        'numero_acreditacion'          => 'PROCNAC',
+        'organismo_acreditacion'       => 'PROCOAC',
+        'fecha_caducidad_acreditacion' => 'PRODCAC',
+        'alcance_acreditacion'         => 'PROCALC',
+        'requisitos_compra'            => 'PROCREQ',
+        // Veolab 3, solo lectura: los lleva la última evaluación (/proveedores/evaluaciones)
+        'fecha_ultima_evaluacion'      => 'PRODUEV',
+        'fecha_proxima_evaluacion'     => 'PRODPEV',
     ];
 
     protected function rules(): array
@@ -79,6 +101,12 @@ class ProveedorController extends BaseController
             'es_baja'                      => 'nullable|string|in:T,F|max:1',
             'tipo_evaluacion_delegacion'   => 'nullable|string|max:10',
             'tipo_evaluacion_codigo'       => 'nullable|integer',
+            'numero_acreditacion'          => 'nullable|string|max:50',
+            'organismo_acreditacion'       => 'nullable|string|max:100',
+            'fecha_caducidad_acreditacion' => 'nullable|date',
+            'alcance_acreditacion'         => 'nullable|string|max:255',
+            'requisitos_compra'            => 'nullable|string',
+            // Sin regla (solo lectura): fecha_ultima_evaluacion y fecha_proxima_evaluacion.
         ];
     }
 
@@ -143,8 +171,21 @@ class ProveedorController extends BaseController
         DB::connection('dynamic')->table('PLAPYP')
             ->where('DEL3PRO', $delegation)->where('PRO3COD', $code)->delete();
 
+        // Veolab 3: evaluaciones del proveedor y el aviso de la próxima (notificación H con sus avisos).
+        if (VeolabVersion::isV3()) {
+            $db = DB::connection('dynamic');
+            $db->table('SINEVA')->where('PRO3DEL', $delegation)->where('PRO3COD', $code)->delete();
+            $notifications = $db->table('ACCNOT')->where('NOTCTIP', 'H')
+                ->where('PRO2DEL', $delegation)->where('PRO2COD', $code);
+            foreach ((clone $notifications)->get(['DEL3COD', 'NOT1COD']) as $notification) {
+                $db->table('ACCAVI')->where('AVICTIP', 'N')
+                    ->where('NOT2DEL', $notification->DEL3COD)->where('NOT2COD', $notification->NOT1COD)->delete();
+            }
+            $notifications->delete();
+        }
+
         DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)->where('PRO2COD', $code)
-            ->update(['DIR2DEL' => $delegation, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($delegation));
     }
 }

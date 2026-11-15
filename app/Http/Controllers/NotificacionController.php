@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -32,9 +33,43 @@ class NotificacionController extends BaseController
         'I' => 'Nuevo informe',
         'M' => 'Marca en resultados',
         'S' => 'Stock mínimo',
-        'O' => 'Error en carta de control',
-        'V' => 'Aviso en carta de control',
-        'N' => 'Nueva carta de control',
+        'O' => 'Error en gráfico de control',
+        'V' => 'Aviso en gráfico de control',
+        'N' => 'Nuevo gráfico de control',
+        'P' => 'Fecha de seguimiento de presupuesto',   // Veolab 3
+        'G' => 'Error al recibir una muestra de iGEO',   // Veolab 3 (las crea el servicio de iGEO)
+        'Q' => 'Paso de una incidencia de calidad',      // Veolab 3
+        'K' => 'Fecha prevista de una acción de calidad', // Veolab 3
+        'L' => 'Nueva solicitud de cliente',             // Veolab 3
+        'T' => 'Solicitud de cliente sin decidir',       // Veolab 3
+        'D' => 'Solicitud de cliente decidida',          // Veolab 3
+        'H' => 'Próxima evaluación de un proveedor',     // Veolab 3
+        'J' => 'Fecha límite de envío de un ensayo de aptitud', // Veolab 3
+        'W' => 'Próxima revisión de un documento controlado',    // Veolab 3
+    ];
+
+    /**
+     * Desde Veolab 3: presupuesto (P), incidencia de calidad (Q y K),
+     * solicitud de cliente (L, T y D), proveedor (H), ensayo de aptitud (J) y
+     * documento controlado (W).
+     */
+    protected array $since = [
+        'presupuesto_delegacion' => VeolabVersion::V3,
+        'presupuesto_serie'      => VeolabVersion::V3,
+        'presupuesto_codigo'     => VeolabVersion::V3,
+        'incidencia_delegacion'  => VeolabVersion::V3,
+        'incidencia_serie'       => VeolabVersion::V3,
+        'incidencia_codigo'      => VeolabVersion::V3,
+        'solicitud_delegacion'   => VeolabVersion::V3,
+        'solicitud_serie'        => VeolabVersion::V3,
+        'solicitud_codigo'       => VeolabVersion::V3,
+        'proveedor_delegacion'   => VeolabVersion::V3,
+        'proveedor_codigo'       => VeolabVersion::V3,
+        'ensayo_delegacion'      => VeolabVersion::V3,
+        'ensayo_serie'           => VeolabVersion::V3,
+        'ensayo_codigo'          => VeolabVersion::V3,
+        'documento_delegacion'   => VeolabVersion::V3,
+        'documento_codigo'       => VeolabVersion::V3,
     ];
 
     protected array $foreignKeys = [
@@ -43,6 +78,12 @@ class NotificacionController extends BaseController
         'informe'       => 'int',
         'producto'      => 'string',
         'carta_control' => 'int',
+        'presupuesto'   => 'int',
+        'incidencia'    => 'int',
+        'solicitud'     => 'int',
+        'proveedor'     => 'string',
+        'ensayo'        => 'int',
+        'documento'     => 'int',
     ];
 
     protected array $mapping = [
@@ -63,6 +104,22 @@ class NotificacionController extends BaseController
         'producto_codigo'          => 'PRD2COD',
         'carta_control_delegacion' => 'CDC2DEL',
         'carta_control_codigo'     => 'CDC2COD',
+        'presupuesto_delegacion'   => 'PRE2DEL',
+        'presupuesto_serie'        => 'PRE2SER',
+        'presupuesto_codigo'       => 'PRE2COD',
+        'incidencia_delegacion'    => 'INC2DEL',
+        'incidencia_serie'         => 'INC2SER',
+        'incidencia_codigo'        => 'INC2COD',
+        'solicitud_delegacion'     => 'SOL2DEL',
+        'solicitud_serie'          => 'SOL2SER',
+        'solicitud_codigo'         => 'SOL2COD',
+        'proveedor_delegacion'     => 'PRO2DEL',
+        'proveedor_codigo'         => 'PRO2COD',
+        'ensayo_delegacion'        => 'EAP2DEL',
+        'ensayo_serie'             => 'EAP2SER',
+        'ensayo_codigo'            => 'EAP2COD',
+        'documento_delegacion'     => 'FAT2DEL',
+        'documento_codigo'         => 'FAT2COD',
     ];
 
     protected function appendRelatedData(array $rows): array

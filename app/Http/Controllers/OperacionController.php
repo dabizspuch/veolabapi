@@ -6,9 +6,11 @@ use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Concerns\ChecksVeolabReferences;
 use App\Support\VeolabCodes;
 use App\Support\VeolabCustomFields;
+use App\Support\VeolabDocuments;
 use App\Support\VeolabLicense;
 use App\Support\VeolabOperationServices;
 use App\Support\VeolabStock;
+use App\Support\VeolabVersion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -36,6 +38,12 @@ class OperacionController extends BaseController
     /** Planificación de la que se genera la operación en curso, o null. */
     private ?array $planningSource = null;
 
+    /** Fecha de planificación de la operación que se va a eliminar (se lee antes de borrarla), o null. */
+    private ?object $deletedPlanningDate = null;
+
+    /** Producto, serie y tipo de la operación borrada, para poner al día las fechas de metrología de la serie. */
+    private ?object $deletedMetrology = null;
+
     /** Campos de la operación que se copian de la planificación (GenerarOperacion). */
     private const PLANNING_FIELDS = [
         'informacion' => 'PLOCINF', 'referencia' => 'PLOCREF', 'tipo' => 'PLOCTIP',
@@ -47,6 +55,11 @@ class OperacionController extends BaseController
         'latitud' => 'PLOCLAT', 'longitud' => 'PLOCLNG', 'direccion_gps' => 'PLOCDIG',
         'tipo_muestreo' => 'PLOCTIM', 'id_red_sinac' => 'PLONRED',
         'codigo_localidad_sinac' => 'PLONLOC', 'direccion_sinac' => 'PLOCDIR',
+        // Campos de recolección de Veolab 3 (solo si la base de datos los tiene)
+        'fecha_elaboracion' => 'PLODELA', 'fecha_caducidad' => 'PLODCAD', 'cloro_libre' => 'PLOCCLO',
+        'ph' => 'PLOCPHS', 'conductividad' => 'PLOCCDT', 'condiciones_recepcion' => 'PLOCCRE',
+        'conformidad_recepcion' => 'PLOCCFR',
+        'informacion_cliente' => 'PLOCIAC', 'pedido' => 'PLOCPED', 'transporte' => 'PLOCTRA', 'conservacion' => 'PLOCCNS',
     ];
 
     /** Grupos de claves foráneas que se copian de la planificación (mismas columnas). */
@@ -61,6 +74,21 @@ class OperacionController extends BaseController
     ];
     protected ?string $inactiveField = 'OPEBANU';
     protected array $searchFields = ['OPECDES', 'OPECREF'];
+
+    /** Campos fijos de la pestaña Recolección añadidos en Veolab 3. */
+    protected array $since = [
+        'fecha_elaboracion'     => VeolabVersion::V3,
+        'fecha_caducidad'       => VeolabVersion::V3,
+        'cloro_libre'           => VeolabVersion::V3,
+        'ph'                    => VeolabVersion::V3,
+        'conductividad'         => VeolabVersion::V3,
+        'condiciones_recepcion' => VeolabVersion::V3,
+        'conformidad_recepcion' => VeolabVersion::V3,
+        'informacion_cliente'   => VeolabVersion::V3,
+        'pedido'                => VeolabVersion::V3,
+        'transporte'            => VeolabVersion::V3,
+        'conservacion'          => VeolabVersion::V3,
+    ];
 
     protected bool $generatesCode = true;
     protected string $codeKey = 'codigo';
@@ -133,6 +161,17 @@ class OperacionController extends BaseController
         'recolector'                     => 'OPECREC',
         'lugar_recogida'                 => 'OPECLUR',
         'temperatura'                    => 'OPECTEM',
+        'fecha_elaboracion'              => 'OPEDELA',
+        'fecha_caducidad'                => 'OPEDCAD',
+        'cloro_libre'                    => 'OPECCLO',
+        'ph'                             => 'OPECPHS',
+        'conductividad'                  => 'OPECCDT',
+        'condiciones_recepcion'          => 'OPECCRE',
+        'conformidad_recepcion'          => 'OPECCFR',   // ISO 17025 7.4: vacía sin evaluar, C conforme, N no conforme, D con desviación
+        'informacion_cliente'            => 'OPECIAC',
+        'pedido'                         => 'OPECPED',
+        'transporte'                     => 'OPECTRA',
+        'conservacion'                   => 'OPECCNS',
         'es_urgente'                     => 'OPEBURG',
         'es_baja'                        => 'OPEBANU',
         'es_prefacturada'                => 'OPEBPRE',
@@ -245,6 +284,17 @@ class OperacionController extends BaseController
             'recolector'                     => 'nullable|string|max:100',
             'lugar_recogida'                 => 'nullable|string|max:100',
             'temperatura'                    => 'nullable|string|max:50',
+            'fecha_elaboracion'              => 'nullable|date',
+            'fecha_caducidad'                => 'nullable|date',
+            'cloro_libre'                    => 'nullable|string|max:20',
+            'ph'                             => 'nullable|string|max:20',
+            'conductividad'                  => 'nullable|string|max:20',
+            'condiciones_recepcion'          => 'nullable|string|max:255',
+            'conformidad_recepcion'          => 'nullable|string|in:C,N,D',
+            'informacion_cliente'            => 'nullable|string|max:255',
+            'pedido'                         => 'nullable|string|max:50',
+            'transporte'                     => 'nullable|string|max:100',
+            'conservacion'                   => 'nullable|string|max:100',
             'es_urgente'                     => 'nullable|string|in:T,F',
             'es_baja'                        => 'nullable|string|in:T,F',
             'cantidad'                       => 'nullable|string|max:50',
@@ -323,6 +373,13 @@ class OperacionController extends BaseController
         $customFields = VeolabCustomFields::resolve($delegation, $data['autodefinibles'] ?? null);
         unset($data['autodefinibles']);
 
+        // Las fechas de recolección se guardan sin hora (se escriben como texto en la ficha).
+        foreach (['fecha_elaboracion', 'fecha_caducidad'] as $param) {
+            if (! empty($data[$param])) {
+                $data[$param] = (new \DateTime($data[$param]))->format('Y-m-d 00:00:00');
+            }
+        }
+
         if ($this->planningSource) {
             $this->assertPlanningDateAvailable();
             // Los autodefinibles de la planificación, con los indicados encima.
@@ -337,6 +394,8 @@ class OperacionController extends BaseController
             $data['es_baja'] ??= 'F';
             $data['descuento'] ??= ''; // Veolab guarda '' sin descuento
             $data['tipo_desglose'] ??= $this->defaultBreakdown();
+
+            $data = $this->applyServiceClient($data);
 
             // Tarifa por defecto: la del cliente (CargarTarifaCliente).
             $data = $this->applyClientTariff($data);
@@ -371,6 +430,7 @@ class OperacionController extends BaseController
 
         $data = $this->applyBillable($data, $current);
         $data = $this->applyStateRules($data, $current);
+        [$data, $customFields] = $this->applyFieldDefaults($data, $current, $delegation, $customFields, $keys);
 
         $opKey = $current ? [$keys['delegacion'], $keys['serie'], (int) $keys['codigo']] : null;
         $this->assertRequiredFields($data, $current, $delegation, $opKey, $customFields);
@@ -378,6 +438,44 @@ class OperacionController extends BaseController
         $data['_autodefinibles'] = $customFields;
 
         return $data;
+    }
+
+    /**
+     * Veolab 3: valores predeterminados y fórmulas (LABAUT.AUTCPRE) de los
+     * autodefinibles y de los campos fijos de recolección, como la ficha
+     * (ver VeolabCustomFields::applyDefaults). Al generar desde una
+     * planificación no se ponen los valores fijos (es una copia), solo las
+     * fórmulas de los campos vacíos.
+     */
+    private function applyFieldDefaults(array $data, ?object $current, string $delegation, array $customFields, array $keys): array
+    {
+        $isNew = $current === null;
+        $db = DB::connection('dynamic');
+        if ($isNew) {
+            $stored = [];
+            if ($this->planningSource) {
+                $services = $db->table('LABPYS')
+                    ->where('PLO3DEL', $this->planningSource['delegacion'])->where('PLO3COD', $this->planningSource['codigo'])
+                    ->get(['SER3DEL', 'SER3COD'])->map(fn ($s) => [(string) $s->SER3DEL, (string) $s->SER3COD])->all();
+            } else {
+                $services = array_map(fn ($s) => [(string) ($s['delegacion'] ?? ''), (string) $s['codigo']], $data['servicios'] ?? []);
+            }
+        } else {
+            $stored = VeolabCustomFields::stored('LABOPE', [$keys['delegacion'], $keys['serie'], (int) $keys['codigo']], $delegation);
+            $services = $db->table('LABOYS')
+                ->where('OPE3DEL', $keys['delegacion'])->where('OPE3SER', $keys['serie'])->where('OPE3COD', (int) $keys['codigo'])
+                ->get(['SER3DEL', 'SER3COD'])->map(fn ($s) => [(string) $s->SER3DEL, (string) $s->SER3COD])->all();
+        }
+
+        [$changedCustom, $changedFixed] = VeolabCustomFields::applyDefaults('LABOPE', $delegation, $customFields, $stored,
+            VeolabCustomFields::fixedValues('LABOPE', $data, $current, $this->mapping),
+            VeolabCustomFields::fixedGiven('LABOPE', $data, $this->mapping),
+            $services, $isNew, $isNew && ! $this->planningSource);
+
+        return [
+            array_replace($data, VeolabCustomFields::fixedToData('LABOPE', $changedFixed, $this->mapping)),
+            $changedCustom + $customFields,
+        ];
     }
 
     /**
@@ -496,6 +594,9 @@ class OperacionController extends BaseController
             return response()->json(['message' => 'Planificación no encontrada'], 404);
         }
 
+        if ($unavailable = $this->prepareForDatabase()) {
+            return $unavailable;
+        }
         try {
             $payload = $this->payloadFromPlanning($plan, $body['fecha'] ?? null, $body['operacion'] ?? []);
         } catch (BusinessRuleException $e) {
@@ -533,7 +634,7 @@ class OperacionController extends BaseController
 
         $payload = [];
         foreach (self::PLANNING_FIELDS as $param => $column) {
-            if ($plan->{$column} !== null && $plan->{$column} !== '') {
+            if ($this->supports($param) && property_exists($plan, $column) && $plan->{$column} !== null && $plan->{$column} !== '') {
                 $payload[$param] = $plan->{$column};
             }
         }
@@ -629,6 +730,9 @@ class OperacionController extends BaseController
         }
 
         VeolabCustomFields::save('LABOPE', [$del, $ser, $cod], $data['_autodefinibles'] ?? [], $this->auditRow($keys));
+
+        // Veolab 3: próxima calibración, verificación o mantenimiento de la serie (al finalizar, anular, generar...)
+        VeolabStock::syncOperationMetrology(VeolabStock::operationForMetrology($del, $ser, $cod));
 
         return $data;
     }
@@ -728,6 +832,8 @@ class OperacionController extends BaseController
             ->where('LABIYO.OPE3SER', $series)
             ->where('LABIYO.OPE3COD', $code)
             ->where(fn ($q) => $q->whereNull('LABIYO.IYOBHIS')->orWhere('LABIYO.IYOBHIS', '<>', 'T'))
+            // Veolab 3: un informe sustituido no bloquea sus operaciones.
+            ->when(VeolabVersion::isV3(), fn ($q) => $q->where(fn ($w) => $w->whereNull('LABINF.INFBSUS')->orWhere('LABINF.INFBSUS', '<>', 'T')))
             ->get(['LABINF.DEL3COD', 'LABINF.INF1SER', 'LABINF.INF1COD', 'LABINF.INFCVAL']);
 
         foreach ($reports as $report) {
@@ -759,7 +865,7 @@ class OperacionController extends BaseController
             ['LABIYO', 'OPE3', 'está incluida en informes'],
             ['FACLIF', 'OPE2', 'está en líneas de factura'],
             ['LABRED', 'OPE2', 'está referenciada en residuos'],
-            ['LABRCD', 'OPE2', 'está referenciada en cartas de control'],
+            ['LABRCD', 'OPE2', 'está referenciada en gráficos de control'],
             ['LABOPE', 'OPE2', 'es operación de control de otra operación'],
             ['ALMPRE', 'OPE2', 'está referenciada en préstamos'],
         ];
@@ -778,6 +884,13 @@ class OperacionController extends BaseController
         if ((int) $invoice > 0) {
             throw new BusinessRuleException('La operación no puede eliminarse porque está facturada');
         }
+
+        $this->deletedMetrology = VeolabStock::operationForMetrology($del, $ser, $cod);
+
+        // Fecha de planificación que generó, para dejarla pendiente al terminar el borrado
+        $this->deletedPlanningDate = DB::connection('dynamic')->table('LABOPE')
+            ->where('DEL3COD', $del)->where('OPE1SER', $ser)->where('OPE1COD', $cod)
+            ->first(['PLO2DEL', 'PLO2COD', 'FEP2COD']);
     }
 
     /** Cascada de Operaciones.frm (borrado múltiple). */
@@ -791,8 +904,30 @@ class OperacionController extends BaseController
             VeolabStock::cancelOperationConsumptions($del, $ser, $cod);
         }
 
+        // Veolab 3: la fecha de planificación que generó vuelve a quedar pendiente si no le queda otra operación
+        // (LAB_LiberarFechasPlanificacion, que Veolab 2.4.5 no tiene). La operación ya está borrada: se leyó en
+        // validateBeforeDelete.
+        $origen = $this->deletedPlanningDate;
+        if ($origen && VeolabVersion::isV3() &&(int) $origen->PLO2COD > 0 && (int) $origen->FEP2COD > 0) {
+            $otras = $db->table('LABOPE')
+                ->where('PLO2DEL', $origen->PLO2DEL)->where('PLO2COD', $origen->PLO2COD)->where('FEP2COD', $origen->FEP2COD)
+                ->exists();
+            if (! $otras) {
+                $db->table('LABFEP')
+                    ->where('PLO3DEL', $origen->PLO2DEL)->where('PLO3COD', $origen->PLO2COD)->where('FEP1COD', $origen->FEP2COD)
+                    ->where('FEPBCOM', 'T')
+                    ->update(['FEPBCOM' => 'F']);
+            }
+        }
+
         foreach (['LABRES', 'LABCOR', 'LABOYS', 'LABOYE', 'LABOYD', 'LABOYG', 'LABOYA'] as $table) {
             $db->table($table)->where('OPE3DEL', $del)->where('OPE3SER', $ser)->where('OPE3COD', $cod)->delete();
+        }
+        if (VeolabVersion::isV3()) {
+            $db->table('LABOYN')->where('OPE3DEL', $del)->where('OPE3SER', $ser)->where('OPE3COD', $cod)->delete();
+            // SOL_LiberarMuestras: su muestra de solicitud vuelve a quedar pendiente (la solicitud conserva su estado).
+            $db->table('LABSOM')->where('OPE2DEL', $del)->where('OPE2SER', $ser)->where('OPE2COD', $cod)
+                ->update(['OPE2DEL' => null, 'OPE2SER' => null, 'OPE2COD' => null]);
         }
         foreach (['ALMMOV', 'ACCNOT'] as $table) {
             $db->table($table)->where('OPE2DEL', $del)->where('OPE2SER', $ser)->where('OPE2COD', $cod)->delete();
@@ -800,7 +935,10 @@ class OperacionController extends BaseController
 
         // Documentos a la papelera.
         $db->table('DOCFAT')->where('DEL3COD', $del)->where('OPE2SER', $ser)->where('OPE2COD', $cod)
-            ->update(['DIR2DEL' => $del, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($del));
+
+        // Veolab 3: con la fecha de planificación otra vez pendiente, la próxima fecha de la serie vuelve a ser esa
+        VeolabStock::syncOperationMetrology($this->deletedMetrology);
     }
 
 }

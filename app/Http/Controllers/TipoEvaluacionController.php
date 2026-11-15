@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 class TipoEvaluacionController extends BaseController
@@ -85,6 +86,12 @@ class TipoEvaluacionController extends BaseController
             ->where('TIE2DEL', $delegation)->where('TIE2COD', $code)->exists();
         if ($used) {
             throw new BusinessRuleException('El tipo de evaluación no puede ser eliminado porque está siendo referenciado en proveedores');
+        }
+
+        // Veolab 3 (TiposEvaluacion.frm): también lo usan las evaluaciones de proveedores.
+        if (VeolabVersion::isV3() && DB::connection('dynamic')->table('SINEVA')
+            ->where('TIE2DEL', $delegation)->where('TIE2COD', $code)->exists()) {
+            throw new BusinessRuleException('El tipo de evaluación no puede ser eliminado porque está siendo referenciado en evaluaciones de proveedores');
         }
     }
 }

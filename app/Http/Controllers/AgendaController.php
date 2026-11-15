@@ -6,6 +6,7 @@ use App\Exceptions\BusinessRuleException;
 use App\Support\VeolabAgenda;
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
+use App\Support\VeolabDocuments;
 use App\Support\VeolabPeriodicity;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -330,7 +331,7 @@ class AgendaController extends BaseController
         $db->table('AGEASI')->where('USU3DEL', $del)->where('USU3COD', $usu)->where('AGE3COD', $cod)->delete();
         $db->table('ACCAVI')->where('AGE2DEL', $del)->where('AGE2USU', $usu)->where('AGE2COD', $cod)->delete();
         $db->table('DOCFAT')->where('DEL3COD', $del)->where('AGE2SER', $usu)->where('AGE2COD', $cod)
-            ->update(['DIR2DEL' => $del, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($del));
     }
 
     /** Fechas de los eventos del usuario o a los que asiste, entre dos fechas. */

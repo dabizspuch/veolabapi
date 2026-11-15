@@ -254,7 +254,7 @@ class VeolabFormulas
         if ($distinct) {
             $cell['value'] = $new;
             $cell['changed'] = true;
-            if (VeolabResults::applyRangeMark($cell, $this->marks, $this->operation[0], false)) {
+            if (VeolabResults::applyRangeMark($cell, $this->marks, $this->operation[0], false, $this)) {
                 $this->marksChanged = true;
             }
         }
@@ -294,6 +294,21 @@ class VeolabFormulas
     // ------------------------------------------------------------------
     // Evaluación (EvaluaFormula)
     // ------------------------------------------------------------------
+
+    /**
+     * Cálculo suelto sobre la fila de la técnica (PrioridadCacheada +
+     * EvaluaFormula), para los extremos de los rangos con cálculos y la
+     * incertidumbre con «=» (Veolab 3). Null si usa un field() que la API no
+     * calcula o da un error de sintaxis.
+     */
+    public function evaluateExpression(string $expression, string $tec): ?string
+    {
+        try {
+            return $this->evaluate(self::priority($expression), $tec);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
 
     /** EvaluaFormula: de izquierda a derecha sobre la fórmula ya con paréntesis de prioridad. */
     private function evaluate(string $formula, string $tec): string
@@ -946,7 +961,11 @@ class VeolabFormulas
             } elseif (self::first($atom) === '(') {
                 $open -= substr_count($atom, '(');
                 if ($open <= 0) {
-                    $end = $i > 1 && self::isLower(self::first(self::item($atoms, $i - 1))) ? $i - 1 : $i;
+                    // Veolab 3 (ParentesisOperandoIzquierda): un - justo tras el paréntesis es un signo
+                    // aunque haya una función delante, así no quedan fuera sus otros parámetros,
+                    // round(-A/B;2). Veolab 2.4.5 no lo distingue.
+                    $sign = VeolabVersion::isV3() && $i === $position - 1 && $atom === '(' && self::item($atoms, $position) === '-';
+                    $end = ! $sign && $i > 1 && self::isLower(self::first(self::item($atoms, $i - 1))) ? $i - 1 : $i;
                 }
             } elseif (self::isLower(self::first($atom))) {
                 // función: se continúa

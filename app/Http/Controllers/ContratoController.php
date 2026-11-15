@@ -8,7 +8,9 @@ use App\Http\Controllers\Concerns\ChecksVeolabReferences;
 use App\Support\VeolabAudit;
 use App\Support\VeolabBillingLines;
 use App\Support\VeolabCodes;
+use App\Support\VeolabDocuments;
 use App\Support\VeolabLicense;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -117,7 +119,8 @@ class ContratoController extends BaseController
             'es_archivado'                   => 'sometimes|string|in:T,F',
             'es_predeterminado'              => 'sometimes|string|in:T,F',
             'facturar_operaciones'           => 'sometimes|string|in:T,F',
-            'importe_facturacion'            => 'sometimes|string|in:C,O',
+            // Cómo se cobra: C cuota con sus operaciones, A cuota y operaciones aparte, O por operaciones, N sin facturación.
+            'importe_facturacion'            => 'sometimes|string|in:C,O,A,N',
             'precio'                         => 'sometimes|numeric|min:0|max:9999999999999.99',
             'renovacion'                     => 'sometimes|integer|min:0',
             'renovacion_unidad'              => 'sometimes|string|in:D,S,M,A',
@@ -172,6 +175,12 @@ class ContratoController extends BaseController
             $current = $db->table($this->table)
                 ->where('DEL3COD', $contract[0])->where('CON1SER', $contract[1])->where('CON1COD', $contract[2])->first();
         }
+        $data = $this->applyServiceClient($data, $current);
+
+        // A (cuota y operaciones aparte) y N (sin facturación) existen desde Veolab 3.
+        if (in_array($data['importe_facturacion'] ?? null, ['A', 'N'], true) && ! VeolabVersion::isV3()) {
+            throw new BusinessRuleException(VeolabVersion::message(VeolabVersion::V3, "El importe de facturación '{$data['importe_facturacion']}'"));
+        }
 
         // CamposValidos: la descripción es obligatoria.
         if (($isNew || array_key_exists('descripcion', $data)) && trim((string) ($data['descripcion'] ?? '')) === '') {
@@ -190,7 +199,9 @@ class ContratoController extends BaseController
             $data['es_cancelado'] ??= 'F';
             $data['es_archivado'] ??= 'F';
             $data['es_predeterminado'] ??= 'F';
-            $data['facturar_operaciones'] ??= 'F';
+            // Como en la ficha de escritorio de Veolab 3: cuota cuyas operaciones solo se facturan
+            // desde el contrato. Veolab 2.4 dejaba la casilla sin marcar.
+            $data['facturar_operaciones'] ??= VeolabVersion::isV3() && ($data['importe_facturacion'] ?? 'C') === 'C' ? 'T' : 'F';
             $data['importe_facturacion'] ??= 'C';
             $data['renovacion'] ??= 0;
             $data['renovacion_unidad'] ??= 'A';
@@ -323,7 +334,7 @@ class ContratoController extends BaseController
 
         VeolabBillingLines::delete($this->table, [$del, $ser, $cod]);
         DB::connection('dynamic')->table('DOCFAT')->where('DEL3COD', $del)->where('CON2SER', $ser)->where('CON2COD', $cod)
-            ->update(['DIR2DEL' => $del, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($del));
 
         // $ESPVER016 "Eliminación de contrato".
         VeolabAudit::verifactu($this->table, $this->auditRow($keys), '$ESPVER016');

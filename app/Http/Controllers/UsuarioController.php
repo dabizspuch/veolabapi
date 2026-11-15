@@ -6,7 +6,9 @@ use App\Exceptions\BusinessRuleException;
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
 use App\Support\VeolabPassword;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class UsuarioController extends BaseController
 {
@@ -55,6 +57,12 @@ class UsuarioController extends BaseController
         'empleado_codigo'         => 'EMP2COD',
         'cliente_delegacion'      => 'CLI2DEL',
         'cliente_codigo'          => 'CLI2COD',
+        'abrir_tareas_al_iniciar' => 'USUBTAP',   // Veolab 3: abrir las tareas pendientes al iniciar sesión (T/F)
+    ];
+
+    /** Desde Veolab 3 (y con el script que crea la columna; ver prepareForDatabase). */
+    protected array $since = [
+        'abrir_tareas_al_iniciar' => VeolabVersion::V3,
     ];
 
     /** Tipos de usuario (USUNTIP; 2 = otro). */
@@ -88,7 +96,33 @@ class UsuarioController extends BaseController
             'empleado_codigo'         => 'nullable|integer',
             'cliente_delegacion'      => 'nullable|string|max:10',
             'cliente_codigo'          => 'nullable|string|max:15',
+            'abrir_tareas_al_iniciar' => 'nullable|string|in:T,F|max:1',
         ];
+    }
+
+    /**
+     * Además de lo de BaseController: en una base de Veolab 3 sin el script de
+     * las tareas pendientes (ACCUSU.USUBTAP), el campo se trata como no
+     * disponible.
+     */
+    protected function prepareForDatabase()
+    {
+        if ($unavailable = parent::prepareForDatabase()) {
+            return $unavailable;
+        }
+        if ($this->supports('abrir_tareas_al_iniciar')) {
+            try {
+                $exists = Schema::connection('dynamic')->hasColumn('ACCUSU', 'USUBTAP');
+            } catch (\Throwable) {
+                $exists = false;
+            }
+            if (! $exists) {
+                $this->unsupported['abrir_tareas_al_iniciar'] = VeolabVersion::V3;
+                unset($this->mapping['abrir_tareas_al_iniciar']);
+            }
+        }
+
+        return null;
     }
 
     protected function validateRelationships(array $data): void
@@ -234,9 +268,10 @@ class UsuarioController extends BaseController
 
     /**
      * Contraseña: se graba aparte para no exponerla ni auditar su valor. Como
-     * FichaUsuario: cifrada con ENC_Encripta (o vacía) y USUDCON = hoy; en un
-     * alta sin contraseña también se fija la fecha. Al modificarla se audita
-     * el campo ACCUSUUSUCCON sin valores.
+     * FichaUsuario: con VeolabPassword::make (hash en bases 3.0, ENC_Encripta
+     * en las anteriores) o vacía, USUDCON = hoy y sin contraseña temporal de
+     * la web; en un alta sin contraseña también se fija la fecha. Al
+     * modificarla se audita el campo ACCUSUUSUCCON sin valores.
      */
     protected function updateAdditionalData(array $data, array $keys): array
     {
@@ -246,12 +281,18 @@ class UsuarioController extends BaseController
         }
 
         $plain = (string) ($data['contrasena'] ?? '');
+        $values = [
+            'USUCCON' => VeolabPassword::make($plain),
+            'USUDCON' => date('Y-m-d 00:00:00'),
+        ];
+        if (VeolabPassword::hashed()) {
+            // La temporal de la web solo existe desde la base de datos 3.0
+            $values['USUCTMP'] = null;
+            $values['USUTTMP'] = null;
+        }
         DB::connection('dynamic')->table('ACCUSU')
             ->where('DEL3COD', $keys['delegacion'] ?? '')->where('USU1COD', $keys['codigo'])
-            ->update([
-                'USUCCON' => $plain === '' ? '' : VeolabPassword::encrypt($plain),
-                'USUDCON' => date('Y-m-d 00:00:00'),
-            ]);
+            ->update($values);
 
         if ($given && ! $this->creating) {
             $row = VeolabCodes::format($this->table, (string) $keys['codigo'], (string) ($keys['delegacion'] ?? ''));

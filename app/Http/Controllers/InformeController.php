@@ -6,8 +6,12 @@ use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Concerns\ChecksVeolabReferences;
 use App\Support\ServerError;
 use App\Support\VeolabAudit;
+use App\Support\VeolabDocuments;
 use App\Support\VeolabLicense;
+use App\Support\VeolabRegulations;
 use App\Support\VeolabReports;
+use App\Support\VeolabResults;
+use App\Support\VeolabVersion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -80,6 +84,20 @@ class InformeController extends BaseController
         'normativa_codigo'              => 'NOR2COD',
         'ultima_firma_delegacion'       => 'TIF2DEL',
         'ultima_firma_codigo'           => 'TIF2COD',
+        // Veolab 3, solo lectura (la sustitución se hace en Veolab): informe al que sustituye, su motivo y si este está sustituido.
+        'sustituye_delegacion'          => 'INF2DEL',
+        'sustituye_serie'               => 'INF2SER',
+        'sustituye_codigo'              => 'INF2COD',
+        'motivo_sustitucion'            => 'INFCMOT',
+        'es_sustituido'                 => 'INFBSUS',
+    ];
+
+    protected array $since = [
+        'sustituye_delegacion' => VeolabVersion::V3,
+        'sustituye_serie'      => VeolabVersion::V3,
+        'sustituye_codigo'     => VeolabVersion::V3,
+        'motivo_sustitucion'   => VeolabVersion::V3,
+        'es_sustituido'        => VeolabVersion::V3,
     ];
 
     /** Campos bloqueados con el informe firmado, y los que añade CONBBLI. */
@@ -166,6 +184,7 @@ class InformeController extends BaseController
             $current = $db->table($this->table)
                 ->where('DEL3COD', $report[0])->where('INF1SER', $report[1])->where('INF1COD', $report[2])->first();
             if ($current) {
+                $this->assertNotReplaced($current);
                 $this->assertEditable($data, $operations, $historical, $current, $report);
             }
         }
@@ -198,8 +217,15 @@ class InformeController extends BaseController
             $data['fecha_creacion'] = DB::connection('dynamic')->selectOne('SELECT CURDATE() AS d')->d.' 00:00:00';
         }
 
-        if (! array_key_exists('normativa_codigo', $data) && ($regulation = VeolabReports::defaultRegulation($operations))) {
-            [$data['normativa_delegacion'], $data['normativa_codigo']] = $regulation;
+        if (! array_key_exists('normativa_codigo', $data)) {
+            if (VeolabVersion::isV3()) {
+                if ($regulations = VeolabRegulations::ofOperations($operations)) {
+                    [$data['normativa_delegacion'], $data['normativa_codigo']] = $regulations[0];
+                    $data['_normativas'] = $regulations;
+                }
+            } elseif ($regulation = self::firstServiceRegulation($operations)) {
+                [$data['normativa_delegacion'], $data['normativa_codigo']] = $regulation;
+            }
         }
         if (! array_key_exists('forma_envio_codigo', $data) && ($delivery = VeolabReports::defaultDelivery($operations))) {
             [$data['forma_envio_delegacion'], $data['forma_envio_codigo']] = $delivery;
@@ -209,6 +235,24 @@ class InformeController extends BaseController
         }
 
         return $data;
+    }
+
+    /**
+     * Veolab 3: un informe sustituido por otro (INFBSUS) es de solo lectura,
+     * firmas incluidas, como en FichaInforme (booInformeSustituido).
+     */
+    private function assertNotReplaced(object $current): void
+    {
+        if (! VeolabVersion::isV3() || (string) ($current->INFBSUS ?? '') !== 'T') {
+            return;
+        }
+
+        $replacement = DB::connection('dynamic')->table($this->table)
+            ->where('INF2DEL', (string) $current->DEL3COD)->where('INF2SER', (string) $current->INF1SER)
+            ->where('INF2COD', (int) $current->INF1COD)->orderByDesc('INF1COD')->first(['INF1SER', 'INF1COD']);
+        $by = $replacement ? ' por el informe '.trim($replacement->INF1SER.' '.$replacement->INF1COD) : '';
+
+        throw new BusinessRuleException("El informe está sustituido{$by} y no puede modificarse");
     }
 
     /**
@@ -315,6 +359,12 @@ class InformeController extends BaseController
         }
         if (! $data['_nuevo'] && (isset($data['_operaciones']) || isset($data['_historicas']))) {
             VeolabAudit::record(VeolabAudit::MODIFICACION_CAMPO, $this->table, $this->auditRow($keys), 'LABIYO');
+        }
+
+        if (isset($data['_normativas'])) {
+            VeolabRegulations::saveForReport($report, $data['_normativas']);
+        } elseif (! $data['_nuevo'] && array_key_exists('normativa_codigo', $data)) {
+            VeolabRegulations::promoteInReport($report, (string) ($data['normativa_delegacion'] ?? ''), (string) $data['normativa_codigo']);
         }
 
         if ($data['_sincronizar']) {
@@ -447,6 +497,7 @@ class InformeController extends BaseController
                 return response()->json(['message' => 'Registro no encontrado'], 404);
             }
 
+            $this->assertNotReplaced($current);
             $state = $this->applySignature($report, $body);
             $update = ['TIF2DEL' => $state['last'][0], 'TIF2COD' => $state['last'][1]];
             $row = $this->auditRow($keys);
@@ -536,6 +587,11 @@ class InformeController extends BaseController
             if (! VeolabReports::canSign($types, $index)) {
                 throw new BusinessRuleException('No se puede firmar: hay firmas obligatorias anteriores pendientes');
             }
+            // Veolab 3 (CONBCRF, Configurar informes): el motivo del rechazo es obligatorio.
+            if ($action === 'rechazar' && trim((string) ($body['comentario'] ?? '')) === '' && VeolabVersion::isV3()
+                && $db->table('LABCON')->where('CON1COD', 1)->value('CONBCRF') === 'T') {
+                throw new BusinessRuleException('Escriba el motivo del rechazo (comentario): sin él no se puede rechazar la firma');
+            }
             $userDel = (string) ($body['usuario_delegacion'] ?? '');
             $user = $db->table('ACCUSU')->where('DEL3COD', $userDel)->where('USU1COD', $body['usuario_codigo'])->first(['USUBBAJ']);
             if (! $user || $user->USUBBAJ === 'T') {
@@ -573,12 +629,36 @@ class InformeController extends BaseController
     /** BorradoFisicoPermitido: un informe validado no se borra. */
     protected function validateBeforeDelete(array $keys): void
     {
-        $state = DB::connection('dynamic')->table($this->table)
+        $current = DB::connection('dynamic')->table($this->table)
             ->where('DEL3COD', (string) $keys['delegacion'])->where('INF1SER', (string) $keys['serie'])
-            ->where('INF1COD', (int) $keys['codigo'])->value('INFCVAL');
-        if ($state === 'V') {
+            ->where('INF1COD', (int) $keys['codigo'])->first();
+        if ($current && $current->INFCVAL === 'V') {
             throw new BusinessRuleException('El informe está validado y no puede ser eliminado');
         }
+        if ($current) {
+            $this->assertNotReplaced($current);
+        }
+    }
+
+    /**
+     * LAB_LiberarInformesSustituidos (Veolab 3): al borrar un informe
+     * sustituto, el original deja de estar sustituido.
+     */
+    private function releaseReplaced(string $del, string $ser, int $cod): void
+    {
+        $db = DB::connection('dynamic');
+        $original = $db->table($this->table)->where('DEL3COD', $del)->where('INF1SER', $ser)->where('INF1COD', $cod)
+            ->where('INF2COD', '>', 0)->first(['INF2DEL', 'INF2SER', 'INF2COD']);
+        if (! $original) {
+            return;
+        }
+
+        $keys = ['delegacion' => (string) $original->INF2DEL, 'serie' => (string) $original->INF2SER, 'codigo' => (int) $original->INF2COD];
+        $db->table($this->table)->where('DEL3COD', $keys['delegacion'])->where('INF1SER', $keys['serie'])
+            ->where('INF1COD', $keys['codigo'])->update(['INFBSUS' => null]);
+        // Como LVW_ObtenValorSiNo: el texto de Sí / No del idioma.
+        [$yes, $no] = VeolabResults::yesNo();
+        VeolabAudit::record(VeolabAudit::MODIFICACION_CAMPO, $this->table, $this->auditRow($keys), 'LABINFINFBSUS', $no, $yes);
     }
 
     /**
@@ -600,9 +680,32 @@ class InformeController extends BaseController
 
         $db->table('LABIYO')->where($reportKey)->delete();
         $db->table('LABFIR')->where($reportKey)->delete();
+        if (VeolabVersion::isV3()) {
+            $db->table('LABIYN')->where($reportKey)->delete();
+            $this->releaseReplaced($del, $ser, $cod);
+        }
         $db->table('ACCNOT')->where('INF2DEL', $del)->where('INF2SER', $ser)->where('INF2COD', $cod)->delete();
         $db->table('DOCFAT')->where('DEL3COD', $del)->where('INF2SER', $ser)->where('INF2COD', $cod)
-            ->update(['DIR2DEL' => $del, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($del));
+    }
+
+    /**
+     * Veolab 2.4.5 (FichaInforme): normativa del primer servicio de la
+     * operación de menor código; sin ella, el informe queda sin normativa.
+     */
+    private static function firstServiceRegulation(array $operations): ?array
+    {
+        usort($operations, fn ($a, $b) => $a[2] <=> $b[2]);
+        [$del, $ser, $cod] = $operations[0];
+
+        $row = DB::connection('dynamic')->table('LABOYS')
+            ->join('LABSER', function ($join) {
+                $join->on('LABSER.DEL3COD', '=', 'LABOYS.SER3DEL')->on('LABSER.SER1COD', '=', 'LABOYS.SER3COD');
+            })
+            ->where('LABOYS.OPE3DEL', $del)->where('LABOYS.OPE3SER', $ser)->where('LABOYS.OPE3COD', $cod)
+            ->first(['LABSER.NOR2DEL', 'LABSER.NOR2COD']);
+
+        return $row && (string) $row->NOR2COD !== '' ? [(string) $row->NOR2DEL, (string) $row->NOR2COD] : null;
     }
 
     /** Lista de operaciones recibida sin repetidos, o null si no se indica. */

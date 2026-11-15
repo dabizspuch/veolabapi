@@ -270,7 +270,8 @@ class VeolabOperationServices
     }
 
     /**
-     * Analista predeterminado (primero de LABTYE), departamento de la sección y
+     * Analista predeterminado (primero de LABTYE o, en Veolab 3, su sustituto si
+     * no está autorizado: VeolabAuthorizations), departamento de la sección y
      * referencia IGEO del cliente (PrimeraReferencia: hasta la primera coma).
      */
     private static function techniqueExtras(object $tec, object $ctx): array
@@ -291,9 +292,13 @@ class VeolabOperationServices
             $ref = trim(substr($ref, 0, $pos));
         }
 
+        // Veolab 3 (AUP_ElegirAnalista): si el titular tiene autorización registrada y no vigente, el primer sustituto que no.
+        [$analystDel, $analystCod] = VeolabAuthorizations::chooseAnalyst((string) $tec->DEL3COD, (string) $tec->TEC1COD,
+            (string) ($analyst?->EMP3DEL ?? ''), (int) ($analyst?->EMP3COD ?? 0));
+
         return [
-            'analystDel' => (string) ($analyst?->EMP3DEL ?? ''),
-            'analystCod' => (int) ($analyst?->EMP3COD ?? 0),
+            'analystDel' => $analystDel,
+            'analystCod' => $analystCod,
             'deptDel'    => (string) ($department?->DEP2DEL ?? ''),
             'deptCod'    => (int) ($department?->DEP2COD ?? 0),
             'ref'        => $ref,
@@ -666,14 +671,26 @@ class VeolabOperationServices
             // Técnica suelta (sin servicio): solo en rejillas de planificación.
             $service = $row['parent'] === null ? ['del' => '', 'cod' => ''] : $grid[$row['parent']];
 
-            // Normativa del servicio para la técnica (LABTYN), si tiene valor.
-            $serviceNorm = $service['cod'] === '' ? null : $db->table('LABSER')
-                ->where('DEL3COD', $service['del'])->where('SER1COD', $service['cod'])
-                ->first(['NOR2DEL', 'NOR2COD']);
-            $norm = $serviceNorm ? $db->table('LABTYN')
-                ->where('TEC3DEL', $tec->DEL3COD)->where('TEC3COD', $tec->TEC1COD)
-                ->where('NOR3DEL', (string) $serviceNorm->NOR2DEL)->where('NOR3COD', (string) $serviceNorm->NOR2COD)
-                ->value('TYNCVAL') : null;
+            if (VeolabVersion::isV3()) {
+                // Normativa de la técnica: la lista de la operación, antes las de su servicio (LABTYN).
+                [$normDel, $normCod, $norm] = VeolabRegulations::forTechnique(
+                    $service['cod'] === '' ? [] : VeolabRegulations::lineOrder(
+                        VeolabRegulations::ofOperation($del, $ser, $cod),
+                        VeolabRegulations::ofService($service['del'], $service['cod'])
+                    ),
+                    (string) $tec->DEL3COD, (string) $tec->TEC1COD
+                );
+            } else {
+                // Veolab 2.4.5: solo la normativa de su servicio, si tiene valor para la técnica.
+                $serviceNorm = $service['cod'] === '' ? null : $db->table('LABSER')
+                    ->where('DEL3COD', $service['del'])->where('SER1COD', $service['cod'])
+                    ->first(['NOR2DEL', 'NOR2COD']);
+                $norm = $serviceNorm ? $db->table('LABTYN')
+                    ->where('TEC3DEL', $tec->DEL3COD)->where('TEC3COD', $tec->TEC1COD)
+                    ->where('NOR3DEL', (string) $serviceNorm->NOR2DEL)->where('NOR3COD', (string) $serviceNorm->NOR2COD)
+                    ->value('TYNCVAL') : null;
+                $normDel = $normCod = '';
+            }
 
             $db->table('LABRES')->insert([
                 'OPE3DEL' => $del, 'OPE3SER' => $ser, 'OPE3COD' => $cod,
@@ -693,7 +710,7 @@ class VeolabOperationServices
                 'RESTINI' => null, 'RESTFIN' => null,
                 'RESNPRE' => $row['price'], 'RESCDTO' => mb_substr($row['discount'], 0, 15),
                 'RESCREF' => $row['ref'],
-            ]);
+            ] + (VeolabVersion::isV3() ? ['NOR2DEL' => $normDel, 'NOR2COD' => $normCod] : []));
 
             // Columnas de resultado de la técnica (LABCOT).
             $columns = $db->table('LABCOT')->where('TEC3DEL', $tec->DEL3COD)->where('TEC3COD', $tec->TEC1COD)->get();
@@ -731,7 +748,9 @@ class VeolabOperationServices
      * Consumos y usos de almacén (AcumulaGrabarConsumos): por técnica, un
      * uso por equipo (LABTYQ) y un consumo por producto (LABTYP) sobre la
      * serie/lote predeterminada. El consumo descuenta existencias sin bajar
-     * de cero (si no llega, el movimiento se reduce a lo disponible).
+     * de cero (si no llega, el movimiento se reduce a lo disponible). Desde
+     * Veolab 3, de los equipos alternativos de la técnica (mismo TYQNGRU) solo
+     * se registra uno (EquipoElegidoEnGrupo).
      */
     private static function saveConsumptions(string $del, string $ser, int $cod, array $grid): void
     {
@@ -746,12 +765,10 @@ class VeolabOperationServices
             $tec = $row['tec'];
 
             $uses = $db->table('LABTYQ')->where('TEC3DEL', $tec->DEL3COD)->where('TEC3COD', $tec->TEC1COD)
-                ->get(['PRD3DEL', 'PRD3COD']);
-            foreach ($uses as $u) {
-                $lot = self::defaultLot((string) $u->PRD3DEL, (string) $u->PRD3COD, false);
-                if ($lot !== null) {
-                    self::insertMovement($del, $ser, $cod, $tec, VeolabStock::MOV_USO, 1, $u->PRD3DEL, $u->PRD3COD, $lot, $now);
-                }
+                ->orderBy('PRD3DEL')->orderBy('PRD3COD')
+                ->get(VeolabVersion::isV3() ? ['PRD3DEL', 'PRD3COD', 'TYQNGRU', 'TYQBPRE'] : ['PRD3DEL', 'PRD3COD']);
+            foreach (self::chosenEquipment($uses) as [$u, $lot]) {
+                self::insertMovement($del, $ser, $cod, $tec, VeolabStock::MOV_USO, 1, $u->PRD3DEL, $u->PRD3COD, $lot, $now);
             }
 
             $items = $db->table('LABTYP')->where('TEC3DEL', $tec->DEL3COD)->where('TEC3COD', $tec->TEC1COD)
@@ -807,7 +824,13 @@ class VeolabOperationServices
      * Serie/lote predeterminada (ALM_ObtenerSeriesPredeterminadasProductos):
      * vigente (caducidad, calibración, mantenimiento y verificación) y con
      * existencias, prefiriendo las "en uso"/"límite de uso"; para consumibles,
-     * si no hay ninguna con existencias, la mayor con existencias cero.
+     * si no hay ninguna con existencias, la última con existencias cero. El
+     * orden es el configurado en LABCON.CONCOSE (Veolab 3): número de serie, o
+     * fecha de alta si vale F. El número se compara alineado a la derecha para
+     * que la 9 vaya antes que la 10; sin fecha de alta cuenta como la más antigua.
+     * Veolab 3: un producto sin series usa su serie (la oculta, que se crea si
+     * falta) con o sin existencias, pero también solo si está vigente y no
+     * está fuera de uso, como en el escritorio.
      */
     private static function defaultLot(string $del, string $cod, bool $consumable): ?string
     {
@@ -820,17 +843,80 @@ class VeolabOperationServices
             ->where(fn ($q) => $q->where('SELDMAN', '>', $today)->orWhereNull('SELDMAN'))
             ->where(fn ($q) => $q->where('SELDVER', '>', $today)->orWhereNull('SELDVER'));
 
+        if (VeolabStock::productWithoutSeries($del, $cod)) {
+            $lot = VeolabStock::singleLot($del, $cod);
+
+            return $base()->where('SEL1COD', $lot)->exists() ? $lot : null;
+        }
+
+        $byDate = VeolabVersion::isV3()
+            && DB::connection('dynamic')->table('LABCON')->where('CON1COD', 1)->value('CONCOSE') === 'F';
+        $first = function ($query, string $direction = 'asc') use ($byDate) {
+            if ($byDate) {
+                $query->orderBy('SELDALT', $direction);
+            }
+
+            // Veolab 3 ordena los números de serie alineados a la derecha (la 9 antes que la 10);
+            // Veolab 2.4.5 toma MIN/MAX(SEL1COD), orden de texto.
+            return VeolabVersion::isV3()
+                ? $query->orderByRaw("CONCAT(SPACE(30 - CHAR_LENGTH(SEL1COD)), SEL1COD) {$direction}")->value('SEL1COD')
+                : $query->orderBy('SEL1COD', $direction)->value('SEL1COD');
+        };
+
         // Como el VB (grupos por estado en orden): "en uso" antes que "límite de uso".
-        $lot = $base()->where('SELCESA', 'U')->where('SELNCAE', '>', 0)->min('SEL1COD')
-            ?? $base()->where('SELCESA', 'L')->where('SELNCAE', '>', 0)->min('SEL1COD')
-            ?? $base()->where(fn ($q) => $q->whereIn('SELCESA', ['N', ''])->orWhereNull('SELCESA'))
-                ->where('SELNCAE', '>', 0)->min('SEL1COD');
+        $lot = $first($base()->where('SELCESA', 'U')->where('SELNCAE', '>', 0))
+            ?? $first($base()->where('SELCESA', 'L')->where('SELNCAE', '>', 0))
+            ?? $first($base()->where(fn ($q) => $q->whereIn('SELCESA', ['N', ''])->orWhereNull('SELCESA'))
+                ->where('SELNCAE', '>', 0));
 
         if ($lot === null && $consumable) {
-            $lot = $base()->where('SELNCAE', 0)->max('SEL1COD');
+            $lot = $first($base()->where('SELNCAE', 0), 'desc');
         }
 
         return $lot === null ? null : (string) $lot;
+    }
+
+    /**
+     * Equipos de la técnica cuyo uso se registra, con su serie: los que se
+     * usan siempre (grupo 0) si tienen serie utilizable y, de cada grupo de
+     * alternativas (LABTYQ.TYQNGRU, Veolab 3), uno: el predeterminado
+     * (TYQBPRE) si tiene serie utilizable; si no, el primero del grupo que la
+     * tenga; si ninguno, ninguno (EquipoElegidoEnGrupo + AnotarSinSerie).
+     * Devuelve [[fila de LABTYQ, serie]].
+     */
+    private static function chosenEquipment($uses): array
+    {
+        $uses = array_values(is_array($uses) ? $uses : $uses->all());
+        $lots = [];
+        foreach ($uses as $i => $u) {
+            $lots[$i] = self::defaultLot((string) $u->PRD3DEL, (string) $u->PRD3COD, false);
+        }
+
+        $chosen = [];
+        $groups = [];
+        foreach ($uses as $i => $u) {
+            $group = (int) ($u->TYQNGRU ?? 0);
+            if ($group === 0) {
+                if ($lots[$i] !== null) {
+                    $chosen[] = [$u, $lots[$i]];
+                }
+                continue;
+            }
+            if (isset($groups[$group])) {
+                continue;
+            }
+            $groups[$group] = true;
+            foreach ([true, false] as $default) {
+                foreach ($uses as $j => $v) {
+                    if ((int) ($v->TYQNGRU ?? 0) === $group && ((string) ($v->TYQBPRE ?? '') === 'T') === $default && $lots[$j] !== null) {
+                        $chosen[] = [$v, $lots[$j]];
+                        break 2;
+                    }
+                }
+            }
+        }
+
+        return $chosen;
     }
 
     /**

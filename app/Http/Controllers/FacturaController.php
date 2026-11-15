@@ -8,9 +8,12 @@ use App\Http\Controllers\Concerns\ChecksVeolabReferences;
 use App\Support\VeolabAudit;
 use App\Support\VeolabBillingLines;
 use App\Support\VeolabCodes;
+use App\Support\VeolabDocuments;
+use App\Support\VeolabFollowUp;
 use App\Support\VeolabInvoiceLines;
 use App\Support\VeolabLicense;
 use App\Support\VeolabOperationServices;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -51,6 +54,11 @@ class FacturaController extends BaseController
         'presupuesto'         => 'int',
         'factura_rectificada' => 'int',
         'factura_anterior'    => 'int',
+    ];
+
+    // Órgano proponente FACe (rol 04): solo en bases 3.0
+    protected array $since = [
+        'organo_proponente' => VeolabVersion::V3,
     ];
 
     protected array $mapping = [
@@ -102,6 +110,7 @@ class FacturaController extends BaseController
         'oficina_contable'              => 'FACCOFI',
         'organo_gestor'                 => 'FACCORG',
         'unidad_tramitadora'            => 'FACCUNI',
+        'organo_proponente'             => 'FACCPRP',
         'emisor_tipo_persona'           => 'FACCETI',
         'emisor_residencia'             => 'FACCERE',
         'emisor_razon_social'           => 'FACCERA',
@@ -148,6 +157,9 @@ class FacturaController extends BaseController
     ];
 
     private const DRAFT_SERIES = 'BOR';
+
+    /** ¿La petición marca como enviada una factura que no lo estaba? (suceso de seguimiento) */
+    private bool $sentNow = false;
 
     /** Campos que se pueden cambiar en una factura emitida. */
     private const STATE_FIELDS = ['es_enviada', 'es_cobrada', 'es_contabilizada', 'pendiente', 'fecha_vencimiento', 'fecha_pago', 'notas'];
@@ -264,11 +276,13 @@ class FacturaController extends BaseController
         $isNew = empty($keys);
         $current = null;
         $invoice = null;
+        $this->sentNow = $isNew && ($data['es_enviada'] ?? null) === 'T';
 
         if (! $isNew) {
             $invoice = [(string) $keys['delegacion'], (string) $keys['serie'], (int) $keys['codigo']];
             $current = $db->table($this->table)
                 ->where('DEL3COD', $invoice[0])->where('FAC1SER', $invoice[1])->where('FAC1COD', $invoice[2])->first();
+            $this->sentNow = ($data['es_enviada'] ?? null) === 'T' && $current->FACBENV !== 'T';
             if ($current->FACBBOR !== 'T') {
                 return $this->issuedInvoiceChanges($data, $current);
             }
@@ -286,6 +300,7 @@ class FacturaController extends BaseController
         if (($data['serie_final'] ?? null) === self::DRAFT_SERIES) {
             throw new BusinessRuleException('La serie BOR está reservada para los borradores');
         }
+        $data = $this->applyServiceClient($data, $current);
 
         $today = $db->selectOne('SELECT CURDATE() AS d')->d.' 00:00:00';
         foreach (self::DATES as $param) {
@@ -386,6 +401,7 @@ class FacturaController extends BaseController
         $ctx = VeolabBillingLines::context($clientDel, $clientCode, '', 0, false);
         $rebuild = $operations !== null && ! $linesGiven && ($source === null || $source['rebuild'])
             && ($isNew || $current->FACBRSM !== 'T');
+        $gridChanged = false;
         if ($source && ! $source['rebuild']) {
             $lines = $source['lines'];
             $gridChanged = true;
@@ -468,7 +484,8 @@ class FacturaController extends BaseController
         $data['_lineas'] = $gridChanged ? $lines : null;
         $data['_operaciones'] = $operations;
         $data['_nuevo'] = $isNew;
-        $data['_contrato'] = $isNew ? $contract : null;
+        // Solo la factura de la cuota (conversión del contrato) cambia su última facturación, no una de operaciones.
+        $data['_contrato'] = $isNew && $conversion === 'contrato' ? $contract : null;
         // Registro V: conversión de presupuesto o contrato, borrador nuevo o modificado.
         [$message, $previous] = match (true) {
             ! $isNew                   => ['$ESPVER008', ''],
@@ -537,6 +554,7 @@ class FacturaController extends BaseController
     {
         $db = DB::connection('dynamic');
         $key = [(string) ($data["{$type}_delegacion"] ?? ''), (string) ($data["{$type}_serie"] ?? ''), (int) $data["{$type}_codigo"]];
+        $apart = false;     // contrato con cuota y operaciones aparte (CONCFIM = A)
 
         if ($type === 'presupuesto') {
             $doc = $db->table('FACPRE')->where('DEL3COD', $key[0])->where('PRE1SER', $key[1])->where('PRE1COD', $key[2])->first();
@@ -561,6 +579,8 @@ class FacturaController extends BaseController
             $subtotal = (float) $doc->CONNPRE;
             // Contrato por importe de las operaciones: la rejilla sale de ellas.
             $rebuild = $doc->CONCFIM === 'O';
+            // Cuota y operaciones aparte: la factura del contrato no recoge sus operaciones.
+            $apart = $doc->CONCFIM === 'A';
             $fromState = (int) $db->table('LABCON')->where('CON1COD', 1)->value('CONNESC');
             $fk = 'CON2';
             if (! empty($doc->PRE2COD)) {
@@ -579,9 +599,13 @@ class FacturaController extends BaseController
             ->where(fn ($q) => $q->whereNull('OPEBFAC')->orWhere('OPEBFAC', '<>', 'T'))
             ->where(fn ($q) => $q->whereNull('OPEBPRE')->orWhere('OPEBPRE', '<>', 'T'))
             ->where('OPEBFAB', 'T')->where('OPENEST', '>=', $fromState)->where('OPENEST', '<=', 6)
+            ->when($type !== 'presupuesto', fn ($q) => $q->where(fn ($q) => $q->whereNull('OPEBANU')->orWhere('OPEBANU', '<>', 'T')))
             ->orderBy('DEL3COD')->orderBy('OPE1SER')->orderBy('OPE1COD')
             ->get(['DEL3COD', 'OPE1SER', 'OPE1COD'])
             ->map(fn ($r) => [(string) $r->DEL3COD, (string) $r->OPE1SER, (int) $r->OPE1COD])->all();
+        if ($type !== 'presupuesto' && $apart) {
+            $operations = [];
+        }
 
         $lines = [];
         if (! $rebuild) {
@@ -671,6 +695,9 @@ class FacturaController extends BaseController
             'codigo_postal'      => (string) $client->{"CLICCO{$address}"},
             'pais'               => trim((string) $client->{"CLICPA{$address}"}) ?: ($verifactu ? 'ESP' : ''),
         ];
+        if (property_exists($client, 'CLICPRP')) {
+            $defaults['organo_proponente'] = (string) $client->CLICPRP;
+        }
         if ((string) $client->CLICOBF !== '') {
             $defaults['notas'] = (string) $client->CLICOBF;
         }
@@ -824,6 +851,10 @@ class FacturaController extends BaseController
             VeolabAudit::verifactu($this->table, $row, $message, $detail, $previous);
         }
 
+        if ($this->sentNow) {
+            VeolabFollowUp::invoiceSent($invoice[0], $invoice[1], $invoice[2]);
+        }
+
         return $data;
     }
 
@@ -945,7 +976,7 @@ class FacturaController extends BaseController
         $db->table('LABOPE')->where('FAC2DEL', $del)->where('FAC2SER', $ser)->where('FAC2COD', $cod)
             ->update(['FAC2DEL' => '', 'FAC2SER' => '', 'FAC2COD' => 0, 'OPEBFAC' => 'F', 'OPEBPRE' => 'F']);
         $db->table('DOCFAT')->where('DEL3COD', $del)->where('FAC2SER', $ser)->where('FAC2COD', $cod)
-            ->update(['DIR2DEL' => $del, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($del));
     }
 
     /** Desglose de la factura: por servicio, técnica, operaciones o sin desglose. */

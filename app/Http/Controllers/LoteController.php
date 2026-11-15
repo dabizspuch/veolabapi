@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ChecksVeolabReferences;
 use App\Support\VeolabCustomFields;
+use App\Support\VeolabDocuments;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -102,7 +103,12 @@ class LoteController extends BaseController
             $data['fecha_recepcion'] = (new \DateTime($data['fecha_recepcion']))->format('Y-m-d H:i:00');
         }
 
-        $data['_autodefinibles'] = $customFields;
+        // Veolab 3: valores predeterminados y fórmulas de los autodefinibles de lote (sin servicios ni campos fijos).
+        $stored = $isNew ? [] : VeolabCustomFields::stored('LABLOT',
+            [(string) $keys['delegacion'], (string) $keys['serie'], (string) $keys['codigo']], $delegation);
+        [$changedCustom] = VeolabCustomFields::applyDefaults('LABLOT', $delegation, $customFields, $stored, null, [], null, $isNew, $isNew);
+
+        $data['_autodefinibles'] = $changedCustom + $customFields;
         $data['_nuevo'] = $isNew;
 
         return $data;
@@ -151,7 +157,7 @@ class LoteController extends BaseController
         }
 
         $db->table('DOCFAT')->where('DEL3COD', $del)->where('LOT2SER', $ser)->where('LOT2COD', $cod)
-            ->update(['DIR2DEL' => $del, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($del));
 
         $db->table('LABLYA')->where('LOT3DEL', $del)->where('LOT3SER', $ser)->where('LOT3COD', $cod)->delete();
     }

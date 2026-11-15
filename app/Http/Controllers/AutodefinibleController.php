@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Concerns\ChecksVeolabReferences;
 use App\Support\VeolabAudit;
+use App\Support\VeolabFieldFormulas;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -22,6 +24,13 @@ use Illuminate\Support\Facades\DB;
  *    delegación (ACCPER.PERCCAO) y al borrar se quita. No se borra si alguna
  *    operación o lote tiene valor; se borran sus servicios y valores vacíos.
  *  - Auditoría como Veolab: la fila es el nombre del autodefinible.
+ *  - Desde Veolab 3, 'predeterminado' (AUTCPRE): valor fijo que se pone al
+ *    crear la operación o el lote, o fórmula si empieza por "=" (ver
+ *    VeolabFieldFormulas); los ficheros no lo admiten. En esas bases la
+ *    pantalla «Campos» guarda además la configuración de los campos fijos de
+ *    recolección como filas con tipo_dato X (formato = columna de LABOPE,
+ *    es_baja = oculto, predeterminado), que aparecen en el listado y no se
+ *    crean por la API.
  */
 class AutodefinibleController extends BaseController
 {
@@ -34,6 +43,10 @@ class AutodefinibleController extends BaseController
     ];
     protected ?string $inactiveField = 'AUTBBAJ';
     protected array $searchFields = ['AUTCNOM'];
+
+    protected array $since = [
+        'predeterminado' => VeolabVersion::V3,
+    ];
 
     protected bool $generatesCode = true;
 
@@ -53,6 +66,7 @@ class AutodefinibleController extends BaseController
         'codigo_metodo'       => 'AUTNMET',
         'codigo_laboratorio'  => 'AUTNCOL',
         'decimales'           => 'AUTNDEC',
+        'predeterminado'      => 'AUTCPRE',
     ];
 
     /** Símbolos que la configuración de Veolab no admite en el nombre. */
@@ -79,6 +93,7 @@ class AutodefinibleController extends BaseController
             'codigo_metodo'       => 'nullable|integer',
             'codigo_laboratorio'  => 'nullable|numeric',
             'decimales'           => 'nullable|integer|min:0',
+            'predeterminado'      => 'nullable|string',
         ];
     }
 
@@ -92,6 +107,10 @@ class AutodefinibleController extends BaseController
         if (array_key_exists('nombre', $data)) {
             $data['nombre'] = trim((string) $data['nombre']);
             $this->checkName($data['nombre'], $keys);
+        }
+
+        if (array_key_exists('predeterminado', $data)) {
+            $data['predeterminado'] = $this->checkDefault((string) ($data['predeterminado'] ?? ''), $data, $keys);
         }
 
         if (! $keys) {
@@ -108,9 +127,34 @@ class AutodefinibleController extends BaseController
             $data['codigo_metodo'] ??= 0;
             $data['codigo_laboratorio'] ??= 0;
             $data['decimales'] ??= 0;
+            if ($this->supports('predeterminado')) {
+                $data['predeterminado'] ??= '';
+            }
         }
 
         return $data;
+    }
+
+    /** Valor predeterminado o fórmula (Veolab 3): sintaxis de la fórmula y tipos que lo admiten. */
+    private function checkDefault(string $default, array $data, array $keys): string
+    {
+        $default = trim($default);
+        if ($default === '') {
+            return '';
+        }
+        $type = $data['tipo_dato'] ?? ($keys ? (string) DB::connection('dynamic')->table('LABAUT')
+            ->where('DEL3COD', (string) $keys['delegacion'])->where('AUT1COD', $keys['codigo'])->value('AUTCTDD') : 'T');
+        if ($type === 'F') {
+            throw new BusinessRuleException('Los autodefinibles de fichero no admiten valor predeterminado');
+        }
+        if (VeolabFieldFormulas::isFormula($default)) {
+            [$valid] = VeolabFieldFormulas::validate($default);
+            if (! $valid) {
+                throw new BusinessRuleException('La fórmula del valor predeterminado no es válida');
+            }
+        }
+
+        return $default;
     }
 
     /** CamposValidos de la configuración: letra inicial, sin símbolos, único. */

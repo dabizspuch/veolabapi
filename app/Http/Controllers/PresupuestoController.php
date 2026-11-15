@@ -8,6 +8,8 @@ use App\Http\Controllers\Concerns\ChecksVeolabReferences;
 use App\Support\VeolabAudit;
 use App\Support\VeolabBillingLines;
 use App\Support\VeolabCodes;
+use App\Support\VeolabDocuments;
+use App\Support\VeolabFollowUp;
 use App\Support\VeolabLicense;
 use App\Support\VeolabOperationServices;
 use Illuminate\Support\Facades\DB;
@@ -24,7 +26,10 @@ use Illuminate\Support\Facades\DB;
  *  - Al elegir cliente se toman su descuento, impuestos, tarifa y días de
  *    vencimiento; al cambiar de cliente o de tarifa se regeneran los precios
  *    de la rejilla salvo que se hubieran modificado a mano.
- *  - Estado enviado / aceptado apunta la fecha de entrega / aceptación.
+ *  - Estado enviado / aceptado apunta la fecha de entrega / aceptación; desde
+ *    Veolab 3, enviado pone también la fecha de seguimiento si está configurado
+ *    (la notificación al comercial al alcanzarla la crea Veolab). Los cambios a
+ *    enviado, aceptado, rechazado o cancelado registran un suceso de seguimiento.
  *  - Verifactu: no se borra ningún presupuesto ni se modifica el que tiene
  *    factura; alta, modificación y borrado dejan un registro V encadenado.
  */
@@ -70,6 +75,7 @@ class PresupuestoController extends BaseController
         'fecha_vencimiento'             => 'PREDVEN',
         'fecha_entrega'                 => 'PREDENT',
         'fecha_aceptacion'              => 'PREDACE',
+        'fecha_seguimiento'             => 'PREDSEG',
         'estado'                        => 'PRECEST',
         'es_acreditado'                 => 'PREBACR',
         'es_archivado'                  => 'PREBARC',
@@ -101,7 +107,12 @@ class PresupuestoController extends BaseController
      */
     private const AMOUNT = 'regex:/^\d+([.,]\d+)?\s?%?$/';
 
-    private const DATES = ['fecha', 'fecha_vencimiento', 'fecha_entrega', 'fecha_aceptacion'];
+    private const DATES = ['fecha', 'fecha_vencimiento', 'fecha_entrega', 'fecha_aceptacion', 'fecha_seguimiento'];
+
+    /** Fecha de seguimiento (Veolab 3): color en el listado y aviso al comercial cuando se alcanza. */
+    protected array $since = [
+        'fecha_seguimiento' => '3.0',
+    ];
 
     /** Textos que Veolab guarda como '' cuando están vacíos. */
     private const EMPTY_AS_BLANK = ['descuento', 'tipo_impuesto_1', 'valor_impuesto_1', 'tipo_impuesto_2', 'valor_impuesto_2'];
@@ -130,6 +141,7 @@ class PresupuestoController extends BaseController
             'fecha_vencimiento'              => 'nullable|date',
             'fecha_entrega'                  => 'nullable|date',
             'fecha_aceptacion'               => 'nullable|date',
+            'fecha_seguimiento'              => 'nullable|date',
             'estado'                         => 'sometimes|string|in:P,E,A,R,V,C',
             'es_acreditado'                  => 'sometimes|string|in:T,F',
             'es_archivado'                   => 'sometimes|string|in:T,F',
@@ -198,6 +210,7 @@ class PresupuestoController extends BaseController
                 throw new BusinessRuleException('El presupuesto tiene una factura: no se puede modificar');
             }
         }
+        $data = $this->applyServiceClient($data, $current);
 
         $today = $db->selectOne('SELECT CURDATE() AS d')->d.' 00:00:00';
         foreach (self::DATES as $param) {
@@ -255,9 +268,17 @@ class PresupuestoController extends BaseController
             if ($state === 'E' && empty($value('fecha_entrega'))) {
                 $data['fecha_entrega'] = $today;
             }
+            // Veolab 3: al enviar, fecha de seguimiento a los días de Configurar ventas (0 = no se rellena)
+            if ($state === 'E' && $this->supports('fecha_seguimiento') && empty($value('fecha_seguimiento'))) {
+                $days = (int) $db->table('LABCON')->where('CON1COD', 1)->value('CONNDSE');
+                if ($days > 0) {
+                    $data['fecha_seguimiento'] = (new \DateTime($today))->modify("+{$days} days")->format('Y-m-d 00:00:00');
+                }
+            }
             if ($state === 'A' && empty($value('fecha_aceptacion'))) {
                 $data['fecha_aceptacion'] = $today;
             }
+            $data['_seguimiento'] = $state;
         }
 
         // Rejilla: la indicada o la guardada, con los precios que correspondan.
@@ -370,6 +391,10 @@ class PresupuestoController extends BaseController
             VeolabAudit::verifactu($this->table, $row, $data['_nuevo'] ? '$ESPVER003' : '$ESPVER007', $data['_verifactu']);
         }
 
+        if (! empty($data['_seguimiento'])) {
+            VeolabFollowUp::budget($budget[0], $budget[1], $budget[2], $data['_seguimiento']);
+        }
+
         return $data;
     }
 
@@ -420,7 +445,7 @@ class PresupuestoController extends BaseController
 
         VeolabBillingLines::delete($this->table, [$del, $ser, $cod]);
         DB::connection('dynamic')->table('DOCFAT')->where('DEL3COD', $del)->where('PRE2SER', $ser)->where('PRE2COD', $cod)
-            ->update(['DIR2DEL' => $del, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($del));
 
         // $ESPVER009 "Eliminación de presupuesto".
         VeolabAudit::verifactu($this->table, $this->auditRow($keys), '$ESPVER009');

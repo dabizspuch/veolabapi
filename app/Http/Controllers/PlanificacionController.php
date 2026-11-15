@@ -9,8 +9,11 @@ use App\Support\VeolabAgenda;
 use App\Support\VeolabAudit;
 use App\Support\VeolabCodes;
 use App\Support\VeolabCustomFields;
+use App\Support\VeolabDocuments;
 use App\Support\VeolabOperationServices;
 use App\Support\VeolabPeriodicity;
+use App\Support\VeolabStock;
+use App\Support\VeolabVersion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -45,6 +48,23 @@ class PlanificacionController extends BaseController
     ];
     protected array $searchFields = ['PLOCDES', 'PLOCREF'];
 
+    /** Campos de Veolab 3: los fijos de la pestaña Recolección y el comercial (heredado del presupuesto). */
+    protected array $since = [
+        'fecha_elaboracion'     => VeolabVersion::V3,
+        'fecha_caducidad'       => VeolabVersion::V3,
+        'cloro_libre'           => VeolabVersion::V3,
+        'ph'                    => VeolabVersion::V3,
+        'conductividad'         => VeolabVersion::V3,
+        'condiciones_recepcion' => VeolabVersion::V3,
+        'conformidad_recepcion' => VeolabVersion::V3,
+        'informacion_cliente'   => VeolabVersion::V3,
+        'pedido'                => VeolabVersion::V3,
+        'transporte'            => VeolabVersion::V3,
+        'conservacion'          => VeolabVersion::V3,
+        'empleado_comercial_delegacion' => VeolabVersion::V3,
+        'empleado_comercial_codigo'     => VeolabVersion::V3,
+    ];
+
     protected bool $generatesCode = true;
     protected string $codeKey = 'codigo';
     protected ?string $delegationKey = 'delegacion';
@@ -63,6 +83,7 @@ class PlanificacionController extends BaseController
         'contrato'            => 'int',
         'presupuesto'         => 'int',
         'empleado_recolector' => 'int',
+        'empleado_comercial'  => 'int',
         'lote'                => 'string',
         'tarifa'              => 'int',
         'proveedor'           => 'string',
@@ -98,6 +119,17 @@ class PlanificacionController extends BaseController
         'recolector'                     => 'PLOCREC',
         'lugar_recogida'                 => 'PLOCLUR',
         'temperatura'                    => 'PLOCTEM',
+        'fecha_elaboracion'              => 'PLODELA',
+        'fecha_caducidad'                => 'PLODCAD',
+        'cloro_libre'                    => 'PLOCCLO',
+        'ph'                             => 'PLOCPHS',
+        'conductividad'                  => 'PLOCCDT',
+        'condiciones_recepcion'          => 'PLOCCRE',
+        'conformidad_recepcion'          => 'PLOCCFR',   // ISO 17025 7.4: vacía sin evaluar, C conforme, N no conforme, D con desviación
+        'informacion_cliente'            => 'PLOCIAC',
+        'pedido'                         => 'PLOCPED',
+        'transporte'                     => 'PLOCTRA',
+        'conservacion'                   => 'PLOCCNS',
         'cantidad'                       => 'PLOCCAN',
         'unidad'                         => 'PLOCUNI',
         'tipo_desglose'                  => 'PLOCTID',
@@ -133,6 +165,8 @@ class PlanificacionController extends BaseController
         'presupuesto_codigo'             => 'PRE2COD',
         'empleado_recolector_delegacion' => 'EMP2DEL',
         'empleado_recolector_codigo'     => 'EMP2COD',
+        'empleado_comercial_delegacion'  => 'EMC2DEL',
+        'empleado_comercial_codigo'      => 'EMC2COD',
         'lote_delegacion'                => 'LOT2DEL',
         'lote_serie'                     => 'LOT2SER',
         'lote_codigo'                    => 'LOT2COD',
@@ -152,7 +186,8 @@ class PlanificacionController extends BaseController
      * 'fecha_inicio': fecha (o inicio de la periodicidad; null = sin fecha).
      * 'repeticion': {frecuencia, opcion, repetir, ordinal, dias | dias_semana |
      * meses, fecha_fin, repeticiones, trasladar_laborable}.
-     * 'servicios' solo al crear. 'autodefinibles': {"nombre": valor}.
+     * 'servicios' solo al crear (en un PUT, solo los mismos que ya tiene, que se
+     * ignoran; se devuelven en GET). 'autodefinibles': {"nombre": valor}.
      */
     protected function rules(): array
     {
@@ -173,6 +208,17 @@ class PlanificacionController extends BaseController
             'recolector'                     => 'nullable|string|max:100',
             'lugar_recogida'                 => 'nullable|string|max:100',
             'temperatura'                    => 'nullable|string|max:50',
+            'fecha_elaboracion'              => 'nullable|date',
+            'fecha_caducidad'                => 'nullable|date',
+            'cloro_libre'                    => 'nullable|string|max:20',
+            'ph'                             => 'nullable|string|max:20',
+            'conductividad'                  => 'nullable|string|max:20',
+            'condiciones_recepcion'          => 'nullable|string|max:255',
+            'conformidad_recepcion'          => 'nullable|string|in:C,N,D',
+            'informacion_cliente'            => 'nullable|string|max:255',
+            'pedido'                         => 'nullable|string|max:50',
+            'transporte'                     => 'nullable|string|max:100',
+            'conservacion'                   => 'nullable|string|max:100',
             'cantidad'                       => 'nullable|string|max:50',
             'unidad'                         => 'nullable|string|max:15',
             'tipo_desglose'                  => 'nullable|string|in:S,T,N,O',
@@ -210,6 +256,8 @@ class PlanificacionController extends BaseController
             'presupuesto_codigo'             => 'nullable|integer',
             'empleado_recolector_delegacion' => 'nullable|string|max:10',
             'empleado_recolector_codigo'     => 'nullable|integer',
+            'empleado_comercial_delegacion'  => 'nullable|string|max:10',
+            'empleado_comercial_codigo'      => 'nullable|integer',
             'lote_delegacion'                => 'nullable|string|max:10',
             'lote_serie'                     => 'nullable|string|max:10',
             'lote_codigo'                    => 'nullable|string|max:50',
@@ -220,7 +268,7 @@ class PlanificacionController extends BaseController
             'producto_delegacion'            => 'nullable|string|max:10',
             'producto_codigo'                => 'nullable|string|max:15',
             'producto_serie_lote_codigo'     => 'nullable|string|max:30',
-            'servicios'                      => 'nullable|array|min:1',
+            'servicios'                      => 'nullable|array',
             'servicios.*.delegacion'         => 'nullable|string|max:10',
             'servicios.*.codigo'             => 'required|string|max:20',
             'autodefinibles'                 => 'nullable|array',
@@ -238,6 +286,15 @@ class PlanificacionController extends BaseController
         $delegation = (string) ($isNew ? ($data['delegacion'] ?? '') : $keys['delegacion']);
         $customFields = VeolabCustomFields::resolve($delegation, $data['autodefinibles'] ?? null, 'LABPLO');
         unset($data['autodefinibles']);
+        $current = $isNew ? null : DB::connection('dynamic')->table('LABPLO')
+            ->where('DEL3COD', $keys['delegacion'])->where('PLO1COD', $keys['codigo'])->first();
+
+        // Las fechas de recolección se guardan sin hora (se escriben como texto en la ficha).
+        foreach (['fecha_elaboracion', 'fecha_caducidad'] as $param) {
+            if (! empty($data[$param])) {
+                $data[$param] = (new \DateTime($data[$param]))->format('Y-m-d 00:00:00');
+            }
+        }
 
         if ($isNew) {
             // Valores por defecto de una planificación nueva.
@@ -251,12 +308,17 @@ class PlanificacionController extends BaseController
             $data['precios_modificados'] = 'F';
             $data['es_aviso'] ??= 'F';
             $data['aviso_numero'] ??= 0;
+            $data = $this->applyServiceClient($data);
             $data = $this->applyClientTariff($data);
             $this->checkServicesExist($data['servicios'] ?? []);
             $data = $this->applyDate($data, $delegation, null);
         } else {
+            // Los servicios se leen en GET: devolverlos sin cambios en un PUT no es un error.
             if (array_key_exists('servicios', $data)) {
-                throw new BusinessRuleException('Los servicios solo se indican al crear la planificación');
+                if (! $this->sameServices($keys, $data['servicios'] ?? [])) {
+                    throw new BusinessRuleException('Los servicios solo se indican al crear la planificación');
+                }
+                unset($data['servicios']);
             }
             if (array_key_exists('fecha_inicio', $data) || array_key_exists('repeticion', $data)) {
                 $before = DB::connection('dynamic')->table('LABPLO')
@@ -266,10 +328,65 @@ class PlanificacionController extends BaseController
         }
 
         $data = $this->checkWarning($data, $keys);
+        $data = $this->inheritCommercial($data, $current);
+        [$data, $customFields] = $this->applyFieldDefaults($data, $current, $delegation, $customFields, $keys);
         $data['_autodefinibles'] = $customFields;
         $data['_nueva'] = $isNew;
 
         return $data;
+    }
+
+    /**
+     * Veolab 3 (HeredarComercialPresupuesto): al indicar el presupuesto, la
+     * planificación sin comercial toma el del presupuesto, salvo que la
+     * petición indique el comercial (aunque sea vacío).
+     */
+    private function inheritCommercial(array $data, ?object $current): array
+    {
+        if (! $this->supports('empleado_comercial_codigo') || empty($data['presupuesto_codigo'])
+            || array_key_exists('empleado_comercial_codigo', $data) || (int) ($current->EMC2COD ?? 0) !== 0) {
+            return $data;
+        }
+        $budget = DB::connection('dynamic')->table('FACPRE')
+            ->where('DEL3COD', (string) ($data['presupuesto_delegacion'] ?? ''))
+            ->where('PRE1SER', (string) ($data['presupuesto_serie'] ?? ''))
+            ->where('PRE1COD', (int) $data['presupuesto_codigo'])
+            ->first(['EMP2DEL', 'EMP2COD']);
+        if ($budget && (int) $budget->EMP2COD !== 0) {
+            $data['empleado_comercial_delegacion'] = (string) $budget->EMP2DEL;
+            $data['empleado_comercial_codigo'] = (int) $budget->EMP2COD;
+        }
+
+        return $data;
+    }
+
+    /**
+     * Veolab 3: valores predeterminados y fórmulas (LABAUT.AUTCPRE) de los
+     * autodefinibles y de los campos fijos de recolección, como la ficha
+     * (ver VeolabCustomFields::applyDefaults).
+     */
+    private function applyFieldDefaults(array $data, ?object $current, string $delegation, array $customFields, array $keys): array
+    {
+        $isNew = $current === null;
+        if ($isNew) {
+            $stored = [];
+            $services = array_map(fn ($s) => [(string) ($s['delegacion'] ?? ''), (string) $s['codigo']], $data['servicios'] ?? []);
+        } else {
+            $stored = VeolabCustomFields::stored('LABPLO', [$keys['delegacion'], (int) $keys['codigo']], $delegation);
+            $services = DB::connection('dynamic')->table('LABPYS')
+                ->where('PLO3DEL', $keys['delegacion'])->where('PLO3COD', (int) $keys['codigo'])
+                ->get(['SER3DEL', 'SER3COD'])->map(fn ($s) => [(string) $s->SER3DEL, (string) $s->SER3COD])->all();
+        }
+
+        [$changedCustom, $changedFixed] = VeolabCustomFields::applyDefaults('LABPLO', $delegation, $customFields, $stored,
+            VeolabCustomFields::fixedValues('LABPLO', $data, $current, $this->mapping),
+            VeolabCustomFields::fixedGiven('LABPLO', $data, $this->mapping),
+            $services, $isNew, $isNew);
+
+        return [
+            array_replace($data, VeolabCustomFields::fixedToData('LABPLO', $changedFixed, $this->mapping)),
+            $changedCustom + $customFields,
+        ];
     }
 
     /**
@@ -387,7 +504,17 @@ class PlanificacionController extends BaseController
             VeolabAgenda::syncPlanning($del, $cod);
         }
 
+        $this->syncMetrology($del, $cod);
+
         return $data;
+    }
+
+    /** Veolab 3: próxima calibración, verificación o mantenimiento de la serie de la planificación. */
+    private function syncMetrology(string $del, int $cod): void
+    {
+        VeolabStock::syncOperationMetrology(DB::connection('dynamic')->table('LABPLO')
+            ->where('DEL3COD', $del)->where('PLO1COD', $cod)
+            ->first(['TIO2DEL', 'TIO2COD', 'PRD2DEL', 'PRD2COD', 'SEL2COD']));
     }
 
     /**
@@ -422,9 +549,22 @@ class PlanificacionController extends BaseController
         }
     }
 
+    /** ¿Los servicios dados son los de la planificación (misma delegación, código y orden)? */
+    private function sameServices(array $keys, array $given): bool
+    {
+        $current = DB::connection('dynamic')->table('LABPYS')
+            ->where('PLO3DEL', (string) ($keys['delegacion'] ?? ''))->where('PLO3COD', (int) $keys['codigo'])
+            ->orderBy('PYSNPOS')->get(['SER3DEL', 'SER3COD'])
+            ->map(fn ($s) => (string) $s->SER3DEL."\x1B".(string) $s->SER3COD)->all();
+        $given = array_map(fn ($s) => (string) ($s['delegacion'] ?? '')."\x1B".(string) ($s['codigo'] ?? ''), $given);
+
+        return $current === $given;
+    }
+
     /**
      * Cada planificación del listado lleva sus fechas activas
-     * ([{codigo, fecha, completada}]) y sus autodefinibles ({nombre: valor}).
+     * ([{codigo, fecha, completada}]), sus servicios en el orden de la
+     * rejilla ([{delegacion, codigo, nombre}]) y sus autodefinibles ({nombre: valor}).
      */
     protected function appendRelatedData(array $rows): array
     {
@@ -451,9 +591,33 @@ class PlanificacionController extends BaseController
             }
         }
 
+        // Servicios de la rejilla (LABPYS) en su orden, con el nombre del servicio
+        $services = [];
+        if ($keys) {
+            $found = DB::connection('dynamic')->table('LABPYS as p')
+                ->leftJoin('LABSER as s', function ($j) {
+                    $j->on('s.DEL3COD', '=', 'p.SER3DEL')->on('s.SER1COD', '=', 'p.SER3COD');
+                })
+                ->where(function ($q) use ($keys) {
+                    foreach ($keys as [$del, $cod]) {
+                        $q->orWhere(fn ($w) => $w->where('p.PLO3DEL', $del)->where('p.PLO3COD', $cod));
+                    }
+                })
+                ->orderBy('p.PYSNPOS')
+                ->get(['p.PLO3DEL', 'p.PLO3COD', 'p.SER3DEL', 'p.SER3COD', 's.SERCNOM']);
+            foreach ($found as $s) {
+                $services[$s->PLO3DEL."\x1B".$s->PLO3COD][] = [
+                    'delegacion' => (string) $s->SER3DEL,
+                    'codigo'     => (string) $s->SER3COD,
+                    'nombre'     => $s->SERCNOM,
+                ];
+            }
+        }
+
         foreach ($rows as &$row) {
             $key = $row['delegacion']."\x1B".$row['codigo'];
             $row['fechas'] = $dates[$key] ?? [];
+            $row['servicios'] = $services[$key] ?? [];
             $row['repeticion'] = VeolabPeriodicity::describe((int) $row['periodicidad'], (int) $row['periodicidad_opcion'],
                 (int) $row['periodicidad_repetir'], (int) $row['periodicidad_ordinal'], (int) $row['periodicidad_dia_semana'],
                 $row['periodicidad_fecha_fin'], (int) $row['periodicidad_repeticiones'], $row['periodicidad_laborable'] === 'T');
@@ -500,6 +664,7 @@ class PlanificacionController extends BaseController
             VeolabAudit::record(VeolabAudit::MODIFICACION, $this->table,
                 $this->auditRow(['delegacion' => $del, 'codigo' => $cod]),
                 'LABFEPFEPBCOM', $body['completada'] === 'T' ? 'Sí' : 'No');
+            $this->syncMetrology($del, $cod);
 
             $db->commit();
 
@@ -523,7 +688,7 @@ class PlanificacionController extends BaseController
         $db->table('LABOPE')->where('PLO2DEL', $del)->where('PLO2COD', $cod)
             ->update(['PLO2DEL' => '', 'PLO2COD' => 0]);
         $db->table('DOCFAT')->where('DEL3COD', $del)->where('PLO2COD', $cod)
-            ->update(['DIR2DEL' => $del, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($del));
 
         foreach (['LABPYA', 'LABFEP', 'LABPYS', 'LABPYT', 'LABPYG'] as $table) {
             $db->table($table)->where('PLO3DEL', $del)->where('PLO3COD', $cod)->delete();

@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\VeolabRegulations;
+use App\Support\VeolabVersion;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class ServicioController extends BaseController
@@ -21,6 +24,12 @@ class ServicioController extends BaseController
         'tipo_operacion' => 'int',
         'matriz'         => 'int',
         'normativa'      => 'string',
+        'cliente'        => 'string',
+    ];
+
+    protected array $since = [
+        'cliente_delegacion' => VeolabVersion::V3,
+        'cliente_codigo'     => VeolabVersion::V3,
     ];
 
     protected array $mapping = [
@@ -28,7 +37,6 @@ class ServicioController extends BaseController
         'codigo'                    => 'SER1COD',
         'nombre'                    => 'SERCNOM',
         'nombre_informes'           => 'SERCNOI',
-        'id_igeo'                   => 'SERCIGC',
         'descripcion'               => 'SERCDES',
         'observaciones'             => 'SERCOBS',
         'objetivo'                  => 'SERCOBJ',
@@ -47,6 +55,8 @@ class ServicioController extends BaseController
         'matriz_codigo'             => 'MAT2COD',
         'normativa_delegacion'      => 'NOR2DEL',
         'normativa_codigo'          => 'NOR2COD',
+        'cliente_delegacion'        => 'CLI2DEL',
+        'cliente_codigo'            => 'CLI2COD',
     ];
 
     protected function rules(): array
@@ -56,7 +66,6 @@ class ServicioController extends BaseController
             'codigo'                    => 'nullable|string|max:20',
             'nombre'                    => 'nullable|string|max:100',
             'nombre_informes'           => 'nullable|string|max:100',
-            'id_igeo'                   => 'nullable|string|max:20',
             'descripcion'               => 'nullable|string',
             'observaciones'             => 'nullable|string',
             'objetivo'                  => 'nullable|string',
@@ -75,7 +84,28 @@ class ServicioController extends BaseController
             'matriz_codigo'             => 'nullable|integer',
             'normativa_delegacion'      => 'nullable|string|max:10',
             'normativa_codigo'          => 'nullable|string|max:20',
+            'cliente_delegacion'        => 'nullable|string|max:10',
+            'cliente_codigo'            => 'nullable|string|max:15',
         ];
+    }
+
+    /**
+     * ?para_cliente_codigo=: los servicios que se pueden elegir para un cliente, los
+     * que no tienen cliente y los suyos (LAB_SQLFiltroClienteServicio de Veolab).
+     */
+    protected function applyCustomFilters(Request $request, $query): void
+    {
+        $code = $request->query('para_cliente_codigo');
+        if (! is_string($code) || $code === '' || ! $this->supports('cliente_codigo')) {
+            return;
+        }
+        $delegation = $request->query('para_cliente_delegacion');
+        $delegation = is_string($delegation) ? $delegation : '';
+
+        $query->where(function ($q) use ($code, $delegation) {
+            $q->whereNull('CLI2COD')->orWhere('CLI2COD', '')
+                ->orWhere(fn ($own) => $own->where('CLI2DEL', $delegation)->where('CLI2COD', $code));
+        });
     }
 
     protected function validateRelationships(array $data): void
@@ -112,6 +142,15 @@ class ServicioController extends BaseController
                 ->where('NOR1COD', $data['normativa_codigo'])->exists();
             if (! $exists) {
                 throw new BusinessRuleException('La normativa no existe');
+            }
+        }
+
+        if (! empty($data['cliente_codigo'])) {
+            $exists = DB::connection('dynamic')->table('SINCLI')
+                ->where('DEL3COD', $data['cliente_delegacion'] ?? '')
+                ->where('CLI1COD', $data['cliente_codigo'])->exists();
+            if (! $exists) {
+                throw new BusinessRuleException('El cliente no existe');
             }
         }
     }
@@ -184,10 +223,26 @@ class ServicioController extends BaseController
         }
     }
 
+    /** La normativa principal indicada pasa a ser la primera de la lista del servicio. */
+    protected function updateAdditionalData(array $data, array $keys): array
+    {
+        if (array_key_exists('normativa_codigo', $data)) {
+            VeolabRegulations::promoteInService((string) ($keys['delegacion'] ?? ''), (string) ($keys['codigo'] ?? ''),
+                (string) ($data['normativa_delegacion'] ?? ''), (string) $data['normativa_codigo']);
+        }
+
+        return $data;
+    }
+
     protected function deleteRelatedRecords(array $keys): void
     {
         $delegation = $keys['delegacion'] ?? '';
         $code = $keys['codigo'] ?? null;
+
+        if (VeolabVersion::isV3()) {
+            DB::connection('dynamic')->table('LABSYN')
+                ->where('SER3DEL', $delegation)->where('SER3COD', $code)->delete();
+        }
 
         DB::connection('dynamic')->table('LABSYC')
             ->where('SER3DEL', $delegation)->where('SER3COD', $code)->delete();

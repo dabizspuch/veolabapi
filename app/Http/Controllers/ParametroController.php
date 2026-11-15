@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\VeolabDocuments;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 class ParametroController extends BaseController
@@ -21,12 +23,19 @@ class ParametroController extends BaseController
         'seccion' => 'int',
     ];
 
+    /** Validación de métodos (ISO 17025 7.2), desde Veolab 3. */
+    protected array $since = [
+        'estado_metodo'               => VeolabVersion::V3,
+        'fecha_validacion_metodo'     => VeolabVersion::V3,
+        'fecha_revision_metodo'       => VeolabVersion::V3,
+        'fecha_proxima_revision'      => VeolabVersion::V3,
+    ];
+
     protected array $mapping = [
         'delegacion'                  => 'DEL3COD',
         'codigo'                      => 'TEC1COD',
         'nombre'                      => 'TECCNOM',
         'nombre_informes'             => 'TECCNOI',
-        'id_igeo'                     => 'TECCIGC',
         'es_cursiva'                  => 'TECBCUR',
         'fecha_acreditacion'          => 'TECDACR',
         'parametro'                   => 'TECCPAR',
@@ -65,6 +74,11 @@ class ParametroController extends BaseController
         'es_baja'                     => 'TECBBAJ',
         'seccion_delegacion'          => 'SEC2DEL',
         'seccion_codigo'              => 'SEC2COD',
+        // Veolab 3: validación de métodos (ISO 17025 7.2)
+        'estado_metodo'               => 'TECCVME',   // V validado, F verificado, vacío sin indicar
+        'fecha_validacion_metodo'     => 'TECDVME',
+        'fecha_revision_metodo'       => 'TECDRME',
+        'fecha_proxima_revision'      => 'TECDPRM',
     ];
 
     protected function rules(): array
@@ -74,7 +88,6 @@ class ParametroController extends BaseController
             'codigo'                      => 'nullable|string|max:30',
             'nombre'                      => 'nullable|string|max:255',
             'nombre_informes'             => 'nullable|string|max:255',
-            'id_igeo'                     => 'nullable|string|max:20',
             'es_cursiva'                  => 'nullable|string|in:T,F|max:1',
             'fecha_acreditacion'          => 'nullable|date',
             'parametro'                   => 'nullable|string|max:100',
@@ -113,6 +126,10 @@ class ParametroController extends BaseController
             'es_baja'                     => 'nullable|string|in:T,F|max:1',
             'seccion_delegacion'          => 'nullable|string|max:10',
             'seccion_codigo'              => 'nullable|integer|min:0',
+            'estado_metodo'               => 'nullable|string|in:V,F',
+            'fecha_validacion_metodo'     => 'nullable|date',
+            'fecha_revision_metodo'       => 'nullable|date',
+            'fecha_proxima_revision'      => 'nullable|date',
         ];
     }
 
@@ -174,7 +191,7 @@ class ParametroController extends BaseController
         // Relaciones donde el parámetro es referencia parte de PK (TEC3*).
         $refs3 = [
             ['LABRES', 'está siendo referenciado en algún resultado'],
-            ['LABCYT', 'está siendo referenciado en alguna carta de control'],
+            ['LABCYT', 'está siendo referenciado en algún gráfico de control'],
         ];
         foreach ($refs3 as [$table, $reason]) {
             $used = DB::connection('dynamic')->table($table)
@@ -222,6 +239,9 @@ class ParametroController extends BaseController
 
         // Vínculos donde la delegación del parámetro va en TEC3DEL.
         $relatedTec3 = ['LABPYT', 'LABTYN', 'LABTYC', 'LABTYF', 'LABTYE', 'LABTYQ', 'LABTYP', 'LABCOT', 'LABCYR'];
+        if (VeolabVersion::isV3()) {
+            $relatedTec3[] = 'GRHAUT';   // autorizaciones del personal para la técnica (Tecnicas.frm)
+        }
         foreach ($relatedTec3 as $table) {
             DB::connection('dynamic')->table($table)
                 ->where('TEC3DEL', $delegation)->where('TEC3COD', $code)->delete();
@@ -230,6 +250,6 @@ class ParametroController extends BaseController
         // Documentos del parámetro a la papelera.
         DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)->where('TEC2COD', $code)
-            ->update(['DIR2DEL' => $delegation, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($delegation));
     }
 }

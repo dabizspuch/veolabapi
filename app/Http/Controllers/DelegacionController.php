@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
 use Illuminate\Support\Facades\DB;
+use App\Support\VeolabFollowUp;
 
 class DelegacionController extends BaseController
 {
@@ -144,6 +145,10 @@ class DelegacionController extends BaseController
             'LABMAR' => 'alguna marca',
             'LABAUT' => 'algún autodefinible',
         ];
+
+        if (VeolabFollowUp::available()) {
+            $tables['CLITSE'] = 'algún tipo de seguimiento';
+        }
 
         foreach ($tables as $table => $reference) {
             if (DB::connection('dynamic')->table($table)->where('DEL3COD', $code)->exists()) {

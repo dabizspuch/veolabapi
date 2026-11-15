@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Concerns\AuditsOwnerRecord;
 use App\Support\VeolabResults;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -57,6 +58,18 @@ class ParametroColumnaController extends BaseController
         'es_visible_resultados' => 'COTBRES',
         'es_control_exactitud'  => 'COTBCON',
         'es_control_precision'  => 'COTBCOP',
+        'carta_exactitud'       => 'COTNCDE',
+        'carta_precision'       => 'COTNCDP',
+    ];
+
+    /**
+     * Veolab 3: número de la carta de exactitud / precisión del parámetro a la
+     * que va la columna de control (vacío o 1 = principal; 2, 3... otras cartas
+     * del mismo tipo, p. ej. la del límite de cuantificación).
+     */
+    protected array $since = [
+        'carta_exactitud' => VeolabVersion::V3,
+        'carta_precision' => VeolabVersion::V3,
     ];
 
     /** Valores de una columna nueva (NuevaColumna de FichaTecnica). */
@@ -99,6 +112,8 @@ class ParametroColumnaController extends BaseController
             'es_visible_resultados'       => 'nullable|string|in:T,F',
             'es_control_exactitud'        => 'nullable|string|in:T,F',
             'es_control_precision'        => 'nullable|string|in:T,F',
+            'carta_exactitud'             => 'nullable|integer|min:1|max:99',
+            'carta_precision'             => 'nullable|integer|min:1|max:99',
             'rangos'                      => 'nullable|array',
             'rangos.*'                    => 'array',
             'rangos.*.rango_delegacion'   => 'nullable|string|max:10',

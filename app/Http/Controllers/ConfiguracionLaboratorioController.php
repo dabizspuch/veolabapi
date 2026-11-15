@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\VeolabVersion;
+
 /**
  * Configuración del laboratorio (LABCON, una fila con codigo = 1). Solo
  * lectura: se mantiene en Configurar operaciones, informes, notificaciones,
  * facturación, listas y exportación de Veolab. Los estados son los de la
- * operación (0-7); los booleanos, T/F.
+ * operación (0-7); los booleanos, T/F. Los colores son enteros BGR de VB;
+ * desde Veolab 3, -1 es color automático (texto) o transparente (fondo).
  */
 class ConfiguracionLaboratorioController extends BaseController
 {
@@ -15,6 +18,30 @@ class ConfiguracionLaboratorioController extends BaseController
         'codigo' => 'CON1COD',
     ];
     protected ?string $delegationKey = null;
+
+    /** Opciones añadidas en Veolab 3. */
+    protected array $since = [
+        'exportacion_superindices'            => VeolabVersion::V3,
+        'exportacion_simbolo_superindice'     => VeolabVersion::V3,
+        'exportacion_subindices'              => VeolabVersion::V3,
+        'exportacion_simbolo_subindice'       => VeolabVersion::V3,
+        'exportacion_notacion_cientifica'     => VeolabVersion::V3,
+        'exportacion_formato_lineas'          => VeolabVersion::V3,
+        'exportacion_formato_marcas'          => VeolabVersion::V3,
+        'importacion_no_sobrescribir'         => VeolabVersion::V3,
+        'orden_series_lotes'                  => VeolabVersion::V3,
+        'inventario_basico'                   => VeolabVersion::V3,
+        'productos_nuevos_con_series'         => VeolabVersion::V3,
+        'equipos_vencidos'                    => VeolabVersion::V3,
+        'presupuesto_solo_incluido'           => VeolabVersion::V3,
+        'notificar_seguimiento_presupuestos'  => VeolabVersion::V3,
+        'dias_seguimiento_presupuestos'       => VeolabVersion::V3,
+        'notificar_errores_igeo'              => VeolabVersion::V3,
+        'autorizaciones_analistas'            => VeolabVersion::V3,
+        'notificar_evaluaciones_proveedores'  => VeolabVersion::V3,
+        'notificar_ensayos_aptitud'           => VeolabVersion::V3,
+        'motivo_rechazo_firmas'               => VeolabVersion::V3,
+    ];
 
     protected array $mapping = [
         'codigo'                              => 'CON1COD',
@@ -64,6 +91,7 @@ class ConfiguracionLaboratorioController extends BaseController
         'bloquear_informe_al_validar'         => 'CONBBLI',
         'bloquear_exportacion_sin_firmar'     => 'CONBBEF',
         'bloquear_validacion_manual'          => 'CONBBEV',
+        'motivo_rechazo_firmas'               => 'CONBCRF',   // Veolab 3: comentario obligatorio al rechazar
         'secciones_paginacion_independientes' => 'CONBPAG',
         'copiar_archivo_otro_nombre'          => 'CONBCOP',
         'nota_informes_acreditados'           => 'CONCNIA',
@@ -141,6 +169,32 @@ class ConfiguracionLaboratorioController extends BaseController
         'exportacion_clientes_color'          => 'CONNCOC',
         'exportacion_clientes_fondo'          => 'CONNCBC',
         'exportacion_clientes_estilo'         => 'CONCESC',
+        // Veolab 3: superíndices, subíndices y notación científica al exportar; formato de líneas de grupo
+        // y marcas al exportar (0 sin formato); no sobrescribir resultados con valor al importar
+        'exportacion_superindices'            => 'CONBSPI',
+        'exportacion_simbolo_superindice'     => 'CONCSPI',
+        'exportacion_subindices'              => 'CONBSBI',
+        'exportacion_simbolo_subindice'       => 'CONCSBI',
+        'exportacion_notacion_cientifica'     => 'CONBNCI',
+        'exportacion_formato_lineas'          => 'CONNFEL',
+        'exportacion_formato_marcas'          => 'CONNFEM',
+        'importacion_no_sobrescribir'         => 'CONBNSR',
+        'orden_series_lotes'                  => 'CONCOSE',   // N o vacío número de serie, F fecha de alta
+        'inventario_basico'                   => 'CONCINV',   // B básico (todos los productos sin series), vacío completo
+        'productos_nuevos_con_series'         => 'CONBCSN',   // F: los productos nuevos llevan las existencias sin series
+        // Equipos vencidos o fuera de uso al usarlos y al grabar resultados: vacío bloquear, A avisar, N no comprobar
+        'equipos_vencidos'                    => 'CONCVEN',
+        // Veolab 3: ventas (solo lo incluido en el presupuesto, seguimiento) y notificaciones de iGEO
+        'presupuesto_solo_incluido'           => 'CONBSSP',
+        'notificar_seguimiento_presupuestos'  => 'CONBSEG',
+        'dias_seguimiento_presupuestos'       => 'CONNDSE',
+        'notificar_errores_igeo'              => 'CONBIGE',
+        // Veolab 3: analistas sin autorización vigente en técnicas acreditadas al grabar resultados
+        // (N no comprobar, A avisar, B bloquear; ISO 17025 6.2) y aviso de la próxima evaluación de proveedores
+        'autorizaciones_analistas'            => 'CONCAUT',
+        'notificar_evaluaciones_proveedores'  => 'CONBNEV',
+        // Veolab 3: aviso (J) a quien registró un ensayo de aptitud de su fecha límite de envío próxima
+        'notificar_ensayos_aptitud'           => 'CONBNAP',
 
         // Aplicación
         'actualizaciones_automaticas'         => 'CONBACT',

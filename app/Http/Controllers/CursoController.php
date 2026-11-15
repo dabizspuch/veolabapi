@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\VeolabDocuments;
 use Illuminate\Support\Facades\DB;
 
 class CursoController extends BaseController
@@ -108,6 +109,6 @@ class CursoController extends BaseController
 
         DB::connection('dynamic')->table('DOCFAT')
             ->where('DEL3COD', $delegation)->where('PAF2COD', $code)
-            ->update(['DIR2DEL' => $delegation, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($delegation));
     }
 }

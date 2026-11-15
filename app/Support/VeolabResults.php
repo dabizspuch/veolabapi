@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
  *    activas (CORBACT) y son editables (CORBEDI).
  *  - Marcas por rangos (AplicarMarcaRango / EstaEnIntervalo): rangos LABCYR
  *    de la columna, con los de normativa (RANBNOR) sustituidos por el rango
- *    LABTYN.TYNCRAN de la normativa del servicio; la primera marca concluyente
+ *    LABTYN.TYNCRAN de la normativa aplicada a la línea; la primera marca concluyente
  *    prevalece sobre "no evaluable" (-2) y el valor puede sustituirse por el
  *    límite superado (RANBSUV/RANBSUX) o por el texto de la marca (MARCSUS).
  *  - Dictamen (ObtenerDictamen) a partir de las marcas de la operación.
@@ -68,10 +68,17 @@ class VeolabResults
             })
             ->where('LABCOR.OPE3DEL', $del)->where('LABCOR.OPE3SER', $ser)->where('LABCOR.OPE3COD', $cod)
             ->orderBy('LABCOR.TEC3DEL')->orderBy('LABCOR.TEC3COD')->orderBy('LABCOR.COR1COD')
-            ->get(['LABCOR.*', 'LABCOT.COTCTIP', 'LABCOT.COTCFOR', 'LABCOT.COTCSEL', 'LABCOT.COTCPRE', 'LABCOT.COTCFOM']);
+            ->get(array_merge(['LABCOR.*', 'LABCOT.COTCTIP', 'LABCOT.COTCFOR', 'LABCOT.COTCSEL', 'LABCOT.COTCPRE', 'LABCOT.COTCFOM'],
+                // Veolab 3: carta de exactitud y de precisión a la que va la columna (vacío = principal).
+                VeolabVersion::isV3() ? ['LABCOT.COTNCDE', 'LABCOT.COTNCDP'] : []));
 
         $ranges = self::ranges($del, $ser, $cod);
         $regulations = self::regulationRanges($del, $ser, $cod);
+        // Veolab 3: incertidumbre de cada técnica (U de los rangos con cálculos y de la banda de guarda).
+        $uncertainties = VeolabVersion::isV3() ? $db->table('LABRES')
+            ->where('OPE3DEL', $del)->where('OPE3SER', $ser)->where('OPE3COD', $cod)
+            ->get(['TEC3DEL', 'TEC3COD', 'RESCINC'])
+            ->mapWithKeys(fn ($r) => [self::key($r->TEC3DEL, $r->TEC3COD) => (string) ($r->RESCINC ?? '')])->all() : [];
 
         $cells = [];
         foreach ($rows as $row) {
@@ -81,7 +88,7 @@ class VeolabResults
             $cellRanges = [];
             foreach ($ranges[$tec."\x1B".$column] ?? [] as $range) {
                 if ($range['regulation']) {
-                    // Rango de normativa: el de la normativa del servicio si lo hay.
+                    // Rango de normativa: el de la normativa aplicada a la línea si lo hay.
                     $regulation = $regulations[$tec] ?? '';
                     if (trim($regulation) !== '') {
                         $range['interval'] = $regulation;
@@ -107,9 +114,15 @@ class VeolabResults
                 'control'    => $row->CORBCON === 'T' || $row->CORBCOP === 'T',
                 'controlE'   => $row->CORBCON === 'T',   // control de exactitud (cartas E)
                 'controlP'   => $row->CORBCOP === 'T',   // control de precisión (cartas P)
+                'chartE'     => VeolabControlCharts::chartNumber($row->COTNCDE ?? null),   // nº de carta de exactitud (1 = principal)
+                'chartP'     => VeolabControlCharts::chartNumber($row->COTNCDP ?? null),   // nº de carta de precisión
                 'ranges'     => $cellRanges,
                 'changed'    => false,
                 'warning'    => '',
+                // Veolab 3 (rangos con cálculos y banda de guarda): técnica, incertidumbre y normativa de la línea.
+                'tec'         => $tec,
+                'uncertainty' => $uncertainties[$tec] ?? '',
+                'regulationInterval' => (string) ($regulations[$tec] ?? ''),
             ];
         }
 
@@ -137,8 +150,9 @@ class VeolabResults
             ->orderBy('LABCYR.TEC3DEL')->orderBy('LABCYR.TEC3COD')->orderBy('LABCYR.COT3COD')
             ->orderBy('LABCYR.RAN3COD', 'desc')->orderBy('LABCYR.MAR2DEL')->orderBy('LABCYR.MAR2COD')
             ->orderBy('LABRAN.RANBSUV')->orderBy('LABRAN.RANBSUX')->orderBy('LABRAN.RANBNOR')
-            ->get(['LABCYR.TEC3DEL', 'LABCYR.TEC3COD', 'LABCYR.COT3COD', 'LABCYR.RAN3COD', 'LABCYR.CYRCVAR',
-                'LABCYR.MAR2DEL', 'LABCYR.MAR2COD', 'LABRAN.RANBSUV', 'LABRAN.RANBSUX', 'LABRAN.RANBNOR']);
+            ->get(array_merge(['LABCYR.TEC3DEL', 'LABCYR.TEC3COD', 'LABCYR.COT3COD', 'LABCYR.RAN3COD', 'LABCYR.CYRCVAR',
+                'LABCYR.MAR2DEL', 'LABCYR.MAR2COD', 'LABRAN.RANBSUV', 'LABRAN.RANBSUX', 'LABRAN.RANBNOR'],
+                VeolabVersion::isV3() ? ['LABRAN.RANBGUA'] : []));
 
         $out = [];
         foreach ($rows as $row) {
@@ -148,13 +162,14 @@ class VeolabResults
                 'regulation' => $row->RANBNOR === 'T',
                 'limit'      => $row->RANBSUV === 'T',
                 'withValue'  => $row->RANBSUX === 'T',
+                'guard'      => ($row->RANBGUA ?? '') === 'T',   // banda de guarda (Veolab 3)
             ];
         }
 
         return $out;
     }
 
-    /** Rango LABTYN.TYNCRAN de la normativa del servicio de cada técnica. */
+    /** Rango LABTYN.TYNCRAN de la normativa aplicada a cada línea (en bases 2.4 o sin ella, la del servicio). */
     private static function regulationRanges(string $del, string $ser, int $cod): array
     {
         $rows = DB::connection('dynamic')->table('LABRES')
@@ -164,9 +179,14 @@ class VeolabResults
             })
             ->leftJoin('LABTYN', function ($join) {
                 $join->on('LABRES.TEC3DEL', '=', 'LABTYN.TEC3DEL')
-                    ->on('LABRES.TEC3COD', '=', 'LABTYN.TEC3COD')
-                    ->on('LABSER.NOR2DEL', '=', 'LABTYN.NOR3DEL')
-                    ->on('LABSER.NOR2COD', '=', 'LABTYN.NOR3COD');
+                    ->on('LABRES.TEC3COD', '=', 'LABTYN.TEC3COD');
+                if (VeolabVersion::isV3()) {
+                    $join->on(DB::raw("CASE WHEN LABRES.NOR2COD <> '' THEN LABRES.NOR2DEL ELSE LABSER.NOR2DEL END"), '=', 'LABTYN.NOR3DEL')
+                        ->on(DB::raw("CASE WHEN LABRES.NOR2COD <> '' THEN LABRES.NOR2COD ELSE LABSER.NOR2COD END"), '=', 'LABTYN.NOR3COD');
+                } else {
+                    $join->on('LABSER.NOR2DEL', '=', 'LABTYN.NOR3DEL')
+                        ->on('LABSER.NOR2COD', '=', 'LABTYN.NOR3COD');
+                }
             })
             ->where('LABRES.OPE3DEL', $del)->where('LABRES.OPE3SER', $ser)->where('LABRES.OPE3COD', $cod)
             ->get(['LABRES.TEC3DEL', 'LABRES.TEC3COD', 'LABTYN.TYNCRAN']);
@@ -201,26 +221,40 @@ class VeolabResults
      * AplicarMarcaRango: si la celda tiene rangos, calcula la marca y aplica
      * la sustitución del valor. Devuelve false si la celda no tiene rangos
      * (su marca no se toca).
+     *
+     * Veolab 3: los rangos con cálculos (U, LI, LS, letras de columna,
+     * result...) se resuelven para el resultado con las fórmulas de la
+     * operación ($formulas; sin ellas, o si un extremo no se puede calcular,
+     * el rango no se aplica) y los de banda de guarda evalúan valor ± U.
      */
-    public static function applyRangeMark(array &$cell, array $marks, string $delegation, bool $keepLimit): bool
+    public static function applyRangeMark(array &$cell, array $marks, string $delegation, bool $keepLimit,
+        ?VeolabFormulas $formulas = null): bool
     {
         if (! $cell['ranges']) {
             return false;
         }
 
+        $v3 = VeolabVersion::isV3();
         $selected = ['', ''];
         $notEvaluableSelected = false;
         $limitSelected = '';
 
         foreach ($cell['ranges'] as $range) {
             $interval = str_replace('*', '', $range['interval']);
+            $guard = $v3 && ($range['guard'] ?? false);
             if (trim($interval) === '' || $cell['value'] === '') {
                 continue;
+            }
+            if ($v3 && self::rangeIsDynamic($interval)) {
+                $interval = $formulas ? self::resolveDynamicRange($interval, $cell, $formulas) : '';
+                if ($interval === '') {
+                    continue;
+                }
             }
 
             $limit = '';
             $notEvaluable = false;
-            if (self::inInterval($cell['value'], $interval, $notEvaluable, $range['withValue'], $limit)) {
+            if (self::inIntervalWithGuard($cell, $interval, $notEvaluable, $range['withValue'], $limit, $guard, $formulas)) {
                 continue;
             }
 
@@ -230,6 +264,10 @@ class VeolabResults
                     $mark = self::notEvaluableMark($marks, $delegation);
                     if ($mark !== null) {
                         $selected = [$mark[0], (string) $mark[1]];
+                        $notEvaluableSelected = true;
+                    } elseif ($guard) {
+                        // Banda de guarda sin la marca «No evaluable»: la del rango, que es lo prudente.
+                        $selected = [$range['mark'][0], (string) $range['mark'][1]];
                         $notEvaluableSelected = true;
                     }
                 }
@@ -246,6 +284,372 @@ class VeolabResults
         self::applyMark($cell, $selected[0], (int) $selected[1], $marks, $keepLimit ? '' : $limitSelected);
 
         return true;
+    }
+
+    /** ¿Tiene la celda algún rango con cálculos o con banda de guarda? (booRangoDinamico, Veolab 3) */
+    public static function hasDynamicRanges(array $cell): bool
+    {
+        if (! VeolabVersion::isV3()) {
+            return false;
+        }
+        foreach ($cell['ranges'] as $range) {
+            if (($range['guard'] ?? false) || self::rangeIsDynamic(str_replace('*', '', $range['interval']))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * ¿Hay que volver a evaluar la celda cuando cambian otras de la operación?
+     * (RecalcularRangosDinamicos: rangos con letras de columna o result(), o
+     * incertidumbre con fórmula.)
+     */
+    public static function dependsOnOtherCells(array $cell): bool
+    {
+        if (! self::hasDynamicRanges($cell)) {
+            return false;
+        }
+        if (str_starts_with(trim($cell['uncertainty'] ?? ''), '=')) {
+            return true;
+        }
+        foreach ($cell['ranges'] as $range) {
+            if (self::rangeDependsOnCells(str_replace('*', '', $range['interval']))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** ValorRecalculable: número, con «<» o «>» delante como mucho. */
+    public static function recalculableValue(string $value): bool
+    {
+        $value = trim($value);
+        if (str_starts_with($value, '<') || str_starts_with($value, '>')) {
+            $value = trim(mb_substr($value, 1));
+        }
+
+        return $value !== '' && VeolabFormat::isNumeric($value);
+    }
+
+    // ------------------------------------------------------------------
+    // Rangos con cálculos y banda de guarda (Veolab 3, Laboratorio.bas)
+    // ------------------------------------------------------------------
+
+    /** LAB_RangoDinamico: lleva letras (U, LI, LS, columnas, funciones); las listas entre llaves no cuentan. */
+    public static function rangeIsDynamic(string $interval): bool
+    {
+        if (str_contains($interval, '{')) {
+            return false;
+        }
+        $length = strlen($interval);
+        for ($i = 0; $i < $length; $i++) {
+            $char = $interval[$i];
+            if (ctype_alpha($char)) {
+                // Una «E» pegada a una cifra es el exponente de un número (1E-3).
+                if (! (strtoupper($char) === 'E' && $i > 0 && preg_match('/[0-9.,]/', $interval[$i - 1]))) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** LAB_RangoDependeCeldas: usa letras de columna o result(...). */
+    public static function rangeDependsOnCells(string $interval): bool
+    {
+        if (str_contains($interval, '{')) {
+            return false;
+        }
+        $quoted = false;
+        $length = strlen($interval);
+        $i = 0;
+        while ($i < $length) {
+            $char = $interval[$i];
+            if ($char === '"') {
+                $quoted = ! $quoted;
+            }
+            if (! $quoted && ctype_alpha($char) && ! ($i > 0 && preg_match('/[0-9A-Za-z_.,]/', $interval[$i - 1]))) {
+                $word = '';
+                while ($i < $length && preg_match('/[A-Za-z0-9_]/', $interval[$i])) {
+                    $word .= $interval[$i++];
+                }
+                if (strtolower($word) === 'result') {
+                    return true;
+                }
+                if (($interval[$i] ?? '') !== '(' && ! in_array($word, ['U', 'LI', 'LS'], true) && preg_match('/^[A-Z]+$/', $word)) {
+                    return true;   // letras de columna
+                }
+            } else {
+                $i++;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * LAB_PartesRango: intervalos [apertura, inferior, superior, cierre];
+     * dentro de los extremos los paréntesis y los ';' son de los cálculos.
+     * Null si está mal escrito.
+     */
+    public static function rangeParts(string $interval): ?array
+    {
+        $parts = [];
+        $separator = str_contains($interval, ';') ? ';' : ',';
+        $state = 0;     // 0 fuera de un intervalo, 1 extremo inferior, 2 extremo superior
+        $level = 0;
+        $quoted = false;
+        $open = $start = $end = '';
+
+        foreach (mb_str_split($interval) as $char) {
+            if ($state === 0) {
+                if ($char === '[' || $char === '(') {
+                    [$open, $start, $end, $level, $quoted, $state] = [$char, '', '', 0, false, 1];
+                } elseif ($char === ']' || $char === ')') {
+                    return null;
+                }
+                continue;
+            }
+
+            $add = true;
+            if ($char === '"') {
+                $quoted = ! $quoted;
+            } elseif ($quoted) {
+                // Texto entre comillas de una función: se copia tal cual.
+            } elseif ($char === '(') {
+                $level++;
+            } elseif ($char === ')' && $level > 0) {
+                $level--;
+            } elseif (($char === ')' || $char === ']') && $level === 0) {
+                if ($state !== 2) {
+                    return null;    // falta el separador entre los extremos
+                }
+                $parts[] = [$open, trim($start), trim($end), $char];
+                $state = 0;
+                $add = false;
+            } elseif ($char === $separator && $level === 0 && $state === 1) {
+                $state = 2;
+                $add = false;
+            }
+            if ($add) {
+                if ($state === 1) {
+                    $start .= $char;
+                } else {
+                    $end .= $char;
+                }
+            }
+        }
+
+        return $state === 0 && $parts ? $parts : null;
+    }
+
+    /**
+     * LAB_IncertidumbreNumerica: incertidumbre absoluta de su texto («± 0,5»,
+     * «0,5 mg/L») o porcentaje del valor («15 %»). Vacía si es otra cosa.
+     */
+    public static function uncertaintyNumber(string $text, float $value): string
+    {
+        $rest = trim($text);
+        if ($rest === '') {
+            return '';
+        }
+        foreach (['±', '+/-', '+ /-', '+-'] as $prefix) {
+            if (str_starts_with($rest, $prefix)) {
+                $rest = trim(substr($rest, strlen($prefix)));
+                break;
+            }
+        }
+        if (! preg_match('/^[0-9][0-9.,]*/', $rest, $m)) {
+            return '';
+        }
+        $number = $m[0];
+        $rest = substr($rest, strlen($number));
+        // Detrás del número solo cuenta lo anterior a la unidad o al factor de cobertura.
+        if (preg_match('/[A-Za-z\/(]|[^\x00-\x7F]/', $rest, $m, PREG_OFFSET_CAPTURE)) {
+            $rest = substr($rest, 0, $m[0][1]);
+        }
+        if (preg_match('/[0-9:<>=]/', $rest)) {
+            return '';      // más números u otros datos: no es una incertidumbre
+        }
+        // Val de VB: el número hasta el segundo punto.
+        preg_match('/^\d*(\.\d*)?/', str_replace(',', '.', $number), $m);
+        $u = (float) $m[0];
+        if (str_contains($rest, '%')) {
+            $u = abs($value) * $u / 100;
+        }
+
+        return self::vbString($u);
+    }
+
+    /** LAB_LimitesNormativa: [LI, LS] del intervalo de la normativa: número, «&» infinito o vacío. */
+    public static function regulationLimits(string $interval): array
+    {
+        if (trim($interval) === '' || ! ($parts = self::rangeParts(str_replace('*', '', $interval)))) {
+            return ['', ''];
+        }
+        [, $start, $end] = $parts[0];
+        $limit = function (string $text, string $sign): string {
+            if (($number = self::number($text)) !== null) {
+                return self::vbString($number);
+            }
+
+            return $text === '' || str_replace($sign, '', $text) === '&' ? '&' : '';
+        };
+
+        return [$limit($start, '-'), $limit($end, '+')];
+    }
+
+    /**
+     * LAB_SustituirVariablesRango: U, LI y LS (en mayúsculas, fuera de
+     * comillas) por su valor. $missing: alguna sin valor; $infinite: algún
+     * límite infinito, y entonces el extremo entero lo es.
+     */
+    public static function substituteRangeVariables(string $expression, string $u, string $li, string $ls,
+        bool &$missing, bool &$infinite): string
+    {
+        $missing = $infinite = false;
+        $out = '';
+        $quoted = false;
+        $length = strlen($expression);
+        $i = 0;
+        while ($i < $length) {
+            $char = $expression[$i];
+            if ($char === '"') {
+                $quoted = ! $quoted;
+            }
+            if (! $quoted && ctype_upper($char) && ! ($i > 0 && preg_match('/[0-9A-Za-z_]/', $expression[$i - 1]))) {
+                $word = '';
+                while ($i < $length && preg_match('/[A-Za-z0-9_]/', $expression[$i])) {
+                    $word .= $expression[$i++];
+                }
+                if (! in_array($word, ['U', 'LI', 'LS'], true)) {
+                    $out .= $word;
+                    continue;
+                }
+                $value = match ($word) { 'U' => $u, 'LI' => $li, default => $ls };
+                if ($value === '') {
+                    $missing = true;
+                    $value = '0';
+                } elseif ($value === '&') {
+                    $infinite = true;
+                    $value = '0';
+                }
+                $out .= (self::number($value) ?? 0.0) < 0 ? '(0'.$value.')' : '('.$value.')';
+            } else {
+                $out .= $char;
+                $i++;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * IncertidumbreCelda: incertidumbre absoluta del resultado (la de la
+     * técnica: número, porcentaje del valor o fórmula con «=»). Vacía si no
+     * hay o no se entiende.
+     */
+    public static function cellUncertainty(array $cell, ?VeolabFormulas $formulas): string
+    {
+        $text = trim($cell['uncertainty'] ?? '');
+        if (str_starts_with($text, '=')) {
+            $text = $formulas ? ($formulas->evaluateExpression(mb_substr($text, 1), $cell['tec']) ?? '') : '';
+        }
+        $value = self::number(str_replace(['<', '>'], '', $cell['value'])) ?? 0.0;
+
+        return self::uncertaintyNumber($text, $value);
+    }
+
+    /**
+     * ResolverRangoDinamico: cada extremo con letras se calcula como una
+     * fórmula de la técnica, con U (sin incertidumbre, 0), LI y LS de la
+     * normativa aplicada. Devuelve el rango con números, o vacío si algún
+     * extremo no se puede calcular (el rango no se aplica).
+     */
+    private static function resolveDynamicRange(string $interval, array $cell, VeolabFormulas $formulas): string
+    {
+        $parts = self::rangeParts($interval);
+        if ($parts === null) {
+            return '';
+        }
+
+        $u = self::cellUncertainty($cell, $formulas);
+        if ($u === '') {
+            $u = '0';
+        }
+        [$li, $ls] = self::regulationLimits($cell['regulationInterval'] ?? '');
+
+        $out = '';
+        foreach ($parts as $part) {
+            for ($k = 1; $k <= 2; $k++) {
+                $end = trim($part[$k]);
+                if (self::rangeIsDynamic($end)) {
+                    $missing = $infinite = false;
+                    $end = self::substituteRangeVariables($end, $u, $li, $ls, $missing, $infinite);
+                    if ($missing) {
+                        return '';
+                    }
+                    if ($infinite) {
+                        $end = '&';     // límite de normativa infinito: el extremo también lo es
+                    } else {
+                        $number = VeolabFormat::toDouble($formulas->evaluateExpression($end, $cell['tec']) ?? '');
+                        if ($number === null) {
+                            return '';
+                        }
+                        $end = self::vbString(VeolabFormat::round($number, 10));
+                    }
+                }
+                $part[$k] = $end;
+            }
+            $out .= $part[0].$part[1].';'.$part[2].$part[3].' ';
+        }
+
+        return trim($out);
+    }
+
+    /**
+     * EstaEnIntervaloConGuarda: con banda de guarda el resultado es valor ± U;
+     * entero dentro, correcto; entero fuera, la marca del rango; a caballo
+     * del límite, no evaluable. Sin banda, sin U o con valores como «<5», lo
+     * de siempre.
+     */
+    private static function inIntervalWithGuard(array $cell, string $interval, bool &$notEvaluable, bool $withValue,
+        string &$limit, bool $guard, ?VeolabFormulas $formulas): bool
+    {
+        $value = $cell['value'];
+        $u = 0.0;
+        if ($guard && VeolabFormat::isNumeric(trim($value))) {
+            $text = self::cellUncertainty($cell, $formulas);
+            if ($text !== '') {
+                $u = abs(VeolabFormat::value($text));
+            }
+        }
+        if ($u == 0.0) {
+            return self::inInterval($value, $interval, $notEvaluable, $withValue, $limit);
+        }
+
+        $number = VeolabFormat::value(trim($value));
+        $aux = false;
+        $auxLimit = '';
+        $center = self::inInterval($value, $interval, $aux, $withValue, $limit);
+        $lower = self::inInterval(self::vbString($number - $u), $interval, $aux, false, $auxLimit);
+        $upper = self::inInterval(self::vbString($number + $u), $interval, $aux, false, $auxLimit);
+
+        $notEvaluable = false;
+        if ($center && $lower && $upper) {
+            return true;
+        }
+        if (! $center && ! $lower && ! $upper) {
+            return false;   // claramente fuera: la marca del rango
+        }
+        $notEvaluable = true;   // en la banda de guarda: no se puede decidir
+        $limit = '';
+
+        return false;
     }
 
     /**

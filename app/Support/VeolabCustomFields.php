@@ -22,7 +22,10 @@ use Illuminate\Support\Facades\DB;
  *  - Fichero (F): se indica {delegacion, codigo}; se guarda la clave en
  *    OYA3DEL/OYA3COD y en OYACVAL el texto que muestra Veolab.
  *  - LABAYS (vínculo con servicios) solo decide lo que muestra Veolab: no
- *    restringe los valores.
+ *    restringe los valores (sí decide qué autodefinibles reciben valor
+ *    predeterminado o fórmula, ver applyDefaults).
+ *  - Desde Veolab 3, valor predeterminado y fórmulas (AUTCPRE) de los
+ *    autodefinibles y de los campos fijos de recolección: applyDefaults.
  *
  * Trabaja sobre la conexión 'dynamic' y dentro de la transacción del cambio.
  */
@@ -355,7 +358,8 @@ class VeolabCustomFields
             ->where(fn ($q) => $q->whereNull('AUTBCAT')->orWhere('AUTBCAT', '<>', 'T'))
             ->where(fn ($q) => $q->whereNull('AUTBBAJ')->orWhere('AUTBBAJ', '<>', 'T'))
             ->orderBy('DEL3COD')->orderBy('AUTNORD')
-            ->get(['DEL3COD', 'AUT1COD', 'AUTCNOM', 'AUTCTDD', 'AUTCFOR', 'AUTBVAL'])
+            ->get(array_merge(['DEL3COD', 'AUT1COD', 'AUTCNOM', 'AUTCTDD', 'AUTCFOR', 'AUTBVAL'],
+                VeolabVersion::isV3() ? ['AUTCPRE'] : []))
             ->all();
     }
 
@@ -586,5 +590,489 @@ class VeolabCustomFields
     private static function fileTable(string $format): ?string
     {
         return self::FILE_TABLE_NAMES[mb_strtolower(trim($format))] ?? null;
+    }
+
+    // ------------------------------------------------------------------
+    // Valor predeterminado y fórmulas (LABAUT.AUTCPRE, desde Veolab 3)
+    // ------------------------------------------------------------------
+
+    /**
+     * Campos fijos de recolección de las fichas de operación y planificación
+     * (AUT_CAMPOS_FIJOS): columna de LABOPE (en LABPLO empieza por PLO). Su
+     * configuración son filas de LABAUT con AUTCTDD = 'X' y la columna en
+     * AUTCFOR: AUTBBAJ = T oculto, AUTCPRE valor predeterminado o fórmula.
+     * EMPCNOM y PUMCDES (nombre del empleado recolector y del punto de muestreo)
+     * no se leen aquí: no admiten predeterminado y no están en la tabla.
+     */
+    public const FIXED_FIELDS = ['EMPCNOM', 'OPECREC', 'OPECTIM', 'OPECLUR', 'PUMCDES', 'OPECLOT', 'OPECMAR', 'OPEDELA', 'OPEDCAD',
+        'OPENENV', 'OPECTEM', 'OPECCLO', 'OPECPHS', 'OPECCDT', 'OPECCAN', 'OPECUNI', 'OPECOBS', 'OPECENV', 'OPECCNS', 'OPECTRA',
+        'OPECCRE', 'OPECPED', 'OPECIAC', 'OPECDIR', 'OPENRED', 'OPENLOC'];
+
+    /** Campos de recolección nuevos en Veolab 3 (AUT_CAMPOS_RECOLECCION): de baja mientras la delegación no los configure. */
+    public const RECOLLECTION_FIELDS = ['OPEDELA', 'OPEDCAD', 'OPECCLO', 'OPECPHS', 'OPECCDT', 'OPECCRE', 'OPECIAC', 'OPECPED', 'OPECTRA', 'OPECCNS'];
+
+    /** Campos fijos sin predeterminado ni fórmula: se eligen de una lista con código o se rellenan desde otro dato. */
+    private const FIXED_WITHOUT_DEFAULT = ['EMPCNOM', 'OPECREC', 'OPECTIM', 'PUMCDES', 'OPECDIR', 'OPENRED', 'OPENLOC'];
+
+    /** Nombre con el que field() lee cada campo fijo: su marcador de exportación (AUT_MarcadorCampoFijo). */
+    private const FIXED_MARKERS = [
+        'EMPCNOM' => 'empleadorecolectoroperacion', 'OPECREC' => 'recolectoroperacion', 'OPECTIM' => 'tipomuestreooperacion',
+        'OPECLUR' => 'lugaroperacion', 'OPECLOT' => 'loteoperacion', 'OPECMAR' => 'marcaoperacion',
+        'OPEDELA' => 'fechaelaboracionoperacion', 'OPEDCAD' => 'fechacaducidadoperacion', 'OPENENV' => 'numenvasesoperacion',
+        'OPECTEM' => 'temperaturaoperacion', 'OPECCLO' => 'clorolibreoperacion', 'OPECPHS' => 'phoperacion',
+        'OPECCDT' => 'conductividadoperacion', 'OPECCAN' => 'cantidadoperacion', 'OPECUNI' => 'unidadoperacion',
+        'OPECOBS' => 'observacionesoperacion', 'OPECENV' => 'envaseoperacion', 'OPECCNS' => 'conservacionoperacion',
+        'OPECTRA' => 'transporteoperacion', 'OPECCRE' => 'condicionesrecepcionoperacion', 'OPECPED' => 'pedidooperacion',
+        'OPECIAC' => 'informacionclienteoperacion', 'OPECDIR' => 'direccionoperacion', 'OPENRED' => 'redoperacion',
+        'OPENLOC' => 'localidadoperacion',
+    ];
+
+    /** Símbolo que precede al nombre de un autodefinible en field() (EXP_SIMBOLO_AUTODEFINIBLE). */
+    private const CUSTOM_FIELD_SYMBOL = 'ª';
+
+    private const FIXED_FIELD_TYPE = 'X';
+    private const MAX_PASSES = 10;
+
+    /**
+     * Pone los valores predeterminados y calcula las fórmulas (AUTCPRE) de
+     * los autodefinibles y de los campos fijos de recolección, como las
+     * fichas de Veolab 3 (AUT_AplicarPredeterminados, AUT_RecalcularFormulas)
+     * y su importación. En bases anteriores a 3.0 no hace nada.
+     *
+     *  - Registro nuevo: los valores fijos van a los campos vacíos (salvo en
+     *    la copia de una planificación, como "generar"); las fórmulas se
+     *    calculan solo para los campos vacíos, porque un valor recibido se
+     *    respeta como escrito a mano (como al importar).
+     *  - Modificación: las fórmulas se recalculan cuando la petición toca
+     *    autodefinibles o campos de recolección (lo que la ficha hace al
+     *    editar); los campos indicados en la petición no se recalculan.
+     *  - Los autodefinibles vinculados a servicios solo reciben valor si el
+     *    registro tiene alguno de ellos.
+     *  - Varias pasadas para encadenar fórmulas, con tope para las circulares.
+     *
+     * @param  string      $owner       LABOPE, LABPLO o LABLOT.
+     * @param  array       $given       Autodefinibles de la petición (resolve), que cuentan como manuales.
+     * @param  array       $stored      Autodefinibles ya guardados o copiados (stored), con menor prioridad.
+     * @param  array|null  $fixed       Campos fijos (columna OPE* => texto) tras aplicar la petición; null en lotes.
+     * @param  array       $manualFixed Columnas OPE* indicadas en la petición (no se recalculan).
+     * @param  array|null  $services    Servicios del registro [[delegación, código], ...]; null = sin servicios.
+     * @param  bool        $isNew       Alta.
+     * @param  bool        $applyValues Poner los valores predeterminados fijos (alta que no copia otro registro).
+     * @return array{0: array, 1: array} Autodefinibles que cambian (formato de resolve) y campos fijos (columna OPE* => texto).
+     */
+    public static function applyDefaults(string $owner, string $delegation, array $given, array $stored, ?array $fixed,
+        array $manualFixed, ?array $services, bool $isNew, bool $applyValues): array
+    {
+        if (! VeolabVersion::isV3()) {
+            return [[], []];
+        }
+
+        $definitions = self::definitions($delegation, $owner);
+        $withDefault = array_filter($definitions, fn ($def) => trim((string) ($def->AUTCPRE ?? '')) !== '');
+        $fixedConfig = $fixed !== null ? self::fixedFieldConfig($delegation) : [];
+        if ($withDefault === [] && $fixedConfig === []) {
+            return [[], []];
+        }
+        $fixed ??= [];
+
+        $values = $given + $stored;
+        $text = fn (string $key): string => isset($values[$key]) ? (string) $values[$key]['value'] : '';
+        $isEmpty = fn (string $key): bool => $text($key) === '' && (string) ($values[$key]['fileCod'] ?? '') === '';
+        $links = self::serviceLinks(array_values($withDefault));
+        $belongs = function (string $key) use ($links, $services): bool {
+            if (empty($links[$key])) {
+                return true;
+            }
+            if ($services === null) {
+                return false;
+            }
+            foreach ($services as [$del, $cod]) {
+                if (in_array($del."\x1B".$cod, $links[$key], true)) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+        $visible = fn (string $column): bool => array_key_exists($column, $fixedConfig)
+            ? $fixedConfig[$column]['hidden'] === false
+            : ! in_array($column, self::RECOLLECTION_FIELDS, true);
+
+        $changedCustom = [];
+        $changedFixed = [];
+
+        // Valores predeterminados fijos en los campos vacíos de un registro nuevo
+        if ($isNew && $applyValues) {
+            foreach ($withDefault as $def) {
+                $key = self::key($def->DEL3COD, $def->AUT1COD);
+                if (VeolabFieldFormulas::isFormula($def->AUTCPRE) || ! $isEmpty($key) || ! $belongs($key)) {
+                    continue;
+                }
+                $value = self::defaultValue($def);
+                if ($value !== '') {
+                    $values[$key] = ['def' => $def, 'value' => $value, 'fileDel' => '', 'fileCod' => ''];
+                    $changedCustom[$key] = true;
+                }
+            }
+            foreach ($fixedConfig as $column => $config) {
+                if (VeolabFieldFormulas::isFormula($config['default']) || ! self::fixedAdmitsDefault($column)
+                    || ! $visible($column) || trim((string) ($fixed[$column] ?? '')) !== '') {
+                    continue;
+                }
+                $value = self::fixedDefaultValue($column, $config['default']);
+                if ($value !== '') {
+                    $fixed[$column] = $value;
+                    $changedFixed[$column] = $value;
+                }
+            }
+        }
+
+        // Fórmulas
+        $hasFormulas = false;
+        foreach ($withDefault as $def) {
+            $hasFormulas = $hasFormulas || VeolabFieldFormulas::isFormula($def->AUTCPRE);
+        }
+        foreach ($fixedConfig as $config) {
+            $hasFormulas = $hasFormulas || VeolabFieldFormulas::isFormula($config['default']);
+        }
+        $trigger = $isNew || $given !== [] || $manualFixed !== [];
+        if ($hasFormulas && $trigger) {
+            $onlyEmpty = $isNew;
+            $evaluateEmpty = DB::connection('dynamic')->table('LABCON')->where('CON1COD', 1)->value('CONBEFD') === 'T';
+
+            $dictionary = [];
+            foreach ($definitions as $def) {
+                $dictionary[self::formulaKey((string) $def->AUTCNOM)] = $text(self::key($def->DEL3COD, $def->AUT1COD));
+            }
+            foreach (self::FIXED_MARKERS as $column => $marker) {
+                if (array_key_exists($column, $fixed) && $visible($column)) {
+                    $dictionary[$marker] = (string) $fixed[$column];
+                }
+            }
+
+            for ($pass = 1; $pass <= self::MAX_PASSES; $pass++) {
+                $changed = false;
+                foreach ($withDefault as $def) {
+                    $key = self::key($def->DEL3COD, $def->AUT1COD);
+                    if (! VeolabFieldFormulas::isFormula($def->AUTCPRE) || isset($given[$key]) || $def->AUTCTDD === self::FILE || ! $belongs($key)) {
+                        continue;
+                    }
+                    if ($onlyEmpty && $text($key) !== '' && ! isset($changedCustom[$key])) {
+                        continue;
+                    }
+                    $value = self::formatResult($def, VeolabFieldFormulas::evaluate((string) $def->AUTCPRE, $dictionary, $evaluateEmpty));
+                    if ($value !== $text($key)) {
+                        $values[$key] = ['def' => $def, 'value' => $value, 'fileDel' => '', 'fileCod' => ''];
+                        $dictionary[self::formulaKey((string) $def->AUTCNOM)] = $value;
+                        $changedCustom[$key] = true;
+                        $changed = true;
+                    }
+                }
+                foreach ($fixedConfig as $column => $config) {
+                    $marker = self::FIXED_MARKERS[$column] ?? '';
+                    if (! VeolabFieldFormulas::isFormula($config['default']) || $marker === '' || ! self::fixedAdmitsDefault($column)
+                        || in_array($column, $manualFixed, true) || ! array_key_exists($marker, $dictionary)) {
+                        continue;
+                    }
+                    if ($onlyEmpty && $dictionary[$marker] !== '' && ! array_key_exists($column, $changedFixed)) {
+                        continue;
+                    }
+                    $value = self::formatFixedResult($column, VeolabFieldFormulas::evaluate((string) $config['default'], $dictionary, $evaluateEmpty));
+                    if ($value !== $dictionary[$marker]) {
+                        $dictionary[$marker] = $value;
+                        $fixed[$column] = $value;
+                        $changedFixed[$column] = $value;
+                        $changed = true;
+                    }
+                }
+                if (! $changed) {
+                    break;
+                }
+            }
+        }
+
+        $customOut = [];
+        foreach (array_keys($changedCustom) as $key) {
+            $customOut[$key] = $values[$key];
+        }
+
+        return [$customOut, $changedFixed];
+    }
+
+    /**
+     * Textos de los campos fijos de un registro para las fórmulas (columna
+     * OPE* => texto como lo muestra la ficha): los de la petición ($data, en
+     * parámetros de la API) sobre los guardados ($current). $mapping es el
+     * del controlador (parámetro => columna); en LABPLO las columnas
+     * empiezan por PLO.
+     */
+    public static function fixedValues(string $owner, array $data, ?object $current, array $mapping): array
+    {
+        $params = array_flip($mapping);
+        $out = [];
+        foreach (self::FIXED_FIELDS as $field) {
+            if (! str_starts_with($field, 'OPE')) {
+                continue;
+            }
+            $column = self::fixedColumn($field, $owner);
+            $param = $params[$column] ?? null;
+            if ($param === null) {
+                continue;
+            }
+            $value = array_key_exists($param, $data) ? $data[$param] : ($current->{$column} ?? null);
+            $out[$field] = self::fixedText($field, $value);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Columnas OPE* de los campos fijos que trae la petición (parámetros de
+     * la API presentes en $data), para no recalcular sus fórmulas.
+     */
+    public static function fixedGiven(string $owner, array $data, array $mapping): array
+    {
+        $out = [];
+        foreach (self::FIXED_FIELDS as $field) {
+            $param = array_search(self::fixedColumn($field, $owner), $mapping, true);
+            if ($param !== false && array_key_exists($param, $data)) {
+                $out[] = $field;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Cambios de campos fijos (columna OPE* => texto, de applyDefaults) como
+     * parámetros de la API con el valor que se graba: las fechas de
+     * recolección en fecha y hora, los números como números.
+     */
+    public static function fixedToData(string $owner, array $changes, array $mapping): array
+    {
+        $params = array_flip($mapping);
+        $out = [];
+        foreach ($changes as $field => $text) {
+            $param = $params[self::fixedColumn($field, $owner)] ?? null;
+            if ($param === null) {
+                continue;
+            }
+            if (self::isRecollectionDate($field)) {
+                $date = self::interpretDate($text);
+                $out[$param] = $date ? $date->format('Y-m-d 00:00:00') : null;
+            } elseif ($field[3] === 'N') {
+                $out[$param] = trim($text) === '' ? null : VeolabFormat::toDouble($text);
+            } else {
+                $out[$param] = $text;
+            }
+        }
+
+        return $out;
+    }
+
+    /** Columna del campo fijo en la tabla: LABPLO cambia el prefijo OPE por PLO. */
+    private static function fixedColumn(string $field, string $owner): string
+    {
+        return $owner === 'LABPLO' ? 'PLO'.substr($field, 3) : $field;
+    }
+
+    /** Texto con el que la ficha muestra un valor guardado de un campo fijo. */
+    private static function fixedText(string $field, $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+        if (self::isRecollectionDate($field)) {
+            $date = self::parseDate(trim((string) $value)) ?? self::interpretDate((string) $value);
+
+            return $date ? $date->format('d/m/Y') : '';
+        }
+        if ($field[3] === 'N') {
+            return is_numeric($value) ? VeolabFormat::cstr((float) $value) : (string) $value;
+        }
+
+        return (string) $value;
+    }
+
+    private static function isRecollectionDate(string $field): bool
+    {
+        return in_array($field, self::RECOLLECTION_FIELDS, true) && $field[3] === 'D';
+    }
+
+    private static function fixedAdmitsDefault(string $field): bool
+    {
+        return ! in_array($field, self::FIXED_WITHOUT_DEFAULT, true);
+    }
+
+    /** Clave de un autodefinible en field(): el símbolo de exportación y el nombre, en minúscula. */
+    private static function formulaKey(string $name): string
+    {
+        return mb_strtolower(self::CUSTOM_FIELD_SYMBOL.trim($name));
+    }
+
+    /**
+     * Configuración de los campos fijos (filas X de LABAUT) utilizable en la
+     * delegación: columna OPE* => ['default', 'hidden']. La de la delegación
+     * prevalece sobre la común.
+     */
+    private static function fixedFieldConfig(string $delegation): array
+    {
+        $rows = DB::connection('dynamic')->table('LABAUT')
+            ->where('AUTCTDD', self::FIXED_FIELD_TYPE)
+            ->whereIn('DEL3COD', array_unique(['', $delegation]))
+            ->orderBy('DEL3COD')
+            ->get(['DEL3COD', 'AUTCFOR', 'AUTBBAJ', 'AUTCPRE']);
+
+        $out = [];
+        foreach ($rows as $row) {
+            $column = trim((string) $row->AUTCFOR);
+            if (! isset(self::FIXED_MARKERS[$column])) {
+                continue;
+            }
+            // Orden por delegación: la propia ('' va antes) pisa a la común
+            $out[$column] = ['default' => (string) ($row->AUTCPRE ?? ''), 'hidden' => $row->AUTBBAJ === 'T'];
+        }
+
+        return $out;
+    }
+
+    /** Servicios vinculados (LABAYS) de los autodefinibles: clave => ["del\x1Bcod", ...]. */
+    private static function serviceLinks(array $definitions): array
+    {
+        if ($definitions === []) {
+            return [];
+        }
+        $rows = DB::connection('dynamic')->table('LABAYS')
+            ->where(function ($q) use ($definitions) {
+                foreach ($definitions as $def) {
+                    $q->orWhere(fn ($w) => $w->where('AUT3DEL', (string) $def->DEL3COD)->where('AUT3COD', (int) $def->AUT1COD));
+                }
+            })
+            ->get(['AUT3DEL', 'AUT3COD', 'SER3DEL', 'SER3COD']);
+
+        $out = [];
+        foreach ($rows as $row) {
+            $out[self::key($row->AUT3DEL, $row->AUT3COD)][] = (string) $row->SER3DEL."\x1B".(string) $row->SER3COD;
+        }
+
+        return $out;
+    }
+
+    /** AUT_ValorPredeterminado: valor fijo que se pone al crear (vacío en las fórmulas y en los ficheros). */
+    private static function defaultValue(object $def): string
+    {
+        $default = (string) $def->AUTCPRE;
+        if (trim($default) === '' || VeolabFieldFormulas::isFormula($default)) {
+            return '';
+        }
+
+        return match ($def->AUTCTDD) {
+            self::DATE, self::DATE_WARNING => ($date = self::interpretDate($default))
+                ? self::vbDateFormat($date, trim((string) $def->AUTCFOR)) : '',
+            self::FILE => '',
+            default => $default,
+        };
+    }
+
+    /** Valor fijo de un campo fijo: las fechas de recolección se interpretan como escritas a mano. */
+    private static function fixedDefaultValue(string $field, string $default): string
+    {
+        if (self::isRecollectionDate($field)) {
+            $date = self::interpretDate($default);
+
+            return $date ? $date->format('d/m/Y') : '';
+        }
+
+        return $default;
+    }
+
+    /** AUT_FormatearResultado: el resultado de una fórmula con el formato del autodefinible. */
+    private static function formatResult(object $def, string $value): string
+    {
+        if ($value === '') {
+            return '';
+        }
+        $format = trim((string) $def->AUTCFOR);
+        try {
+            switch ($def->AUTCTDD) {
+                case self::NUMBER:
+                    return $format !== '' && VeolabFormat::isNumeric($value) ? VeolabFormat::conditional($value, $format) : $value;
+                case self::DATE:
+                case self::DATE_WARNING:
+                    $date = self::interpretDate($value);
+
+                    return $date ? self::vbDateFormat($date, $format) : $value;
+            }
+        } catch (\Throwable) {
+            // Un formato que no se puede aplicar deja el valor (On Error Resume Next)
+        }
+
+        return $value;
+    }
+
+    /** Resultado de una fórmula en un campo fijo: las fechas de recolección en dd/mm/aaaa, o vacío si no es fecha. */
+    private static function formatFixedResult(string $field, string $value): string
+    {
+        if ($value === '' || ! self::isRecollectionDate($field)) {
+            return $value;
+        }
+        $date = self::interpretDate($value);
+
+        return $date ? $date->format('d/m/Y') : '';
+    }
+
+    /**
+     * AUT_InterpretarFecha: fecha escrita a mano (día, mes y año): "hoy", 15/3
+     * (año actual), 15/3/26, 15-03-2026, 15.3.26, 1503, 150326 o 15032026.
+     * Los años de dos cifras: menores de 50 en 2000, el resto en 1900.
+     */
+    public static function interpretDate(string $text): ?DateTimeImmutable
+    {
+        $text = mb_strtolower(trim($text));
+        if ($text === '') {
+            return null;
+        }
+        $today = new DateTimeImmutable('today');
+        if (in_array($text, ['hoy', 'today', 'avui', 'hoxe'], true)) {
+            return $today;
+        }
+
+        $text = str_replace(['-', '.', ' '], '/', $text);
+        if (str_contains($text, '/')) {
+            $parts = explode('/', $text);
+            if (count($parts) < 2 || count($parts) > 3) {
+                return null;
+            }
+            foreach ($parts as $part) {
+                if ($part === '' || ! ctype_digit($part)) {
+                    return null;
+                }
+            }
+            $day = (int) $parts[0];
+            $month = (int) $parts[1];
+            $year = count($parts) === 3 ? (int) $parts[2] : (int) $today->format('Y');
+        } elseif (ctype_digit($text)) {
+            $day = (int) substr($text, 0, 2);
+            $month = (int) substr($text, 2, 2);
+            $year = match (strlen($text)) {
+                4 => (int) $today->format('Y'),
+                6, 8 => (int) substr($text, 4),
+                default => null,
+            };
+            if ($year === null) {
+                return null;
+            }
+        } else {
+            return null;
+        }
+
+        if ($year < 100) {
+            $year += $year < 50 ? 2000 : 1900;
+        }
+        if ($month < 1 || $month > 12 || $day < 1 || $day > 31 || $year < 1900 || ! checkdate($month, $day, $year)) {
+            return null;
+        }
+
+        return $today->setDate($year, $month, $day);
     }
 }

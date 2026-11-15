@@ -94,13 +94,36 @@ class VeolabFormat
         return (int) $rounded;
     }
 
+    /**
+     * DateAdd("m", n, día) de VB sobre 'aaaa-mm-dd': sin desbordar el mes
+     * (31-ene + 1 mes = 28 o 29-feb, no 2 o 3-mar como DateTime::modify).
+     */
+    public static function addMonths(string $day, int $months): string
+    {
+        [$y, $m, $d] = array_map('intval', explode('-', substr($day, 0, 10)));
+        $index = $y * 12 + ($m - 1) + $months;
+        $y = intdiv($index, 12);
+        $m = $index % 12 + 1;
+        $last = (int) (new \DateTimeImmutable(sprintf('%04d-%02d-01', $y, $m)))->format('t');
+
+        return sprintf('%04d-%02d-%02d', $y, $m, min($d, $last));
+    }
+
     /** CAD_Redondear: redondeo comercial (mitad hacia arriba, simétrico). */
     public static function round(float $value, int $decimals = 0): float
     {
         $factor = 10.0 ** $decimals;
+        if (VeolabVersion::isV3() && $decimals >= 0 && $decimals <= 15 && abs($value) < 1E15) {
+            // CAD_Redondear de Veolab 3: el valor con sus 15 cifras significativas (CDec), porque con la
+            // aritmética binaria 1,005 * 100 = 100,4999... y 1,005 a 2 decimales daba 1,00 (y 0,285 daba 0,28)
+            $scaled = (float) sprintf('%.15g', (float) sprintf('%.15g', abs($value)) * $factor);
+        } else {
+            // Veolab 2.4.5, y en Veolab 3 los valores enormes o fuera de rango: con Double
+            $scaled = abs($value) * $factor;
+        }
         $result = $value >= 0
-            ? floor($value * $factor + 0.5) / $factor
-            : -floor(-$value * $factor + 0.5) / $factor;
+            ? floor($scaled + 0.5) / $factor
+            : -floor($scaled + 0.5) / $factor;
         if (! is_finite($result)) {
             throw new \OverflowException('Desbordamiento');
         }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Support\VeolabLicense;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -13,6 +14,7 @@ use Illuminate\Support\Facades\DB;
  * No se exponen las contraseñas (PARCPAE del SMTP, PARCIGC de RabbitMQ): solo
  * si están puestas. Tampoco la licencia cifrada (PARCLBD, PARCCLV): en su
  * lugar, el tipo de licencia leído y si aplican las restricciones Verifactu.
+ * Ni el token OAuth del correo (PARCTOK, Veolab 3), que es un secreto.
  */
 class ConfiguracionGeneralController extends BaseController
 {
@@ -21,6 +23,14 @@ class ConfiguracionGeneralController extends BaseController
         'codigo' => 'PAR1COD',
     ];
     protected ?string $delegationKey = null;
+
+    /** Opciones añadidas en Veolab 3. */
+    protected array $since = [
+        'email_activo'               => VeolabVersion::V3,
+        'seleccion_moderna_listados' => VeolabVersion::V3,
+        'horas_con_segundos'         => VeolabVersion::V3,
+        'informes_error_automaticos' => VeolabVersion::V3,
+    ];
 
     private const LICENSES = [
         VeolabLicense::GRATUITA              => 'Gratuita',
@@ -94,6 +104,11 @@ class ConfiguracionGeneralController extends BaseController
         'igeo_delegacion'            => 'PARCIGD',
         'igeo_segundos'              => 'PARNSEC',
         'delegacion_central'         => 'PARCCDC',
+        // Veolab 3: interruptor general del email (ConfigurarEmail), listas y rejillas, informes de error (ConfigurarAuditoria)
+        'email_activo'               => 'PARBEMA',
+        'seleccion_moderna_listados' => 'PARBSEL',
+        'horas_con_segundos'         => 'PARBHSG',
+        'informes_error_automaticos' => 'PARBERR',
     ];
 
     protected function appendRelatedData(array $rows): array

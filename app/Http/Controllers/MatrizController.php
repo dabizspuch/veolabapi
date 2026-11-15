@@ -85,7 +85,7 @@ class MatrizController extends BaseController
             ['LABOPE', 'está siendo referenciada en alguna operación'],
             ['LABPLO', 'está siendo referenciada en alguna planificación'],
             ['LABSER', 'está siendo referenciada en algún servicio'],
-            ['LABCDC', 'está siendo referenciada en alguna carta de control'],
+            ['LABCDC', 'está siendo referenciada en algún gráfico de control'],
         ];
         foreach ($references as [$table, $reason]) {
             $used = DB::connection('dynamic')->table($table)

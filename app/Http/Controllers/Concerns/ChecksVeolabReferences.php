@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Concerns;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -147,6 +148,49 @@ trait ChecksVeolabReferences
                 'SER1COD' => $service['codigo'],
             ], "El servicio {$service['codigo']} no existe");
         }
+    }
+
+    /**
+     * Veolab 3, servicios exclusivos de un cliente: sin cliente en el documento se
+     * toma el de los servicios (LAB_CargarClienteDeServicios); con otro cliente, o
+     * con servicios de clientes distintos, no se admiten (ServiciosSel no los ofrece).
+     */
+    protected function applyServiceClient(array $data, ?object $current = null): array
+    {
+        if (empty($data['servicios']) || ! VeolabVersion::isV3()) {
+            return $data;
+        }
+
+        $clients = [];
+        foreach ($data['servicios'] as $service) {
+            $row = DB::connection('dynamic')->table('LABSER')
+                ->where('DEL3COD', (string) ($service['delegacion'] ?? ''))
+                ->where('SER1COD', $service['codigo'])
+                ->first(['CLI2DEL', 'CLI2COD']);
+            if ($row && (string) $row->CLI2COD !== '') {
+                $clients[$row->CLI2DEL."\x1B".$row->CLI2COD] = [(string) $row->CLI2DEL, (string) $row->CLI2COD];
+            }
+        }
+        if (count($clients) > 1) {
+            throw new BusinessRuleException('Los servicios indicados pertenecen a clientes distintos');
+        }
+        if (! $clients) {
+            return $data;
+        }
+
+        [$serviceDel, $serviceCod] = reset($clients);
+        $given = array_key_exists('cliente_codigo', $data);
+        $clientCod = (string) ($given ? $data['cliente_codigo'] : ($current->CLI2COD ?? ''));
+        $clientDel = (string) ($given ? ($data['cliente_delegacion'] ?? '') : ($current->CLI2DEL ?? ''));
+
+        if ($clientCod === '') {
+            $data['cliente_delegacion'] = $serviceDel;
+            $data['cliente_codigo'] = $serviceCod;
+        } elseif ($clientCod !== $serviceCod || $clientDel !== $serviceDel) {
+            throw new BusinessRuleException('Hay servicios exclusivos de otro cliente');
+        }
+
+        return $data;
     }
 
     protected function mustExist(string $table, array $where, string $message): void

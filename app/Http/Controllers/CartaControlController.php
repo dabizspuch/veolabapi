@@ -6,7 +6,9 @@ use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Concerns\ChecksVeolabReferences;
 use App\Support\VeolabAudit;
 use App\Support\VeolabControlCharts;
+use App\Support\VeolabDocuments;
 use App\Support\VeolabLicense;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -59,10 +61,43 @@ class CartaControlController extends BaseController
         'observaciones'     => 'CDCCOBS',
         'matriz_delegacion' => 'MAT2DEL',
         'matriz_codigo'     => 'MAT2COD',
+        'numero_carta'      => 'CDCNCAR',
+        'nombre'            => 'CDCCNOM',
+        'reglas'            => 'CDCCREG',
+        'limites'           => 'CDCCLIM',
+        'porcentaje_limite' => 'CDCNPLC',
+        'blancos'           => 'CDCBBLA',
     ];
 
+    /**
+     * Veolab 3: varias cartas de cada tipo por parámetro. 'numero_carta' (1 =
+     * principal) es la carta del parámetro a la que van las columnas de control
+     * con ese número (LABCOT.COTNCDE / COTNCDP); las cartas nuevas que se abren
+     * al llenarse heredan número y nombre.
+     */
+    protected array $since = [
+        'numero_carta'      => VeolabVersion::V3,
+        'nombre'            => VeolabVersion::V3,
+        'reglas'            => VeolabVersion::V3,
+        'limites'           => VeolabVersion::V3,
+        'porcentaje_limite' => VeolabVersion::V3,
+        'blancos'           => VeolabVersion::V3,
+    ];
+
+    /**
+     * Veolab 3: 'reglas' V (las de Veolab) o N (Nordtest); 'limites' de las
+     * cartas siguientes C (calculados), F (fijos) o P (porcentaje del valor
+     * central, con 'porcentaje_limite': la desviación pasa a ser
+     * promedio × porcentaje / 300). Quitar el estado E pide 'motivo', que se
+     * añade a las observaciones con la fecha. 'blancos' T: carta de blancos
+     * (solo de exactitud; solo cuenta el lado superior y el valor central es la
+     * media de los blancos). Cada resultado admite 'lote' (del material de
+     * control) y 'comentario'. Cambiar promedio o desviación de una carta con
+     * resultados se anota en las observaciones con los valores anteriores.
+     */
+
     /** Cambios que recalculan las incidencias (los que lo hacen en la ficha). */
-    private const RECHECK = ['tipo', 'numero_resultados', 'promedio', 'desviacion'];
+    private const RECHECK = ['tipo', 'numero_resultados', 'promedio', 'desviacion', 'reglas', 'blancos'];
 
     protected function rules(): array
     {
@@ -79,6 +114,13 @@ class CartaControlController extends BaseController
             'observaciones'                      => 'nullable|string',
             'matriz_delegacion'                  => 'nullable|string|max:10',
             'matriz_codigo'                      => 'nullable|integer',
+            'numero_carta'                       => 'nullable|integer|min:1|max:99',
+            'nombre'                             => 'nullable|string|max:100',
+            'reglas'                             => 'nullable|string|in:V,N',
+            'limites'                            => 'nullable|string|in:C,F,P',
+            'porcentaje_limite'                  => 'nullable|numeric|min:0',
+            'blancos'                            => 'nullable|string|in:T,F',
+            'motivo'                             => 'nullable|string|max:255',
             'calcular_promedio'                  => 'nullable|string|in:T,F',
             'tecnicas'                           => 'nullable|array',
             'tecnicas.*.tecnica_delegacion'      => 'nullable|string|max:10',
@@ -87,6 +129,8 @@ class CartaControlController extends BaseController
             'resultados.*.operacion_delegacion'  => 'nullable|string|max:10',
             'resultados.*.operacion_serie'       => 'nullable|string|max:10',
             'resultados.*.operacion_codigo'      => 'required|integer|min:1',
+            'resultados.*.lote'                  => 'nullable|string|max:50',
+            'resultados.*.comentario'            => 'nullable|string|max:255',
         ];
     }
 
@@ -112,6 +156,46 @@ class CartaControlController extends BaseController
             $data['numero_resultados'] ??= (int) $db->table('LABCON')->where('CON1COD', 1)->value('CONNNUM');
             $data['promedio'] ??= 0;
             $data['desviacion'] ??= 0;
+            if (VeolabVersion::isV3()) {
+                $data['numero_carta'] ??= 1;
+                $data['reglas'] ??= 'V';
+                $data['limites'] ??= 'C';
+            }
+        }
+
+        if (VeolabVersion::isV3()) {
+            // Quitar el estado de error pide el motivo, que queda en las observaciones (ISO 17025 7.7.3).
+            if (! $isNew && (string) $before->CDCCEST === 'E' && isset($data['estado']) && $data['estado'] !== 'E') {
+                $reason = trim((string) ($data['motivo'] ?? ''));
+                if ($reason === '') {
+                    throw new BusinessRuleException('Para quitar el estado de error de la carta hay que indicar el motivo');
+                }
+                $notes = (string) ($data['observaciones'] ?? $before->CDCCOBS ?? '');
+                $data['observaciones'] = ($notes !== '' ? $notes."\r\n" : '').date('d/m/Y').' - Error > '.$data['estado'].': '.$reason;
+            }
+            // Límites en porcentaje: la desviación sale del valor central.
+            $limits = (string) ($data['limites'] ?? $before->CDCCLIM ?? 'C');
+            $percent = (float) ($data['porcentaje_limite'] ?? $before->CDCNPLC ?? 0);
+            if ($limits === 'P' && $percent > 0
+                && (array_key_exists('limites', $data) || array_key_exists('porcentaje_limite', $data) || array_key_exists('promedio', $data))) {
+                $data['desviacion'] = VeolabControlCharts::percentDeviation((float) ($data['promedio'] ?? $before->CDCNPRO ?? 0), $percent);
+            }
+        }
+        unset($data['motivo']);
+        $number = VeolabControlCharts::chartNumber($data['numero_carta'] ?? $before->CDCNCAR ?? null);
+
+        // Carta de blancos: solo en exactitud; F o vacío la quita.
+        $blank = false;
+        if (VeolabVersion::isV3()) {
+            if (array_key_exists('blancos', $data)) {
+                $data['blancos'] = $data['blancos'] === 'T' ? 'T' : null;
+            }
+            if (($data['tipo'] ?? $before->CDCCTIP ?? VeolabControlCharts::EXACTITUD) !== VeolabControlCharts::EXACTITUD) {
+                if (array_key_exists('blancos', $data) || ($before->CDCBBLA ?? null) === 'T') {
+                    $data['blancos'] = null;
+                }
+            }
+            $blank = (array_key_exists('blancos', $data) ? $data['blancos'] : ($before->CDCBBLA ?? null)) === 'T';
         }
 
         // Técnicas: existentes y sin repetir.
@@ -137,9 +221,11 @@ class CartaControlController extends BaseController
         $results = null;
         if (array_key_exists('resultados', $data)) {
             $existing = [];
+            $existingData = [];
             if (! $isNew) {
                 foreach (VeolabControlCharts::results((string) $keys['delegacion'], (int) $keys['codigo']) as $row) {
                     $existing[$row->OPE2DEL."\x1B".$row->OPE2SER."\x1B".$row->OPE2COD] = (float) $row->RCDNVAL;
+                    $existingData[$row->OPE2DEL."\x1B".$row->OPE2SER."\x1B".$row->OPE2COD] = [$row->RCDCLOT ?? null, $row->RCDCOBS ?? null];
                 }
             }
             $results = [];
@@ -156,14 +242,28 @@ class CartaControlController extends BaseController
                 if (! array_key_exists($key, $existing) && $control !== 'T') {
                     throw new BusinessRuleException("La operación {$op[2]} no es una operación de control");
                 }
-                $results[$key] = [$op, $existing[$key] ?? VeolabControlCharts::controlValue($type, $op, $currentTechniques)];
+                // Lote y comentario: los indicados o, si no vienen, los que ya tenía el resultado
+                $batch = array_key_exists('lote', $item) ? (trim((string) $item['lote']) ?: null) : ($existingData[$key][0] ?? null);
+                $comment = array_key_exists('comentario', $item) ? (trim((string) $item['comentario']) ?: null) : ($existingData[$key][1] ?? null);
+                $results[$key] = [$op, $existing[$key] ?? VeolabControlCharts::controlValue($type, $op, $currentTechniques, $number), $batch, $comment];
             }
         }
 
         if (($data['calcular_promedio'] ?? 'F') === 'T') {
             $count = (int) ($data['numero_resultados'] ?? $before->CDCNNUM ?? 0);
             [$data['promedio'], $data['desviacion']] = VeolabControlCharts::averageDeviation(
-                $type, VeolabControlCharts::sectionType($currentTechniques), $count, $currentTechniques);
+                $type, VeolabControlCharts::sectionType($currentTechniques), $count, $currentTechniques, $number, $blank);
+        }
+
+        // Revisión de los límites de una carta con resultados: se anota con los valores anteriores (ISO 17025 7.7).
+        if (VeolabVersion::isV3() && ! $isNew
+            && ((array_key_exists('promedio', $data) && (float) $data['promedio'] !== (float) $before->CDCNPRO)
+                || (array_key_exists('desviacion', $data) && (float) $data['desviacion'] !== (float) $before->CDCNDES))
+            && $db->table('LABRCD')->where('CDC3DEL', $keys['delegacion'])->where('CDC3COD', $keys['codigo'])->exists()) {
+            $notes = (string) ($data['observaciones'] ?? $before->CDCCOBS ?? '');
+            $data['observaciones'] = ($notes !== '' ? $notes."\r\n" : '').date('d/m/Y').' - Límites revisados: Promedio '
+                .(float) $before->CDCNPRO.' > '.(float) ($data['promedio'] ?? $before->CDCNPRO)
+                .'; Desviación '.(float) $before->CDCNDES.' > '.(float) ($data['desviacion'] ?? $before->CDCNDES);
         }
 
         if (! empty($data['fecha_creacion'])) {
@@ -213,15 +313,37 @@ class CartaControlController extends BaseController
             }
         }
 
+        // Veolab 3: una carta nueva cierra las abiertas de su delegación con el mismo parámetro, tipo y número.
+        if ($data['_nueva'] && VeolabVersion::isV3()) {
+            $chart = $db->table('LABCDC')->where('DEL3COD', $del)->where('CDC1COD', $cod)->first();
+            $number = VeolabControlCharts::chartNumber($chart->CDCNCAR ?? null);
+            foreach (VeolabControlCharts::techniques($del, $cod) as [$tecDel, $tecCod]) {
+                $db->table('LABCDC')
+                    ->where('DEL3COD', $del)->where('CDC1COD', '<>', $cod)->whereNull('CDCDCIE')
+                    ->where('CDCCTIP', (string) $chart->CDCCTIP)
+                    ->where(fn ($q) => $number > 1 ? $q->where('CDCNCAR', $number) : $q->whereNull('CDCNCAR')->orWhere('CDCNCAR', '<=', 1))
+                    ->whereExists(fn ($q) => $q->select(DB::raw(1))->from('LABCYT')
+                        ->whereColumn('LABCYT.CDC3DEL', 'LABCDC.DEL3COD')->whereColumn('LABCYT.CDC3COD', 'LABCDC.CDC1COD')
+                        ->where('LABCYT.TEC3DEL', $tecDel)->where('LABCYT.TEC3COD', $tecCod))
+                    ->update(['CDCDCIE' => $db->selectOne('SELECT NOW() AS n')->n]);
+            }
+        }
+
         if ($data['_resultados'] !== null) {
             $db->table('LABRCD')->where('CDC3DEL', $del)->where('CDC3COD', $cod)->delete();
             $position = 0;
-            foreach ($data['_resultados'] as [$op, $value]) {
-                $db->table('LABRCD')->insert([
+            foreach ($data['_resultados'] as [$op, $value, $batch, $comment]) {
+                $point = [
                     'CDC3DEL' => $del, 'CDC3COD' => $cod, 'RCD1COD' => ++$position, 'RCDNVAL' => $value, 'RCDCTII' => '',
                     'OPE2DEL' => $op[0], 'OPE2SER' => $op[1], 'OPE2COD' => $op[2],
-                ]);
+                ];
+                if (VeolabVersion::isV3()) {
+                    $point['RCDCLOT'] = $batch;     // Lote del material de control
+                    $point['RCDCOBS'] = $comment;   // Comentario del resultado
+                }
+                $db->table('LABRCD')->insert($point);
             }
+            VeolabControlCharts::refreshChartPoints($del, $cod);   // Veolab 3: fecha y analista de cada punto
             if (! $data['_nueva'] && ! $rowAudited) {
                 VeolabAudit::record(VeolabAudit::MODIFICACION_FILA, 'LABCDC', $row);
             }
@@ -244,9 +366,10 @@ class CartaControlController extends BaseController
         return $data;
     }
 
-    /** Cada carta lleva sus técnicas y resultados. */
+    /** Cada carta lleva sus técnicas y resultados (Veolab 3: con fecha del análisis y analista). */
     protected function appendRelatedData(array $rows): array
     {
+        $v3 = VeolabVersion::isV3();
         foreach ($rows as &$row) {
             [$del, $cod] = [(string) $row['delegacion'], (int) $row['codigo']];
             $row['tecnicas'] = array_map(fn ($t) => ['tecnica_delegacion' => $t[0], 'tecnica_codigo' => $t[1]],
@@ -258,7 +381,13 @@ class CartaControlController extends BaseController
                 'operacion_delegacion' => (string) $r->OPE2DEL,
                 'operacion_serie'      => (string) $r->OPE2SER,
                 'operacion_codigo'     => (int) $r->OPE2COD,
-            ], VeolabControlCharts::results($del, $cod));
+            ] + ($v3 ? [
+                'fecha'                => $r->RCDTFEC,
+                'analista_delegacion'  => (int) $r->EMP2COD === 0 ? null : (string) $r->EMP2DEL,
+                'analista_codigo'      => (int) $r->EMP2COD === 0 ? null : (int) $r->EMP2COD,
+                'lote'                 => $r->RCDCLOT ?? null,
+                'comentario'           => $r->RCDCOBS ?? null,
+            ] : []), VeolabControlCharts::results($del, $cod));
         }
 
         return $rows;
@@ -275,9 +404,13 @@ class CartaControlController extends BaseController
         $db = DB::connection('dynamic');
         [$del, $cod] = [(string) $keys['delegacion'], (int) $keys['codigo']];
 
-        $db->table('DOCFAT')->where('DEL3COD', $del)->where('CDC2COD', $cod)->update(['DIR2DEL' => $del, 'DIR2COD' => 0]);
+        $db->table('DOCFAT')->where('DEL3COD', $del)->where('CDC2COD', $cod)->update(VeolabDocuments::trashUpdate($del));
         $db->table('LABRCD')->where('CDC3DEL', $del)->where('CDC3COD', $cod)->delete();
         $db->table('LABCYT')->where('CDC3DEL', $del)->where('CDC3COD', $cod)->delete();
+        if (VeolabVersion::isV3()) {
+            // Enlaces de las incidencias de calidad (IYECCOD es de texto)
+            $db->table('CALIYE')->where('IYECTAB', 'LABCDC')->where('IYECDEL', $del)->where('IYECCOD', (string) $cod)->delete();
+        }
         VeolabControlCharts::deleteNotifications($del, $cod);
     }
 
@@ -285,7 +418,7 @@ class CartaControlController extends BaseController
     {
         $db = DB::connection('dynamic');
         if (! VeolabLicense::moduleActive('dynamic', $db->getDatabaseName(), 'CDC')) {
-            throw new BusinessRuleException('El módulo de cartas de control no está activo');
+            throw new BusinessRuleException('El módulo de gráficos de control no está activo');
         }
     }
 }

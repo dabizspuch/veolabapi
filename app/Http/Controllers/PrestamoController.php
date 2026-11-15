@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
 use App\Support\VeolabAudit;
+use App\Support\VeolabDocuments;
 use App\Support\VeolabLicense;
 use App\Support\VeolabStock;
 use Illuminate\Support\Facades\DB;
@@ -189,7 +190,7 @@ class PrestamoController extends BaseController
 
         // Documentos a la papelera.
         $db->table('DOCFAT')->where('DEL3COD', $del)->where('PRT2COD', $cod)
-            ->update(['DIR2DEL' => $del, 'DIR2COD' => 0]);
+            ->update(VeolabDocuments::trashUpdate($del));
     }
 
     /** Líneas del préstamo y cliente de su operación. */

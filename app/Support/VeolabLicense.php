@@ -41,12 +41,16 @@ class VeolabLicense
         return $type === null || $type === self::EMPRESARIAL_VERIFACTU;
     }
 
-    /** Módulos por tipo de licencia (Recursos.frm). */
+    /**
+     * Módulos por tipo de licencia (Recursos.frm de Veolab 3: MEN mensajería,
+     * CAL calidad y SOL solicitudes de clientes son de Veolab 3; en bases
+     * anteriores no están en ACCMOD y no cuentan).
+     */
     private const MODULES = [
         self::GRATUITA              => '',
-        self::PROFESIONAL           => 'COM,SIN,LOT,PLA,ORD',
-        self::EMPRESARIAL           => 'VEN,FAC,ALM,EST,AGE,COM,DOC,WEB,SIN,EQC,LOT,PLA,ORD,BAR,GEO,GDR,FIR,IGE,CDC',
-        self::EMPRESARIAL_VERIFACTU => 'VEN,FAC,VFU,ALM,EST,AGE,COM,DOC,WEB,SIN,EQC,LOT,PLA,ORD,BAR,GEO,GDR,FIR,IGE,CDC',
+        self::PROFESIONAL           => 'COM,MEN,SIN,LOT,PLA,ORD',
+        self::EMPRESARIAL           => 'VEN,FAC,ALM,EST,AGE,COM,MEN,DOC,WEB,SIN,EQC,LOT,PLA,ORD,BAR,GEO,GDR,FIR,IGE,CDC,CAL,SOL',
+        self::EMPRESARIAL_VERIFACTU => 'VEN,FAC,VFU,ALM,EST,AGE,COM,MEN,DOC,WEB,SIN,EQC,LOT,PLA,ORD,BAR,GEO,GDR,FIR,IGE,CDC,CAL,SOL',
     ];
 
     /**
