@@ -718,12 +718,20 @@ class VeolabResults
         $inside = false;
         $syntaxError = false;
         $separator = str_contains($interval, ';') ? ';' : ',';
-        // Posición del separador en la lista completa (VB no la recalcula).
-        $separatorPos = self::instr($interval, $separator);
 
         while ($interval !== '' && ! $inside) {
-            $open = self::instr($interval, '(') ?: (self::instr($interval, '[') ?: self::instr($interval, '{'));
-            $close = self::instr($interval, ')') ?: (self::instr($interval, ']') ?: self::instr($interval, '}'));
+            // Apertura del primer intervalo (la primera de las tres que aparezca)
+            // y su cierre, buscado desde la apertura; el separador, el de este
+            // intervalo. Así se admiten listas que mezclan «[» y «(» (17-11-2026).
+            $open = self::firstPos($interval, 1, ['(', '[', '{']);
+            $close = 0;
+            $separatorPos = 0;
+            if ($open > 0) {
+                $close = self::mid($interval, $open, 1) === '{'
+                    ? self::firstPos($interval, $open + 1, ['}'])
+                    : self::firstPos($interval, $open + 1, [')', ']']);
+                $separatorPos = self::firstPos($interval, $open + 1, [$separator]);
+            }
 
             if ($open === 0 || $close === 0) {
                 $syntaxError = true;
@@ -795,7 +803,7 @@ class VeolabResults
             $number = 0.0;
         }
 
-        $separatorPos = self::instr($interval, $separator);
+        $separatorPos = self::firstPos($interval, $open + 1, [$separator]);
         if ($separatorPos === 0) {
             return false;
         }
@@ -1034,6 +1042,23 @@ class VeolabResults
     }
 
     /** InStr de VB (1-based, 0 si no está). */
+    /** Primera posición (1-based) desde $from de cualquiera de los textos; 0 si no hay ninguno. */
+    private static function firstPos(string $text, int $from, array $searches): int
+    {
+        $best = 0;
+        if ($from < 1 || $from - 1 > mb_strlen($text)) {
+            return 0;
+        }
+        foreach ($searches as $search) {
+            $pos = mb_strpos($text, $search, $from - 1);
+            if ($pos !== false && ($best === 0 || $pos + 1 < $best)) {
+                $best = $pos + 1;
+            }
+        }
+
+        return $best;
+    }
+
     private static function instr(string $text, string $search): int
     {
         $pos = mb_strpos($text, $search);
