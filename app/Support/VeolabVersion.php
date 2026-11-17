@@ -76,7 +76,9 @@ class VeolabVersion
         $current = self::current($connection);
         $label = version_compare($version, self::V3, '>=') && version_compare($version, '3.1', '<') ? 'Veolab 3' : "Veolab {$version}";
 
-        return "{$what} requiere la base de datos de {$label}"
+        $verb = preg_match('/^(Los|Las) /u', $what) ? 'requieren' : 'requiere';
+
+        return "{$what} {$verb} la base de datos de {$label}"
             .($current !== '' ? " (esta base de datos está en la versión {$current})" : '');
     }
 
