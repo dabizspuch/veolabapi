@@ -981,6 +981,24 @@ La API no tiene sesión de usuario: estas rutas trabajan sobre el usuario que se
 | `GET /avisos` | `ACCAVI` | Avisos pendientes: `tipo` N notificación, M mensaje, A agenda (la fecha de una cita puede ser futura: filtrar `fecha[lte]`). Cada uno lleva un `resumen` de lo avisado. |
 | `DELETE /avisos?delegacion=&codigo=` | `ACCAVI` | Aviso visto (como al mostrarlo en Veolab). |
 | `POST /avisos/vistos` | `ACCAVI` | `{usuario_*[, tipo]}`: todos los avisos vencidos del usuario. |
+| `GET /avisos-servicio` | — | Avisos de servicio de SPUCH vigentes para el laboratorio (los mismos que muestra Veolab): ver abajo. |
+
+**Avisos de servicio de SPUCH** (cortes del servidor, incidencias y comunicaciones; desde el 17-nov-2026).
+No están en la base de datos del laboratorio: se crean en la web de licencias de SPUCH y la API los lee
+de `getnotice.php` en spuch.com con la licencia del laboratorio (`ACCPAR.PARCLBD`), con una caché de un
+minuto por licencia. Solo lectura: qué avisos ha visto cada usuario lo guarda la app.
+
+- Cada aviso: `codigo`, `gravedad` (0, 1 o 2) y `gravedad_descripcion` (`informativo`, `programado`,
+  `urgente`), `inicio` y `fin` (cuándo se muestra), `corte` (hora del corte de un programado, o `null`),
+  `titulo` y `texto` (texto sin formato con saltos de línea). Los urgentes van primero.
+- Las fechas van en **hora peninsular española** (`meta.zona_horaria` = `Europe/Madrid`), no en la del
+  servidor de la API: los laboratorios de Colombia deben convertirlas.
+- Cómo los muestra Veolab: el informativo, una vez por usuario; el programado, al publicarse y 15 minutos
+  antes del corte; el urgente, al llegar y en cada entrada mientras esté vigente.
+- Si spuch.com no responde o la base no tiene licencia: `data` vacío y `meta.disponible` = `false` (`200`,
+  nunca un error).
+- `VEOLAB_AVISOS_SERVIDOR` en el `.env` (p. ej. `veolab.es`) identifica el VPS para los avisos dirigidos a
+  un VPS; sin él se usa el servidor de la ficha del cliente en la web de licencias.
 
 - Antes de Veolab 3 (bases 2.4) la mensajería es el módulo `COM`: sin `tipo`,
   `fecha_lectura` ni `lector_*`; `leido` = F mientras el destinatario tenga el aviso, los

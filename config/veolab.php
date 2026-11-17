@@ -55,4 +55,22 @@ return [
 
     'decimal_separator' => env('VEOLAB_SEPARADOR_DECIMAL', ',') === '.' ? '.' : ',',
 
+    /*
+    |--------------------------------------------------------------------------
+    | Avisos de servicio de SPUCH
+    |--------------------------------------------------------------------------
+    |
+    | GET /avisos-servicio los lee de getnotice.php en spuch.com, como Veolab.
+    | 'server' es el nombre del VPS tal como lo tienen los clientes en su
+    | conexión (veolab.es): sirve para los avisos dirigidos a un VPS. Si está
+    | vacío, el VPS se toma de la ficha del cliente en la web de licencias.
+    |
+    */
+
+    'service_notices' => [
+        'url'           => env('VEOLAB_AVISOS_URL', 'https://www.spuch.com/private/getnotice.php'),
+        'server'        => env('VEOLAB_AVISOS_SERVIDOR', ''),
+        'cache_seconds' => 60,
+    ],
+
 ];

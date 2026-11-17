@@ -269,6 +269,8 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     Route::get('/avisos', [$ns.'AvisoController', 'index']);
     Route::delete('/avisos', [$ns.'AvisoController', 'destroy']);
     Route::post('/avisos/vistos', [$ns.'AvisoController', 'markSeen']);
+    // Avisos de servicio de SPUCH (cortes del servidor, incidencias): los lee de spuch.com, solo lectura
+    Route::get('/avisos-servicio', [$ns.'AvisoServicioController', 'index']);
     // Tareas pendientes (COM_TAR, desde Veolab 3, módulos CAL y COM): calculadas al vuelo, solo lectura
     Route::get('/tareas-pendientes/recuento', [$ns.'TareaPendienteController', 'count']);
     Route::get('/tareas-pendientes', [$ns.'TareaPendienteController', 'index']);
