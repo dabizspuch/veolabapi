@@ -80,12 +80,18 @@ class VeolabInvoiceLines
                 $first = false;
             }
             self::operationLines($grid, $op, $i === 0, $cfg, $ctx, $state);
+            if (! $cfg->byService && VeolabVersion::isV3()) {
+                self::otherExpenses($grid, $op, $cfg);
+            }
         }
 
         if ($cfg->byService) {
             self::ownLineExpenses($grid, $operations, $ops, $cfg);
         }
-        self::groupedExpenses($grid, $operations, $ops, $cfg, 'A');
+        // Veolab 3: agrupando por operación los gastos agrupados van dentro de la línea de cada operación (otherExpenses)
+        if ($cfg->byService || ! VeolabVersion::isV3()) {
+            self::groupedExpenses($grid, $operations, $ops, $cfg, 'A');
+        }
         self::groupedExpenses($grid, $operations, $ops, $cfg, 'U');
 
         $lines = [];
@@ -296,6 +302,25 @@ class VeolabInvoiceLines
         }
     }
 
+    /**
+     * Veolab 3, agrupando por operación: los gastos de la operación agrupados, sin servicio o en una línea propia (no los
+     * suplidos) van dentro de su línea, cuyo precio ya los incluye. Antes los agrupados se sumaban otra vez en su grupo.
+     */
+    private static function otherExpenses(array &$grid, object $op, object $cfg): void
+    {
+        $expenses = self::expenses($op)
+            ->where(fn ($q) => $q->whereNull('LABOYG.OYGBSUP')->orWhere('LABOYG.OYGBSUP', '<>', 'T'))
+            ->where(fn ($q) => $q->whereNull('LABOYG.SER2COD')->orWhere('LABOYG.SER2COD', ''))
+            ->get();
+        foreach ($expenses as $e) {
+            $key = self::key(['GP', $e->ESC3DEL, '', $e->ESC3COD, $e->OYGNPRE, $e->OYGCDTO, '', '', '', '', '',
+                '', '', '', '', '', $op->DEL3COD, $op->OPE1SER, $op->OPE1COD], $op, $cfg, true);
+            if (! self::increment($grid, $key)) {
+                self::insert($grid, self::expenseLine($key, $e, $op, $cfg), 0);
+            }
+        }
+    }
+
     /** Gastos agrupados ('A', grupo de gastos adicionales) o suplidos ('U') al final. */
     private static function groupedExpenses(array &$grid, array $operations, array $ops, object $cfg, string $group): void
     {
@@ -409,6 +434,14 @@ class VeolabInvoiceLines
     {
         foreach ($grid as $i => $row) {
             if ($row['key'] !== '' && $row['key'] === $key) {
+                // Veolab 3: un descuento en importe es de cada operación y se multiplica con la cantidad
+                // (FAC_SumarUnidadLinea); antes se restaba una sola vez
+                $discount = trim((string) ($row['discount'] ?? ''));
+                $qty = (float) $row['qty'];
+                if (VeolabVersion::isV3() && $discount !== '' && ! str_contains($discount, '%') && $qty > 0) {
+                    $scaled = round(VeolabOperationServices::decimal($discount) / $qty * ($qty + 1), 2);
+                    $grid[$i]['discount'] = str_contains($discount, ',') ? str_replace('.', ',', (string) $scaled) : (string) $scaled;
+                }
                 $grid[$i]['qty'] += 1;
 
                 return true;
