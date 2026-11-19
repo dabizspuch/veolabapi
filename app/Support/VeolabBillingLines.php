@@ -296,6 +296,8 @@ class VeolabBillingLines
                     'S'     => [(string) $row->SER2DEL, (string) $row->SER2COD],
                     'T'     => [(string) $row->TEC2DEL, (string) $row->TEC2COD],
                     'G'     => [(string) $row->ESC2DEL, (string) $row->ESC2COD],
+                    // Gasto en una línea propia (Veolab 3): línea de grupo que conserva qué gasto es
+                    'L'     => (int) $row->ESC2COD !== 0 ? [(string) $row->ESC2DEL, (string) $row->ESC2COD] : ['', ''],
                     'O'     => $invoice ? [(string) $row->OPE2DEL, (string) $row->OPE2COD] : ['', ''],
                     default => ['', ''],
                 };
@@ -368,6 +370,7 @@ class VeolabBillingLines
         [, , , , $summed, $invoice] = self::TABLES[$header];
         $parent = null;
         $sums = [];
+        $hasChildren = [];
         foreach ($lines as $i => $line) {
             $isGroup = in_array($line['type'], self::GROUPS, true);
             $lines[$i]['parent'] = $isGroup ? null : $parent;
@@ -376,11 +379,15 @@ class VeolabBillingLines
                 $parent = $i;
             } elseif ($parent !== null) {
                 $sums[$parent] = ($sums[$parent] ?? 0) + $lines[$i]['total'];
+                $hasChildren[$parent] = true;
             }
         }
+        // Línea de grupo («línea») sin líneas debajo (gasto en una línea propia, línea agrupada escrita a mano): en
+        // cualquier desglose es una línea normal con su propio precio (FAC_EsGrupoSinDetalle)
+        $standalone = fn (int $i) => $lines[$i]['type'] === 'L' && empty($hasChildren[$i]);
 
         foreach ($lines as $i => $line) {
-            if (! in_array($line['type'], self::GROUPS, true)) {
+            if (! in_array($line['type'], self::GROUPS, true) || $standalone($i)) {
                 continue;
             }
             $children = round($sums[$i] ?? 0, 2);
@@ -401,7 +408,7 @@ class VeolabBillingLines
             $isSpecial = in_array($line['type'], self::SPECIAL_GROUPS, true);
 
             if ($line['parent'] === null) {
-                $lines[$i]['visible'] = $breakdown === 'T' ? ! $isGroup : ! $isSpecial;
+                $lines[$i]['visible'] = $breakdown === 'T' ? (! $isGroup || $standalone($i)) : ! $isSpecial;
                 if ($line['type'] === 'U') {
                     $supplied += $line['total'];
                 } else {
@@ -494,8 +501,8 @@ class VeolabBillingLines
                 'SER2COD'  => $type === 'S' ? $line['cod'] : '',
                 'TEC2DEL'  => $type === 'T' ? $line['del'] : '',
                 'TEC2COD'  => $type === 'T' ? $line['cod'] : '',
-                'ESC2DEL'  => $type === 'G' ? $line['del'] : '',
-                'ESC2COD'  => $type === 'G' ? (int) $line['cod'] : 0,
+                'ESC2DEL'  => ($type === 'G' || ($type === 'L' && (int) $line['cod'] !== 0)) ? $line['del'] : '',
+                'ESC2COD'  => ($type === 'G' || $type === 'L') ? (int) $line['cod'] : 0,
                 'SEC2DEL'  => $line['secDel'],
                 'SEC2COD'  => $line['secCod'],
             ] + ($hasPoint ? ['PUM2COD' => ($invoice || $type === 'S') ? $line['point'] : 0] : [])

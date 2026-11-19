@@ -82,6 +82,9 @@ class VeolabInvoiceLines
             self::operationLines($grid, $op, $i === 0, $cfg, $ctx, $state);
         }
 
+        if ($cfg->byService) {
+            self::ownLineExpenses($grid, $operations, $ops, $cfg);
+        }
         self::groupedExpenses($grid, $operations, $ops, $cfg, 'A');
         self::groupedExpenses($grid, $operations, $ops, $cfg, 'U');
 
@@ -136,8 +139,9 @@ class VeolabInvoiceLines
                 }
             }
 
+            // Sin los agrupados ('T') ni los gastos en una línea propia ('L', ownLineExpenses)
             $expenses = self::expenses($op)
-                ->where(fn ($q) => $q->whereNull('LABOYG.OYGBAGR')->orWhere('LABOYG.OYGBAGR', '<>', 'T'))
+                ->where(fn ($q) => $q->whereNull('LABOYG.OYGBAGR')->orWhereNotIn('LABOYG.OYGBAGR', ['T', 'L']))
                 ->where(fn ($q) => $q->whereNull('LABOYG.OYGBSUP')->orWhere('LABOYG.OYGBSUP', '<>', 'T'))
                 ->where(fn ($q) => $q->whereNull('LABOYG.SER2COD')->orWhere('LABOYG.SER2COD', ''))
                 ->get();
@@ -261,6 +265,33 @@ class VeolabInvoiceLines
             if (! self::increment($grid, $key)) {
                 $state->position = $cfg->byService ? self::endOfGroup($grid, $currentKey) : 0;
                 self::insert($grid, self::expenseLine($key, $e, $op, $cfg), $state->position);
+            }
+        }
+    }
+
+    /**
+     * Gastos en una línea propia (OYGBAGR = 'L', Veolab 3): una línea de primer nivel ('L' con el gasto) por gasto,
+     * precio y descuento, tras los servicios y antes de los grupos de gastos. Como Veolab, solo agrupando por servicio.
+     */
+    private static function ownLineExpenses(array &$grid, array $operations, array $ops, object $cfg): void
+    {
+        foreach ($operations as [$del, $ser, $cod]) {
+            $op = $ops[self::opKey($del, $ser, $cod)] ?? null;
+            if (! $op) {
+                continue;
+            }
+            $expenses = self::expenses($op)->where('LABOYG.OYGBAGR', 'L')
+                ->where(fn ($q) => $q->whereNull('LABOYG.OYGBSUP')->orWhere('LABOYG.OYGBSUP', '<>', 'T'))
+                ->where(fn ($q) => $q->whereNull('LABOYG.SER2COD')->orWhere('LABOYG.SER2COD', ''))
+                ->get();
+            foreach ($expenses as $e) {
+                // Con cliente y punto si se desglosan, como FAC_ObtenClaveLinea
+                $key = self::key(['LG', $e->ESC3DEL, '', $e->ESC3COD, $e->OYGNPRE, $e->OYGCDTO, '', '', ''], $op, $cfg);
+                if (! self::increment($grid, $key)) {
+                    $line = self::expenseLine($key, $e, $op, $cfg);
+                    $line['type'] = 'L';
+                    self::insert($grid, $line, 0);
+                }
             }
         }
     }
