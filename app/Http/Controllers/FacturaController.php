@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Concerns\BuildsBillingLines;
 use App\Http\Controllers\Concerns\ChecksVeolabReferences;
+use App\Support\ServerError;
 use App\Support\VeolabAudit;
 use App\Support\VeolabBillingLines;
 use App\Support\VeolabCodes;
@@ -14,23 +15,33 @@ use App\Support\VeolabInvoiceLines;
 use App\Support\VeolabLicense;
 use App\Support\VeolabOperationServices;
 use App\Support\VeolabVersion;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Facturas (FACFAC) con sus líneas (FACLIF), sus operaciones (LABOPE.FAC2*) y
  * sus subsanaciones (FACSUB, solo lectura). Réplica de FichaFactura/Facturas.
  *
- * La API no emite facturas: las definitivas, las rectificativas, las
- * subsanaciones y el envío a la AEAT se hacen en Veolab.
+ * Con Verifactu (o con la licencia sin leer) la API no emite facturas: las
+ * definitivas, las rectificativas, las subsanaciones y el envío a la AEAT se
+ * hacen en Veolab. Sin Verifactu emite como Veolab (FAC_EmitirFactura y la
+ * ficha), sin hash, XML ni envío; las rectificativas siguen en Veolab.
  *
  *  - Borradores (serie BOR, si LABCON.CONBFAB): alta, modificación y borrado.
  *    Las líneas se indican ('lineas' o 'servicios'), se generan a partir de
  *    las 'operaciones' como en la facturación de Veolab o se copian del
- *    presupuesto o contrato que se convierte.
- *  - Facturas emitidas: solo se cambian enviada, cobrada, contabilizada,
- *    pendiente, vencimiento, fecha de pago y notas.
+ *    presupuesto o contrato que se convierte. Sin Verifactu se emiten con
+ *    POST /facturas/emitir (serie 'serie_final' y código nuevo).
+ *  - Sin borradores (CONBFAB desactivado) y sin Verifactu, el alta crea la
+ *    factura definitiva en su serie, como la ficha de Veolab.
+ *  - Facturas emitidas: sin licencia Verifactu, las que no son Verifactu ni
+ *    rectificativas se modifican y eliminan como un borrador (sin registro V
+ *    al modificarlas, como Veolab); las demás solo cambian enviada,
+ *    cobrada, contabilizada, pendiente, vencimiento, fecha de pago y notas.
  *  - Registros V: alta de borrador ($ESPVER004, o conversión de presupuesto
- *    011 / de contrato 019) y modificación de borrador (008).
+ *    011 / de contrato 019), modificación de borrador (008), emisión (005) y
+ *    alta de factura definitiva (006, 012, 020). Sin Verifactu solo se
+ *    escriben si el laboratorio audita la facturación (ACCPAR.PARBAUF).
  */
 class FacturaController extends BaseController
 {
@@ -45,8 +56,11 @@ class FacturaController extends BaseController
     ];
     protected array $searchFields = ['FACCRAS', 'FACCNIF', 'FACCCON', 'FACCNOT'];
 
-    // El código del borrador se genera aquí (serie BOR, sin múltiplo).
+    // El código se genera aquí (borrador: serie BOR, sin múltiplo; definitiva: con múltiplo).
     protected bool $generatesCode = false;
+
+    // La serie forma parte del código de la factura (PAR_FormatoCodigo, generateCode).
+    protected ?string $seriesKey = 'serie';
 
     protected array $foreignKeys = [
         'cliente'             => 'string',
@@ -283,19 +297,32 @@ class FacturaController extends BaseController
             $current = $db->table($this->table)
                 ->where('DEL3COD', $invoice[0])->where('FAC1SER', $invoice[1])->where('FAC1COD', $invoice[2])->first();
             $this->sentNow = ($data['es_enviada'] ?? null) === 'T' && $current->FACBENV !== 'T';
-            if ($current->FACBBOR !== 'T') {
+            $definitive = $current->FACBBOR !== 'T';
+            if ($definitive && ! $this->issuedEditable($current)) {
                 return $this->issuedInvoiceChanges($data, $current);
             }
         } else {
-            if ($db->table('LABCON')->where('CON1COD', 1)->value('CONBFAB') !== 'T') {
-                throw new BusinessRuleException('Los borradores de factura no están habilitados en Veolab (LABCON.CONBFAB)');
+            // FichaFactura: con borradores habilitados toda factura nueva es un
+            // borrador; sin ellos es la definitiva (que la API solo crea sin Verifactu).
+            $definitive = $db->table('LABCON')->where('CON1COD', 1)->value('CONBFAB') !== 'T';
+            if ($definitive) {
+                if ($this->verifactu()) {
+                    throw new BusinessRuleException('Los borradores de factura no están habilitados en Veolab (LABCON.CONBFAB) y con Verifactu la API no emite facturas');
+                }
+                if (($data['serie'] ?? '') === self::DRAFT_SERIES) {
+                    throw new BusinessRuleException('La serie BOR está reservada para los borradores');
+                }
+            } else {
+                if (isset($data['codigo'])) {
+                    throw new BusinessRuleException('El código de un borrador se asigna automáticamente');
+                }
+                if (! in_array($data['serie'] ?? '', ['', self::DRAFT_SERIES], true)) {
+                    throw new BusinessRuleException("Con borradores habilitados la API crea borradores (serie BOR); la serie de emisión va en 'serie_final'");
+                }
             }
-            if (isset($data['codigo'])) {
-                throw new BusinessRuleException('El código de un borrador se asigna automáticamente');
-            }
-            if (! in_array($data['serie'] ?? '', ['', self::DRAFT_SERIES], true)) {
-                throw new BusinessRuleException("La API solo crea borradores (serie BOR); la serie de emisión va en 'serie_final'");
-            }
+        }
+        if ($definitive && array_key_exists('serie_final', $data)) {
+            throw new BusinessRuleException("'serie_final' solo se indica en los borradores");
         }
         if (($data['serie_final'] ?? null) === self::DRAFT_SERIES) {
             throw new BusinessRuleException('La serie BOR está reservada para los borradores');
@@ -344,13 +371,20 @@ class FacturaController extends BaseController
             if ($source) {
                 $data += $source['data'];
             }
-            // Valores por defecto de un borrador nuevo (FichaFactura).
+            // Valores por defecto de una factura nueva (FichaFactura).
             $data['delegacion'] = (string) ($data['delegacion'] ?? '');
-            $data['serie'] = self::DRAFT_SERIES;
-            $data['codigo'] = $this->draftCode($data['delegacion']);
-            $data['es_borrador'] = 'T';
+            if ($definitive) {
+                $data['serie'] = (string) ($data['serie'] ?? '');
+                $data['codigo'] = $this->definitiveCode($data['delegacion'], $data['serie'], $data['codigo'] ?? null);
+                $data['es_borrador'] = 'F';
+                $data['estado'] = 'E';
+            } else {
+                $data['serie'] = self::DRAFT_SERIES;
+                $data['codigo'] = $this->draftCode($data['delegacion']);
+                $data['es_borrador'] = 'T';
+                $data['estado'] = 'B';
+            }
             $data['es_verifactu'] = 'F';
-            $data['estado'] = 'B';
             $data['es_rectificativa'] = 'F';
             $data['es_enviada'] ??= 'F';
             $data['es_cobrada'] ??= 'F';
@@ -484,16 +518,20 @@ class FacturaController extends BaseController
         $data['_lineas'] = $gridChanged ? $lines : null;
         $data['_operaciones'] = $operations;
         $data['_nuevo'] = $isNew;
+        $data['_definitiva'] = $definitive;
+        $data['_archivar'] = $definitive && $this->archivesOnSave($value);
         // Solo la factura de la cuota (conversión del contrato) cambia su última facturación, no una de operaciones.
         $data['_contrato'] = $isNew && $conversion === 'contrato' ? $contract : null;
-        // Registro V: conversión de presupuesto o contrato, borrador nuevo o modificado.
+        // Registro V: conversión de presupuesto o contrato, factura nueva o
+        // borrador modificado (la definitiva modificada no lo genera).
         [$message, $previous] = match (true) {
-            ! $isNew                   => ['$ESPVER008', ''],
-            $conversion === 'presupuesto' => ['$ESPVER011', (string) $data['presupuesto_codigo']],
-            $conversion === 'contrato' => ['$ESPVER019', (string) $data['contrato_codigo']],
-            default                    => ['$ESPVER004', ''],
+            ! $isNew && $definitive       => [null, ''],
+            ! $isNew                      => ['$ESPVER008', ''],
+            $conversion === 'presupuesto' => [$definitive ? '$ESPVER012' : '$ESPVER011', (string) $data['presupuesto_codigo']],
+            $conversion === 'contrato'    => [$definitive ? '$ESPVER020' : '$ESPVER019', (string) $data['contrato_codigo']],
+            default                       => [$definitive ? '$ESPVER006' : '$ESPVER004', ''],
         };
-        $data['_verifactu'] = [$message,
+        $data['_verifactu'] = $message === null ? null : [$message,
             ($clientCode === '' ? '' : VeolabCodes::format('SINCLI', $clientCode, $clientDel)).' '.number_format(round($base + $tax1, 2), 2, ',', '.'),
             $previous];
 
@@ -518,8 +556,40 @@ class FacturaController extends BaseController
         }
 
         return $this->paidRules($data, $current) + [
-            '_lineas' => null, '_operaciones' => null, '_nuevo' => false, '_contrato' => null, '_verifactu' => null,
+            '_lineas' => null, '_operaciones' => null, '_nuevo' => false, '_definitiva' => true, '_archivar' => false,
+            '_contrato' => null, '_verifactu' => null,
         ];
+    }
+
+    /** ¿Licencia Verifactu? Sin leerla (sin claves de cifrado) se supone que sí. */
+    private function verifactu(): bool
+    {
+        return VeolabLicense::isVerifactu('dynamic', DB::connection('dynamic')->getDatabaseName());
+    }
+
+    /**
+     * Sin Verifactu Veolab deja modificar y eliminar la factura emitida. La
+     * API lo limita a las emitidas sin Verifactu (FACBVER) que no sean
+     * rectificativas (su grabación desvincula las operaciones de la rectificada).
+     */
+    private function issuedEditable(object $invoice): bool
+    {
+        return $invoice->FACBVER !== 'T' && $invoice->FACBREC !== 'T' && ! $this->verifactu();
+    }
+
+    /**
+     * Grabar: modo de archivo de las operaciones al facturar (LABCON.CONCARC):
+     * F al facturar, E al estar enviada, C cobrada y T contabilizada.
+     */
+    private function archivesOnSave(\Closure $value): bool
+    {
+        return match ((string) DB::connection('dynamic')->table('LABCON')->where('CON1COD', 1)->value('CONCARC')) {
+            'F'     => true,
+            'E'     => $value('es_enviada') === 'T',
+            'C'     => $value('es_cobrada') === 'T',
+            'T'     => $value('es_contabilizada') === 'T',
+            default => false,
+        };
     }
 
     /**
@@ -815,6 +885,135 @@ class FacturaController extends BaseController
         throw new BusinessRuleException('No se ha podido generar un código libre');
     }
 
+    /**
+     * Código de una factura definitiva: el indicado (si ACCCFC deja indicarlo
+     * y está libre) o el contador de la serie con su múltiplo hasta uno libre.
+     */
+    private function definitiveCode(string $delegation, string $series, $given): int
+    {
+        if ($given !== null && $given !== '') {
+            if (VeolabCodes::locked($this->table)) {
+                throw new BusinessRuleException('El código se asigna automáticamente y no se puede indicar');
+            }
+            $exists = DB::connection('dynamic')->table($this->table)
+                ->where('DEL3COD', $delegation)->where('FAC1SER', $series)->where('FAC1COD', (int) $given)->exists();
+            if ($exists) {
+                throw new BusinessRuleException('El código ya está en uso');
+            }
+
+            return (int) $given;
+        }
+        if (! VeolabCodes::autonumeric($this->table)) {
+            throw new BusinessRuleException('El código es obligatorio');
+        }
+
+        return $this->generateCode($delegation, $series);
+    }
+
+    // ------------------------------------------------------------------
+    // Emisión de borradores (sin Verifactu)
+    // ------------------------------------------------------------------
+
+    /**
+     * POST /facturas/emitir?delegacion=&serie=BOR&codigo=N
+     * FAC_EmitirFactura sin Verifactu: el borrador pasa a su serie preferida
+     * (serie_final) con un código nuevo, emitido y con fecha de registro; sus
+     * líneas, operaciones (facturadas y, con archivo al facturar, archivadas),
+     * documentos e incidencias de hash pasan a la nueva clave. La fecha de la
+     * factura no cambia. Con Verifactu se emite en Veolab.
+     */
+    public function issue(Request $request)
+    {
+        if ($unavailable = $this->prepareForDatabase()) {
+            return $unavailable;
+        }
+        $code = $request->query('codigo');
+        if (! is_string($code) || ! ctype_digit($code)) {
+            return response()->json(['message' => "Falta la clave 'codigo'"], 400);
+        }
+        $del = (string) ($request->query('delegacion') ?? '');
+        $ser = (string) ($request->query('serie') ?? '');
+        $cod = (int) $code;
+
+        $db = DB::connection('dynamic');
+        try {
+            $db->beginTransaction();
+
+            $draft = $db->table($this->table)->where('DEL3COD', $del)->where('FAC1SER', $ser)->where('FAC1COD', $cod)
+                ->lockForUpdate()->first();
+            if (! $draft) {
+                $db->rollBack();
+
+                return response()->json(['message' => 'Registro no encontrado'], 404);
+            }
+            if ($ser !== self::DRAFT_SERIES || $draft->FACBBOR !== 'T') {
+                throw new BusinessRuleException('Solo se emiten borradores (serie BOR)');
+            }
+            if ($this->verifactu()) {
+                throw new BusinessRuleException('Con Verifactu la factura se emite en Veolab');
+            }
+
+            $newSer = (string) $draft->FACCSER;
+            if ($newSer === self::DRAFT_SERIES) {
+                throw new BusinessRuleException('La serie BOR está reservada para los borradores');
+            }
+            $newCod = $this->generateCode($del, $newSer);
+
+            $db->table($this->table)->where('DEL3COD', $del)->where('FAC1SER', $ser)->where('FAC1COD', $cod)->update([
+                'FAC1SER' => $newSer,
+                'FAC1COD' => $newCod,
+                'FACBBOR' => 'F',
+                'FACTREG' => DB::raw('NOW(3)'),
+                'FACBVER' => 'F',
+                'FACCEST' => 'E',
+            ]);
+            $db->table('FACLIF')->where('FAC3DEL', $del)->where('FAC3SER', $ser)->where('FAC3COD', $cod)
+                ->update(['FAC3SER' => $newSer, 'FAC3COD' => $newCod]);
+
+            $operations = ['FAC2SER' => $newSer, 'FAC2COD' => $newCod, 'OPEBFAC' => 'T', 'OPEBFAB' => 'T'];
+            if ((string) $db->table('LABCON')->where('CON1COD', 1)->value('CONCARC') === 'F') {
+                $operations['OPENEST'] = 7;
+            }
+            $db->table('LABOPE')->where('FAC2DEL', $del)->where('FAC2SER', $ser)->where('FAC2COD', $cod)->update($operations);
+            $db->table('DOCFAT')->where('DEL3COD', $del)->where('FAC2SER', $ser)->where('FAC2COD', $cod)
+                ->update(['FAC2SER' => $newSer, 'FAC2COD' => $newCod]);
+            $db->table('ACCINH')->where('FAC2DEL', $del)->where('FAC2SER', $ser)->where('FAC2COD', $cod)
+                ->update(['FAC2SER' => $newSer, 'FAC2COD' => $newCod]);
+
+            // Suceso de modificación del código y registro V "Emisión de factura" con el total.
+            $newRow = VeolabCodes::format($this->table, (string) $newCod, $del, $newSer);
+            $oldRow = VeolabCodes::format($this->table, (string) $cod, $del, $ser);
+            VeolabAudit::record(VeolabAudit::MODIFICACION, $this->table, $newRow, $this->table.'FAC1COD', $newRow, $oldRow);
+            $total = round((float) $draft->FACNBAS + (float) $draft->FACNVI1, 2);
+            VeolabAudit::verifactu($this->table, $newRow, '$ESPVER005', self::vbNumber($total), $oldRow);
+
+            $db->commit();
+
+            return response()->json([
+                'message' => 'Factura emitida correctamente',
+                'data'    => ['delegacion' => $del, 'serie' => $newSer, 'codigo' => $newCod],
+            ]);
+        } catch (BusinessRuleException $e) {
+            $db->rollBack();
+
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            $db->rollBack();
+
+            return ServerError::response("v2 issue {$this->table}", $e, 'Error al emitir la factura');
+        }
+    }
+
+    /** CStr de un Double en la configuración española de Veolab: coma decimal, sin miles ni ceros finales. */
+    private static function vbNumber(float $value): string
+    {
+        [$integer, $decimals] = explode(',', number_format($value, 2, ',', ''));
+        $decimals = rtrim($decimals, '0');
+        $text = $decimals === '' ? $integer : $integer.','.$decimals;
+
+        return $text === '-0' ? '0' : $text;
+    }
+
     // ------------------------------------------------------------------
     // Grabación
     // ------------------------------------------------------------------
@@ -832,8 +1031,14 @@ class FacturaController extends BaseController
             }
         }
 
+        // FAC_GuardarFechaRegistroFactura: fecha de registro de la definitiva nueva.
+        if ($data['_nuevo'] && $data['_definitiva']) {
+            $db->table($this->table)->where('DEL3COD', $invoice[0])->where('FAC1SER', $invoice[1])->where('FAC1COD', $invoice[2])
+                ->update(['FACTREG' => DB::raw('NOW(3)')]);
+        }
+
         if ($data['_operaciones'] !== null) {
-            $this->linkOperations($invoice, $data['_operaciones']);
+            $this->linkOperations($invoice, $data['_operaciones'], $data['_definitiva'], $data['_archivar']);
             if (! $data['_nuevo']) {
                 VeolabAudit::record(VeolabAudit::MODIFICACION_CAMPO, $this->table, $row, 'LABOPE');
             }
@@ -861,9 +1066,10 @@ class FacturaController extends BaseController
     /**
      * Grabar, "Operaciones": las anteriores vuelven a estar disponibles (y se
      * desarchivan si hay modo de archivo) y las nuevas quedan prefacturadas en
-     * el borrador. Los borradores no archivan operaciones.
+     * el borrador o facturadas en la definitiva, que las archiva según el modo
+     * de archivo. Los borradores no archivan operaciones.
      */
-    private function linkOperations(array $invoice, array $operations): void
+    private function linkOperations(array $invoice, array $operations, bool $definitive, bool $archive): void
     {
         $db = DB::connection('dynamic');
         [$del, $ser, $cod] = $invoice;
@@ -874,9 +1080,14 @@ class FacturaController extends BaseController
         $db->table('LABOPE')->where('FAC2DEL', $del)->where('FAC2SER', $ser)->where('FAC2COD', $cod)
             ->update(['FAC2DEL' => '', 'FAC2SER' => '', 'FAC2COD' => 0, 'OPEBFAC' => 'F', 'OPEBPRE' => 'F']);
 
+        $link = $definitive
+            ? ['FAC2DEL' => $del, 'FAC2SER' => $ser, 'FAC2COD' => $cod, 'OPEBFAC' => 'T', 'OPEBFAB' => 'T']
+            : ['FAC2DEL' => $del, 'FAC2SER' => $ser, 'FAC2COD' => $cod, 'OPEBPRE' => 'T', 'OPEBFAC' => 'F', 'OPEBFAB' => 'T'];
+        if ($archive) {
+            $link['OPENEST'] = 7;
+        }
         foreach ($operations as [$opDel, $opSer, $opCod]) {
-            $db->table('LABOPE')->where('DEL3COD', $opDel)->where('OPE1SER', $opSer)->where('OPE1COD', $opCod)
-                ->update(['FAC2DEL' => $del, 'FAC2SER' => $ser, 'FAC2COD' => $cod, 'OPEBPRE' => 'T', 'OPEBFAC' => 'F', 'OPEBFAB' => 'T']);
+            $db->table('LABOPE')->where('DEL3COD', $opDel)->where('OPE1SER', $opSer)->where('OPE1COD', $opCod)->update($link);
         }
     }
 
@@ -949,14 +1160,14 @@ class FacturaController extends BaseController
         return $rows;
     }
 
-    /** Facturas.Eliminar: desde la API solo se borran borradores. */
+    /** Facturas.Eliminar: con Verifactu solo borradores; sin él, también las emitidas modificables. */
     protected function validateBeforeDelete(array $keys): void
     {
-        $draft = DB::connection('dynamic')->table($this->table)
+        $invoice = DB::connection('dynamic')->table($this->table)
             ->where('DEL3COD', (string) $keys['delegacion'])->where('FAC1SER', (string) $keys['serie'])
-            ->where('FAC1COD', (int) $keys['codigo'])->value('FACBBOR');
-        if ($draft !== 'T') {
-            throw new BusinessRuleException('Desde la API solo se pueden eliminar borradores');
+            ->where('FAC1COD', (int) $keys['codigo'])->first(['FACBBOR', 'FACBVER', 'FACBREC']);
+        if ($invoice && $invoice->FACBBOR !== 'T' && ! $this->issuedEditable($invoice)) {
+            throw new BusinessRuleException('Desde la API solo se pueden eliminar borradores y, sin Verifactu, las facturas emitidas que no sean rectificativas');
         }
     }
 

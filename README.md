@@ -320,12 +320,18 @@ Presupuestos, contratos y facturas con sus líneas e importes calculados.
 |---|---|---|---|
 | `/presupuestos` | G P U D | `FACPRE` | Presupuestos con sus líneas e importes. |
 | `/contratos` | G P U D | `FACCON` | Contratos con sus líneas. |
-| `/facturas` | G P U D | `FACFAC` | Facturas: borradores (alta, cambio y borrado) y estado de las emitidas. |
+| `/facturas` | G P U D | `FACFAC` | Facturas: borradores (alta, cambio y borrado) y estado de las emitidas; sin Verifactu, también facturas definitivas. |
+| `/facturas/emitir` | P | `FACFAC` | Sin Verifactu, emite un borrador: `?delegacion=&serie=BOR&codigo=N`. Pasa a su `serie_final` con un código nuevo, que devuelve en `data`. |
 
 - Las líneas se indican como `lineas` (la rejilla completa) o `servicios` (cada servicio con sus técnicas y gastos, con los precios del cliente o la tarifa). En un PUT sustituyen la rejilla entera.
 - Subtotal, base imponible, impuestos, suplidos y total se calculan siempre.
 - Desde Veolab 3, `fecha_seguimiento` en presupuestos: al pasarlos a enviado se rellena con los días configurados en Veolab.
-- **La API no emite facturas.** Las definitivas, rectificativas y el envío a la AEAT (Verifactu) se hacen en Veolab. Desde la API: borradores (si el laboratorio los tiene activados) y, en las emitidas, solo enviada, cobrada, contabilizada, pendiente, vencimiento, fecha de pago y notas.
+- **Con Verifactu la API no emite facturas.** Las definitivas, rectificativas y el envío a la AEAT se hacen en Veolab. Desde la API: borradores (si el laboratorio los tiene activados) y, en las emitidas, solo enviada, cobrada, contabilizada, pendiente, vencimiento, fecha de pago y notas. Si la API no puede leer la licencia, se comporta como con Verifactu.
+- **Sin Verifactu la API factura como Veolab**, sin huella ni envío:
+  - Con borradores activados, el alta crea un borrador y `/facturas/emitir` lo emite. La fecha de la factura no cambia.
+  - Sin borradores, el alta crea la factura definitiva en la `serie` indicada. El `codigo` es opcional: sin él se usa el contador con su múltiplo.
+  - Las operaciones de una factura definitiva quedan facturadas y se archivan según el modo de archivo de Veolab (al facturar, al enviar, al cobrar o al contabilizar).
+  - Las emitidas sin Verifactu se modifican y eliminan como un borrador. Las rectificativas, solo en Veolab.
 - Un borrador puede generarse desde operaciones (como la facturación de Veolab) o convertir un presupuesto o contrato.
 - Con Verifactu, presupuestos y contratos no se borran y cada cambio deja un registro encadenado con hash.
 
@@ -526,7 +532,7 @@ Usuarios de Veolab y sus perfiles, la configuración del laboratorio (lectura) y
 
 La API cubre la gestión diaria; estas tareas siguen en la aplicación de escritorio:
 
-- Emitir facturas definitivas y rectificativas, y el envío a la AEAT (Verifactu).
+- Con Verifactu, emitir facturas definitivas y el envío a la AEAT; siempre, las rectificativas.
 - Generar el documento (PDF) de los informes y su exportación automática.
 - Configuración: pantallas *Configurar...*, series, módulos, tipos de firma (la API la lee).
 - Estadísticas y plantillas de exportación.
@@ -657,6 +663,8 @@ en el cron para borrar a diario los tokens caducados. Compruebe la licencia de u
 
 ### 2.1.0 — octubre de 2026
 - Compatible con bases de datos de Veolab 3 y anteriores: lo nuevo de Veolab 3 se omite o se
+- Sin Verifactu, `/facturas` crea facturas definitivas cuando no hay borradores y modifica o elimina
+  las emitidas. `/facturas/emitir` emite un borrador, como Veolab y sin huella ni envío.
   rechaza con `422` en las bases que no lo tienen; `meta.version_bd` en los listados.
 - Veolab 3: patrones y materiales de referencia (ISO 17025 6.5 y 6.4.9; script de los patrones).
   `tipo_metrologico` y `dias_validez_apertura` en `/productos`; datos del certificado,

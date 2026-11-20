@@ -110,8 +110,10 @@ Route::prefix('v2')->middleware(['auth:sanctum', \App\Http\Middleware\SetClientD
     Route::get('/tipos-firma', [$ns.'TipoFirmaController', 'index']);
     $resource('/presupuestos', 'PresupuestoController');
     $resource('/contratos', 'ContratoController');
-    // Facturas: la API gestiona borradores y el estado de las emitidas (se emiten en Veolab).
+    // Facturas: borradores y estado de las emitidas; sin Verifactu, además, alta de
+    // definitivas (sin borradores), emisión de borradores y edición de emitidas.
     $resource('/facturas', 'FacturaController');
+    Route::post('/facturas/emitir', [$ns.'FacturaController', 'issue']);
 
     // --- Cartas de control (módulo CDC): LABCDC + técnicas (LABCYT) + resultados (LABRCD) ---
     $resource('/cartas-control', 'CartaControlController');
