@@ -767,6 +767,46 @@ abstract class BaseController extends Controller
         return array_map('trim', explode(',', $value));
     }
 
+    /** Elementos de una lista a partir de los cuales se valida elemento a elemento (ver validateData). */
+    private const LONG_LIST = 100;
+
+    /**
+     * Valida los elementos de una lista larga uno a uno con las reglas de sus campos. Devuelve, como
+     * Validator::validated(), solo los campos con regla; los errores llevan la clave «lista.índice.campo».
+     */
+    private function validateLongList(string $list, array $elements, array $rules): array
+    {
+        $names = [];
+        foreach (array_keys($rules) as $name) {
+            $names[$name] = str_replace('_', ' ', (string) $name);
+        }
+
+        $errors = [];
+        $validated = [];
+        foreach ($elements as $i => $element) {
+            if (! is_array($element)) {
+                $errors["{$list}.{$i}"] = ["El elemento {$i} de '{$list}' debe ser un objeto"];
+            } else {
+                $validator = Validator::make($element, $rules, [], array_map(fn ($name) => "{$list}.{$i}.{$name}", $names));
+                if ($validator->fails()) {
+                    foreach ($validator->errors()->toArray() as $name => $messages) {
+                        $errors["{$list}.{$i}.{$name}"] = $messages;
+                    }
+                } else {
+                    $validated[$i] = $validator->validated();
+                }
+            }
+            if (count($errors) >= 100) {
+                break;   // suficientes para corregir la petición
+            }
+        }
+        if ($errors) {
+            throw ValidationException::withMessages($errors);
+        }
+
+        return $validated;
+    }
+
     private function validateData(array $data): array
     {
         $rules = $this->rules();
@@ -780,12 +820,43 @@ abstract class BaseController extends Controller
             }
         }
 
+        // Listas largas (lineas.*.campo con miles de elementos): Laravel expande cada regla con comodín por elemento
+        // copiando el conjunto de reglas en cada paso (ValidationRuleParser::explodeWildcardRules), un coste
+        // cuadrático que agota el tiempo de ejecución. Esas listas se validan aparte, elemento a elemento.
+        $lists = [];
+        foreach ($rules as $field => $rule) {
+            if (preg_match('/^([^.*]+)\.\*\.([^.*]+)$/', (string) $field, $m) && is_array($data[$m[1]] ?? null)
+                && count($data[$m[1]]) > self::LONG_LIST) {
+                $lists[$m[1]][$m[2]] = $rule;
+            }
+        }
+        foreach ($lists as $list => $itemRules) {
+            // 'distinct' compara los elementos entre sí: esa lista la sigue validando Laravel entera.
+            $distinct = false;
+            foreach ($itemRules as $rule) {
+                foreach (is_array($rule) ? $rule : (is_string($rule) ? explode('|', $rule) : []) as $part) {
+                    $distinct = $distinct || (is_string($part) && str_starts_with($part, 'distinct'));
+                }
+            }
+            if ($distinct) {
+                unset($lists[$list]);
+
+                continue;
+            }
+            foreach (array_keys($itemRules) as $name) {
+                unset($rules["{$list}.*.{$name}"]);
+            }
+        }
+
         $validator = Validator::make($data, $rules);
         if ($validator->fails()) {
             throw new ValidationException($validator);
         }
 
         $validated = $validator->validated();
+        foreach ($lists as $list => $itemRules) {
+            $validated[$list] = $this->validateLongList($list, $data[$list], $itemRules);
+        }
         $this->rejectUnsupported($validated);
 
         return $validated;

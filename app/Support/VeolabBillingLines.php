@@ -149,6 +149,7 @@ class VeolabBillingLines
         $db = DB::connection('dynamic');
         $lines = [];
         $modified = false;
+        $techniques = [];   // técnica y precio ya leídos: una factura larga repite las mismas técnicas
 
         foreach (array_values($input) as $i => $in) {
             $n = $i + 1;
@@ -174,14 +175,16 @@ class VeolabBillingLines
 
                 case 'T':
                     [$del, $cod] = self::entityKey($in, 'tecnica', "Línea {$n}: falta la técnica");
-                    $tec = $db->table('LABTEC')->where('DEL3COD', $del)->where('TEC1COD', $cod)->first();
+                    $cached = $techniques[$del."\x1B".$cod] ?? null;
+                    $tec = $cached ? $cached[0] : $db->table('LABTEC')->where('DEL3COD', $del)->where('TEC1COD', $cod)->first();
                     if (! $tec) {
                         throw new BusinessRuleException("Línea {$n}: la técnica {$cod} no existe");
                     }
+                    $cached ??= $techniques[$del."\x1B".$cod] = [$tec, VeolabOperationServices::techniquePrice($tec, $ctx)];
                     $line['del'] = $del;
                     $line['cod'] = $cod;
                     $line['desc'] = self::techniqueName($tec, $ctx);
-                    [$line['price'], $line['discount']] = VeolabOperationServices::techniquePrice($tec, $ctx);
+                    [$line['price'], $line['discount']] = $cached[1];
                     $line['secDel'] = (string) $tec->SEC2DEL;
                     $line['secCod'] = (int) $tec->SEC2COD;
                     break;
@@ -517,8 +520,9 @@ class VeolabBillingLines
             ] : []);
         }
 
-        if ($rows) {
-            $db->table($table)->insert($rows);
+        // Por bloques: MySQL admite 65 535 parámetros por sentencia (unas 2 100 líneas de factura de una vez).
+        foreach (array_chunk($rows, 500) as $chunk) {
+            $db->table($table)->insert($chunk);
         }
     }
 

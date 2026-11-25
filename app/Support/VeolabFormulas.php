@@ -56,6 +56,11 @@ class VeolabFormulas
 
     private static array $messages = [];
 
+    /** Fórmulas ya analizadas en la petición: paréntesis de prioridad y columnas de las que dependen. */
+    private static array $priorities = [];
+    private static array $dependencyCache = [];
+    private static array $independent = [];
+
     private array $cells;
     private array $techniques;
     private array $order;
@@ -68,6 +73,9 @@ class VeolabFormulas
     private array $warnings = [];
     private array $fieldCache = [];
     private ?object $operationRow = null;
+
+    /** Resultado de las fórmulas que no dependen de la fila (fórmula => valor) mientras no cambie ninguna celda. */
+    private array $shared = [];
 
     /**
      * @param array $cells      Celdas de VeolabResults::cells (por referencia: se recalculan ahí).
@@ -139,6 +147,7 @@ class VeolabFormulas
         $this->stackExceeded = false;
         $this->forced = $forced;
         $this->fieldCache = [];
+        $this->shared = [];   // entre recálculos la petición modifica celdas directamente
 
         $columns = 0;
         foreach ($this->cells as $row) {
@@ -231,7 +240,18 @@ class VeolabFormulas
             if (str_starts_with($formula, '=')) {
                 $formula = mb_substr($formula, 1);
             }
-            $value = VeolabFormat::conditional($this->evaluate(self::priority($formula), $tec), $cell['format']);
+            // Una fórmula que no usa columnas de su fila ni field() (solo result() y constantes) da lo mismo en
+            // todas las filas mientras no cambie ninguna celda: se evalúa una vez, no una por celda que la tiene.
+            $shared = self::rowIndependent($formula);
+            if ($shared && array_key_exists($formula, $this->shared)) {
+                $raw = $this->shared[$formula];
+            } else {
+                $raw = $this->evaluate(self::priority($formula), $tec);
+                if ($shared) {
+                    $this->shared[$formula] = $raw;
+                }
+            }
+            $value = VeolabFormat::conditional($raw, $cell['format']);
         } catch (\DomainException $e) {
             $this->warn($tec, $column, "La fórmula usa field(\"{$e->getMessage()}\"), que la API no calcula: la celda no se ha recalculado");
 
@@ -257,15 +277,42 @@ class VeolabFormulas
             if (VeolabResults::applyRangeMark($cell, $this->marks, $this->operation[0], false, $this)) {
                 $this->marksChanged = true;
             }
+            $this->shared = [];   // ha cambiado una celda: los resultados compartidos ya no valen
         }
         unset($cell);
 
         $this->evaluated[$tec][$column] = true;
     }
 
+    /**
+     * ¿La fórmula da lo mismo en cualquier fila? Solo si todos sus átomos son números, literales, operadores,
+     * paréntesis o funciones que no leen la fila; cualquier otro átomo se evalúa como una columna de la fila.
+     */
+    private static function rowIndependent(string $formula): bool
+    {
+        if (isset(self::$independent[$formula])) {
+            return self::$independent[$formula];
+        }
+        $rest = $formula;
+        $independent = true;
+        do {
+            $atom = self::extractAtom($rest);
+            $first = $atom === '' ? '' : $atom[0];
+            $independent = $atom === '' || $first === '"' || in_array($atom, ['(', ')', ';'], true)
+                || in_array($atom, self::OPERATORS, true) || VeolabFormat::toDouble($atom) !== null
+                || ($atom !== 'field' && in_array($atom, self::FUNCTIONS, true));
+        } while ($independent && $rest !== '');
+
+        return self::$independent[$formula] = $independent;
+    }
+
     /** ObtenerDependencias: columnas (átomos en mayúsculas) de la fórmula. */
     private function dependencies(string $formula): array
     {
+        if (isset(self::$dependencyCache[$formula])) {
+            return self::$dependencyCache[$formula];
+        }
+        $key = $formula;
         $columns = [];
         do {
             $atom = self::extractAtom($formula);
@@ -277,7 +324,7 @@ class VeolabFormulas
             }
         } while ($atom !== '');
 
-        return array_values($columns);
+        return self::$dependencyCache[$key] = array_values($columns);
     }
 
     private function warn(string $tec, ?int $column, string $message): void
@@ -550,22 +597,43 @@ class VeolabFormulas
     private function parameters(string &$formula, string $tec): array
     {
         $copy = $formula;
-        $chars = mb_str_split($copy);
         $separators = [];
         $depth = 0;
-        $i = 1;
-        do {
-            $char = $chars[$i - 1] ?? '';
-            if ($char === '(') {
-                $depth++;
-            } elseif ($char === ')') {
-                $depth--;
-            } elseif ($char === ';' && $depth === 0) {
-                $separators[] = $i;
+        if (! preg_match('/[^ -]/', $copy)) {
+            // Solo ASCII (lo habitual): se salta de paréntesis en paréntesis sin trocear la fórmula, que en
+            // una fórmula larga con muchas funciones anidadas se repetía entera por cada paréntesis.
+            $length = strlen($copy);
+            $position = 0;
+            $final = $length + 1;
+            while (($position += strcspn($copy, '();', $position)) < $length) {
+                $char = $copy[$position++];
+                if ($char === '(') {
+                    $depth++;
+                } elseif ($char === ';') {
+                    if ($depth === 0) {
+                        $separators[] = $position;
+                    }
+                } elseif (--$depth < 0) {
+                    $final = $position;
+                    break;
+                }
             }
-            $i++;
-        } while ($depth >= 0 && $char !== '');
-        $final = $i - 1;
+        } else {
+            $chars = mb_str_split($copy);
+            $i = 1;
+            do {
+                $char = $chars[$i - 1] ?? '';
+                if ($char === '(') {
+                    $depth++;
+                } elseif ($char === ')') {
+                    $depth--;
+                } elseif ($char === ';' && $depth === 0) {
+                    $separators[] = $i;
+                }
+                $i++;
+            } while ($depth >= 0 && $char !== '');
+            $final = $i - 1;
+        }
 
         $parameters = [];
         if (! $separators) {
@@ -799,11 +867,14 @@ class VeolabFormulas
     /** ExtraeAtomo: siguiente átomo (columna, número, función, operador, literal, paréntesis o ';'). */
     private static function extractAtom(string &$formula): string
     {
-        $chars = mb_str_split($formula);
-        $length = count($chars);
-        if ($length === 0) {
+        if ($formula === '') {
             return '';
         }
+        // Solo ASCII (lo habitual): se recorre la cadena sin trocearla entera en cada átomo, que con
+        // fórmulas largas y muchas celdas agotaba el tiempo de ejecución.
+        $ascii = ! preg_match('/[^\x00-\x7F]/', $formula);
+        $chars = $ascii ? null : mb_str_split($formula);
+        $length = $ascii ? strlen($formula) : count($chars);
 
         $type = '';
         $i = 1;
@@ -812,7 +883,7 @@ class VeolabFormulas
             if ($i > $length) {
                 $end = true;
             } else {
-                $char = $chars[$i - 1];
+                $char = $ascii ? $formula[$i - 1] : $chars[$i - 1];
                 $code = strlen($char) === 1 ? ord($char) : 0;
                 if ($code >= 65 && $code <= 90) {                                   // A-Z
                     if ($type === '') {
@@ -863,8 +934,13 @@ class VeolabFormulas
         } while (! $end);
 
         $cut = $type === '' ? $i - 1 : $i - 2;
-        $atom = implode('', array_slice($chars, 0, $cut));
-        $formula = implode('', array_slice($chars, $cut));
+        if ($ascii) {
+            $atom = substr($formula, 0, $cut);
+            $formula = (string) substr($formula, $cut);
+        } else {
+            $atom = implode('', array_slice($chars, 0, $cut));
+            $formula = implode('', array_slice($chars, $cut));
+        }
 
         return trim(preg_replace('/[\x00-\x1F]/u', '', $atom), ' ');
     }
@@ -877,6 +953,14 @@ class VeolabFormulas
      * A/B*C = (A/B)*C), como Veolab 2.4.5; antes se agrupaban por tipo de operador.
      */
     private static function priority(string $formula): string
+    {
+        // La misma fórmula se evalúa una vez por recálculo y fila: sus paréntesis no cambian.
+        $key = (VeolabVersion::isV3() ? '3' : '2')."\x00".$formula;
+
+        return self::$priorities[$key] ??= self::buildPriority($formula);
+    }
+
+    private static function buildPriority(string $formula): string
     {
         $atoms = [];
         $positions = [];
