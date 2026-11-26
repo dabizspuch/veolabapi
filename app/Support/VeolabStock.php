@@ -30,6 +30,51 @@ class VeolabStock
     public const MOVEMENT_TYPES = ['I', 'E', 'S', 'C', 'D', 'P', 'B', 'O', 'U', 'J', 'A'];
 
     /**
+     * ALM_EfectoMovimiento (Veolab 3): lo que un movimiento suma (positivo) o
+     * resta (negativo) a las existencias de su serie. El uso de un equipo no
+     * las cambia y el ajuste lleva su propio signo.
+     */
+    public static function movementEffect(string $type, float $quantity): float
+    {
+        return match ($type) {
+            'I', 'E', 'C', 'D' => abs($quantity),
+            'S', 'B', 'P', 'A', 'O' => -abs($quantity),
+            'J' => $quantity,
+            default => 0.0,
+        };
+    }
+
+    /**
+     * ALM_AplicarMovimiento (Veolab 3): lleva a la serie un movimiento anotado
+     * a mano, o lo deshace, y anota el producto en $products para
+     * recalculateProducts. $row es la fila de ALMMOV. Devuelve lo que faltó
+     * (negativo) si no había existencias para todo lo que se quitaba.
+     */
+    public static function applyManualMovement(object $row, bool $undo, array &$products): float
+    {
+        $product = (string) $row->PRD2COD;
+        $lot = (string) $row->SEL2COD;
+        if ($product === '' || $lot === '') {
+            return 0.0;
+        }
+        $effect = self::movementEffect((string) $row->MOVCTIP, (float) $row->MOVNCAN);
+        if ($undo) {
+            $effect = -$effect;
+        }
+        if ($effect == 0.0) {
+            return 0.0;
+        }
+        $delegation = (string) $row->PRD2DEL;
+        $stock = DB::connection('dynamic')->table('ALMSEL')
+            ->where('PRD3DEL', $delegation)->where('PRD3COD', $product)->where('SEL1COD', $lot)
+            ->value('SELNCAE');
+        self::addToLot($delegation, $product, $lot, $effect);
+        $products[$delegation."\0".$product] = [$delegation, $product];
+
+        return $stock === null ? 0.0 : min(0.0, (float) $stock + $effect);
+    }
+
+    /**
      * ALM_GenerarMovimiento: movimiento de la serie/lote en la delegación del
      * producto, sin operación, técnica ni usuario. Devuelve su código.
      */

@@ -321,7 +321,7 @@ Presupuestos, contratos y facturas con sus líneas e importes calculados.
 | `/presupuestos` | G P U D | `FACPRE` | Presupuestos con sus líneas e importes. |
 | `/contratos` | G P U D | `FACCON` | Contratos con sus líneas. |
 | `/facturas` | G P U D | `FACFAC` | Facturas: borradores (alta, cambio y borrado) y estado de las emitidas; sin Verifactu, también facturas definitivas. |
-| `/facturas/emitir` | P | `FACFAC` | Sin Verifactu, emite un borrador: `?delegacion=&serie=BOR&codigo=N`. Pasa a su `serie_final` con un código nuevo, que devuelve en `data`. |
+| `/facturas/emitir` | P | `FACFAC` | Sin Verifactu, emite un borrador: `?delegacion=&serie=BOR&codigo=N`. Pasa a su `serie_final` con un código nuevo, que devuelve en `data`. Sin `serie_final`, se emite en la serie vacía, como en Veolab: conviene indicarla siempre al crear el borrador. |
 
 - Las líneas se indican como `lineas` (la rejilla completa) o `servicios` (cada servicio con sus técnicas y gastos, con los precios del cliente o la tarifa). En un PUT sustituyen la rejilla entera.
 - Subtotal, base imponible, impuestos, suplidos y total se calculan siempre.
@@ -355,7 +355,7 @@ Productos, sus series o lotes reales, movimientos, materias primas y préstamos 
 | `/tipos-equipos` | G P U D | `LABTEQ` | Tipos de equipo (árbol). |
 
 - Las existencias de un producto son la suma de sus series y lotes vigentes y se recalculan con cada cambio.
-- Cambiar las existencias de una serie o lote genera un movimiento de ajuste; darla de baja, uno de baja. Los movimientos anotados a mano no cambian existencias, como en Veolab.
+- Cambiar las existencias de una serie o lote genera un movimiento de ajuste; darla de baja, uno de baja. En Veolab 3, como en su ficha de movimiento, un movimiento anotado a mano cambia las existencias de su serie (entradas suman; salidas, bajas, préstamos, anulaciones y consumos restan; el ajuste lleva su signo; el uso no cuenta) y borrarlo lo deshace; los de operaciones, préstamos y entregas se gestionan desde su origen. En bases 2.4 los movimientos a mano no cambian existencias.
 - Las operaciones consumen sus consumibles y usan sus equipos al crearse, y los devuelven al borrarse.
 - Préstamos: estados R registrado, E entregado, P parcialmente devuelto, D devuelto, C cancelado. Sin existencias suficientes no se graba.
 - Pedidos: estados B borrador, E enviado, P recibido en parte, R recibido, C cancelado; P y R los ponen las entregas. Sin referencia, precio o formato, las líneas toman los del proveedor. Un pedido con algo recibido no se borra (se cancela o archiva).
@@ -496,6 +496,7 @@ Agenda de los usuarios, festivos, notificaciones, mensajería y avisos emergente
 | `/mensajes/leidos` | P | `MENMEN` | Marca como leídos los mensajes de un usuario. Cuerpo `{usuario_*[, con_*]}`. |
 | `/avisos` | G D | `ACCAVI` | Avisos emergentes pendientes de un usuario. |
 | `/avisos/vistos` | P | `ACCAVI` | Marca como vistos todos los avisos vencidos de un usuario. Cuerpo `{usuario_*[, tipo]}`. |
+| `/avisos-servicio` | G | — | Avisos de servicio de SPUCH vigentes para el laboratorio (cortes programados, incidencias urgentes y comunicaciones), los mismos que muestra Veolab; urgentes primero. Solo lectura. Si spuch.com no responde, `data` vacío y `meta.disponible = false`, nunca un error. Fechas en hora peninsular española (`meta.zona_horaria`). |
 | `/tareas-pendientes` | G | `—` | Tareas pendientes de un usuario (Veolab 3, módulo COM, funcionalidad `COM_TAR`), calculadas al vuelo: incidencias y acciones, auditorías, ensayos de aptitud, revisión por la dirección y documentos controlados (revisar y aprobar ediciones, revisión periódica, lecturas pendientes y copias por retirar, con el módulo CAL), proveedores, autorizaciones, firmas, solicitudes, fecha de compromiso de las operaciones, calibración, verificación y mantenimiento de equipos, patrones y materiales de referencia caducados o a punto de caducar, stock bajo el mínimo, seguimiento de presupuestos, gráficos de control en error, familias del plan de intercomparaciones y objetivos de calidad sin definir o sin cerrar. `?usuario_*[&tipo=&grupo=&solo_vencidas=T&solo_mias=T]`. Solo lectura. |
 | `/tareas-pendientes/recuento` | G | `—` | Recuento de las tareas pendientes de un usuario: `{total, vencidas, por_tipo}`. Mismos parámetros. |
 
@@ -662,9 +663,12 @@ en el cron para borrar a diario los tokens caducados. Compruebe la licencia de u
 ## Historial de versiones
 
 ### 2.1.0 — octubre de 2026
-- Compatible con bases de datos de Veolab 3 y anteriores: lo nuevo de Veolab 3 se omite o se
 - Sin Verifactu, `/facturas` crea facturas definitivas cuando no hay borradores y modifica o elimina
   las emitidas. `/facturas/emitir` emite un borrador, como Veolab y sin huella ni envío.
+- Veolab 3: los movimientos de inventario anotados a mano (`/inventario/movimientos`) cambian las
+  existencias de su serie al crearlos, modificarlos o borrarlos, como la ficha de movimiento; los de
+  préstamos y entregas de proveedor, como los de operaciones, solo se cambian desde su origen (`422`).
+- Compatible con bases de datos de Veolab 3 y anteriores: lo nuevo de Veolab 3 se omite o se
   rechaza con `422` en las bases que no lo tienen; `meta.version_bd` en los listados.
 - Veolab 3: patrones y materiales de referencia (ISO 17025 6.5 y 6.4.9; script de los patrones).
   `tipo_metrologico` y `dias_validez_apertura` en `/productos`; datos del certificado,

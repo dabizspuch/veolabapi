@@ -4,16 +4,20 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
 use App\Support\VeolabStock;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Movimientos de almacén (ALMMOV), como FichaMovimiento de Veolab: es el
  * historial de cada serie o lote. Los genera Veolab (y la API) al cambiar las
  * existencias del inventario, consumir en operaciones o en materias primas;
- * aquí se consultan y se pueden anotar o corregir a mano, lo que, igual que
- * en Veolab, NO cambia las existencias (para eso, /inventario). Los consumos
- * (O) y usos (U) de las operaciones son de solo lectura: los genera la
- * operación al crearse y se devuelven al borrarla.
+ * aquí se consultan y se pueden anotar, corregir o borrar a mano. En Veolab 3,
+ * igual que en FichaMovimiento, el movimiento a mano cambia las existencias
+ * de su serie (entradas suman; salidas, bajas, préstamos, anulaciones y
+ * consumos restan; el ajuste lleva su signo; el uso no cuenta) y al borrarlo
+ * se deshace; en bases 2.4 no las cambia. Los consumos (O) y usos (U) de las
+ * operaciones, y en Veolab 3 los de préstamos y entregas, son de solo
+ * lectura: se gestionan desde su origen.
  *
  * Tipos: I inventario inicial, E entrada, S salida, C compra, D devolución,
  * P préstamo, B baja, O consumo, U uso, J ajuste, A anulación.
@@ -108,10 +112,14 @@ class InventarioMovimientoController extends BaseController
         }
     }
 
+    /** Fila anterior de un movimiento que se modifica, para deshacer su efecto en las existencias. */
+    private ?object $previous = null;
+
     protected function validateAdditionalCriteria(array $data, array $keys = []): array
     {
         if ($keys) {
             $this->checkNotFromOperation($keys);
+            $this->previous = $this->movementRow($keys);
         }
 
         if (! empty($data['fecha'])) {
@@ -126,22 +134,77 @@ class InventarioMovimientoController extends BaseController
         return $data;
     }
 
+    /**
+     * Veolab 3: el movimiento anotado a mano cambia las existencias de su
+     * serie; al modificarlo se deshace lo que hacía antes y se aplica el nuevo.
+     */
+    protected function updateAdditionalData(array $data, array $keys): array
+    {
+        if (VeolabVersion::isV3()) {
+            $products = [];
+            if ($this->previous) {
+                VeolabStock::applyManualMovement($this->previous, true, $products);
+            }
+            if ($row = $this->movementRow($keys)) {
+                $missing = VeolabStock::applyManualMovement($row, false, $products);
+                if ($missing < 0) {
+                    // Como en Veolab: se quita lo disponible y el movimiento guarda lo que de verdad se quitó
+                    $real = VeolabStock::movementEffect((string) $row->MOVCTIP, (float) $row->MOVNCAN) - $missing;
+                    DB::connection('dynamic')->table('ALMMOV')
+                        ->where('DEL3COD', (string) $keys['delegacion'])->where('MOV1COD', $keys['codigo'])
+                        ->update(['MOVNCAN' => $row->MOVCTIP === VeolabStock::MOV_AJUSTE ? $real : abs($real)]);
+                }
+            }
+            if ($products) {
+                VeolabStock::recalculateProducts(array_values($products));
+            }
+        }
+
+        return $data;
+    }
+
+    /** Veolab 3: lo que hizo el movimiento borrado vuelve a las existencias. */
     protected function validateBeforeDelete(array $keys): void
     {
         $this->checkNotFromOperation($keys);
+        if (VeolabVersion::isV3() && ($row = $this->movementRow($keys))) {
+            $products = [];
+            VeolabStock::applyManualMovement($row, true, $products);
+            if ($products) {
+                VeolabStock::recalculateProducts(array_values($products));
+            }
+        }
+    }
+
+    private function movementRow(array $keys): ?object
+    {
+        return DB::connection('dynamic')->table('ALMMOV')
+            ->where('DEL3COD', (string) $keys['delegacion'])->where('MOV1COD', $keys['codigo'])
+            ->lockForUpdate()->first(['PRD2DEL', 'PRD2COD', 'SEL2COD', 'MOVCTIP', 'MOVNCAN']);
     }
 
     /**
      * Los consumos y usos de una operación se gestionan desde ella: al borrarla
      * se devuelven a las existencias sumando sus consumos, que no deben tocarse.
+     * En Veolab 3, igual los de un préstamo o una entrega de proveedor.
      */
     private function checkNotFromOperation(array $keys): void
     {
-        $operation = DB::connection('dynamic')->table('ALMMOV')
+        $v3 = VeolabVersion::isV3();
+        $row = DB::connection('dynamic')->table('ALMMOV')
             ->where('DEL3COD', (string) $keys['delegacion'])->where('MOV1COD', $keys['codigo'])
-            ->value('OPE2COD');
-        if ((int) $operation > 0) {
+            ->first($v3 ? ['OPE2COD', 'PRE2COD', 'ALB2COD'] : ['OPE2COD']);
+        if (! $row) {
+            return;
+        }
+        if ((int) $row->OPE2COD > 0) {
             throw new BusinessRuleException('Los movimientos de una operación se gestionan desde la operación');
+        }
+        if ($v3 && (int) $row->PRE2COD > 0) {
+            throw new BusinessRuleException('Los movimientos de un préstamo se gestionan desde el préstamo');
+        }
+        if ($v3 && (int) $row->ALB2COD > 0) {
+            throw new BusinessRuleException('Los movimientos de una entrega de proveedor se gestionan desde la entrega');
         }
     }
 }

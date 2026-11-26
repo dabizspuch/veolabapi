@@ -105,8 +105,11 @@ class VeolabControlCharts
      * [promedio, desviación] de los últimos $count resultados de control (de
      * cualquier operación de control) de las técnicas, redondeados a 4
      * decimales. En físico-químico se fija el promedio: 0 precisión, 100 exactitud.
+     * Veolab 3 (LAB_CalcularPromedioDesviacionCarta): solo la delegación de la carta,
+     * los más recientes por fecha de análisis y un valor por operación y técnica (el de
+     * la primera columna con valor numérico, la que pone el punto en la carta).
      */
-    public static function averageDeviation(string $type, string $section, int $count, array $techniques, int $number = 1, bool $blank = false): array
+    public static function averageDeviation(string $type, string $section, int $count, array $techniques, int $number = 1, bool $blank = false, ?string $chartDel = null): array
     {
         $average = 0.0;
         $deviation = 0.0;
@@ -127,17 +130,42 @@ class VeolabControlCharts
         if ($v3) {
             $query->where(fn ($q) => $q->whereNull('LABOPE.OPEBANU')->orWhere('LABOPE.OPEBANU', '<>', 'T'));
         }
-        $values = $query
+        $query
             ->where('LABOPE.OPEBCON', 'T')
             ->where($type === self::EXACTITUD ? 'LABCOR.CORBCON' : 'LABCOR.CORBCOP', 'T')
             ->where('LABCOR.CORCVAL', '<>', 'N/A')->where('LABCOR.CORCVAL', '<>', '')
-            ->where(fn ($q) => self::whereTechniques($q, $techniques, 'LABCOR.'))
-            ->orderByDesc('LABCOR.OPE3DEL')->orderByDesc('LABCOR.OPE3SER')->orderByDesc('LABCOR.OPE3COD')
-            ->limit(max(abs($count), 1) * ($v3 ? 3 : 1))
-            ->pluck('LABCOR.CORCVAL')
-            ->filter(fn ($v) => ! $v3 || preg_match('/^\s*[-+]?[\d.,]*\d[\d.,]*\s*$/', (string) $v))
-            ->take(max(abs($count), 1))
-            ->map(fn ($v) => VeolabOperationServices::decimal($v))->values()->all();
+            ->where(fn ($q) => self::whereTechniques($q, $techniques, 'LABCOR.'));
+        if ($v3) {
+            if ($chartDel !== null && $chartDel !== '') {
+                $query->where('LABOPE.DEL3COD', $chartDel);
+            }
+            $query->orderByDesc('LABOPE.OPEDINI');
+        }
+        $query->orderByDesc('LABCOR.OPE3DEL')->orderByDesc('LABCOR.OPE3SER')->orderByDesc('LABCOR.OPE3COD');
+        if ($v3) {
+            $query->orderBy('LABCOR.TEC3DEL')->orderBy('LABCOR.TEC3COD')->orderBy('LABCOR.COR1COD');
+        }
+        $rows = $query
+            ->limit(max(abs($count), 1) * ($v3 ? 6 : 1))
+            ->get(['LABCOR.CORCVAL', 'LABCOR.OPE3DEL', 'LABCOR.OPE3SER', 'LABCOR.OPE3COD', 'LABCOR.TEC3DEL', 'LABCOR.TEC3COD']);
+        $values = [];
+        $seen = [];
+        foreach ($rows as $row) {
+            if (count($values) >= max(abs($count), 1)) {
+                break;
+            }
+            if ($v3) {
+                if (! preg_match('/^\s*[-+]?[\d.,]*\d[\d.,]*\s*$/', (string) $row->CORCVAL)) {
+                    continue;
+                }
+                $key = $row->OPE3DEL.'|'.$row->OPE3SER.'|'.$row->OPE3COD.'|'.$row->TEC3DEL.'|'.$row->TEC3COD;
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+            }
+            $values[] = VeolabOperationServices::decimal($row->CORCVAL);
+        }
 
         if ($values) {
             $average = round(array_sum($values) / count($values), 4);
@@ -374,7 +402,7 @@ class VeolabControlCharts
                 $average = (float) $chart->CDCNPRO;
                 $deviation = self::percentDeviation($average, $percent);
             } else {
-                [$average, $deviation] = self::averageDeviation($type, $section, (int) $chart->CDCNNUM, $techniques, $number, $evalType === self::BLANCO);
+                [$average, $deviation] = self::averageDeviation($type, $section, (int) $chart->CDCNNUM, $techniques, $number, $evalType === self::BLANCO, $chartDel);
             }
             $incidence = self::incidence($evalType, $section, $average, $deviation, [$value], $rules);
 

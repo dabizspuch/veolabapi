@@ -70,6 +70,33 @@ class VeolabAgenda
     }
 
     /**
+     * Equipo o serie dados de baja (LAB_CerrarPlanificacionesBaja): sus
+     * planificaciones abiertas terminan hoy, sus fechas pendientes futuras se
+     * anulan (no se borran, por los códigos de barras) y se rehacen los avisos.
+     * $where: condiciones sobre LABPLO (columna => valor). Dentro de la
+     * transacción de quien llama.
+     */
+    public static function closePlanningsForWithdrawal(array $where): void
+    {
+        $db = DB::connection('dynamic');
+        $today = (string) $db->selectOne('SELECT CURDATE() AS d')->d;
+        $tomorrow = date('Y-m-d', strtotime($today.' +1 day'));
+        $plans = $db->table('LABPLO')->where($where)
+            ->where(fn ($q) => $q->whereNull('PLODFIN')->orWhere('PLODFIN', '>', $today))
+            ->get(['DEL3COD', 'PLO1COD', 'PLOBAVI']);
+        foreach ($plans as $plan) {
+            $db->table('LABPLO')->where('DEL3COD', $plan->DEL3COD)->where('PLO1COD', $plan->PLO1COD)->update(['PLODFIN' => $today]);
+            $db->table('LABFEP')->where('PLO3DEL', $plan->DEL3COD)->where('PLO3COD', $plan->PLO1COD)
+                ->where(fn ($q) => $q->whereNull('FEPBCOM')->orWhere('FEPBCOM', 'F'))
+                ->where('FEPTINI', '>=', $tomorrow)
+                ->update(['FEPTINI' => null]);
+            if ($plan->PLOBAVI === 'T') {
+                self::syncPlanning((string) $plan->DEL3COD, (int) $plan->PLO1COD);
+            }
+        }
+    }
+
+    /**
      * Evento de agenda de una planificación con aviso (PLOBAVI = T), como
      * AGE_CrearEventoCalendarioPlanificacion: se borra el anterior y se crea
      * uno para los usuarios con acceso a planificaciones (función LAB_PLA)

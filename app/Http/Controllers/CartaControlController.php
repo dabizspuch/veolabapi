@@ -252,7 +252,9 @@ class CartaControlController extends BaseController
         if (($data['calcular_promedio'] ?? 'F') === 'T') {
             $count = (int) ($data['numero_resultados'] ?? $before->CDCNNUM ?? 0);
             [$data['promedio'], $data['desviacion']] = VeolabControlCharts::averageDeviation(
-                $type, VeolabControlCharts::sectionType($currentTechniques), $count, $currentTechniques, $number, $blank);
+                $type, VeolabControlCharts::sectionType($currentTechniques), $count, $currentTechniques, $number, $blank,
+                // Como FichaCarta: la delegación de la carta, o la elegida al crearla
+                $keys['delegacion'] ?? ($data['delegacion'] ?? null));
         }
 
         // Revisión de los límites de una carta con resultados: se anota con los valores anteriores (ISO 17025 7.7).

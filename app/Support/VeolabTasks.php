@@ -1074,12 +1074,14 @@ class VeolabTasks
      * Fecha de compromiso de las operaciones sin enviar, archivar ni anular
      * que vence dentro de WARN_DAYS días o ya pasó: para los empleados de la
      * operación (LABOYE, como el aviso C); las que no tienen ningún empleado,
-     * para quien graba resultados (escritura en LAB_RES).
+     * para quien graba resultados (escritura en LAB_RES). Quien no tiene
+     * empleado (p. ej. el administrador) no las ve: eran miles de tareas que
+     * repetían el listado de Operaciones (20-nov-2026, como el escritorio).
      */
     private function readCommitments(): void
     {
         $results = $this->has('LAB_RES', self::WRITE);
-        if ($this->employee === null && ! $results) {
+        if ($this->employee === null) {
             return;
         }
         $b = [];
@@ -1092,8 +1094,6 @@ class VeolabTasks
             .$this->myEmployeeSql('y.EMP3DEL', 'y.EMP3COD', $b).')'
             .($results ? ' OR NOT EXISTS (SELECT 1 FROM LABOYE z WHERE z.OPE3DEL = LABOPE.DEL3COD AND z.OPE3SER = LABOPE.OPE1SER AND '
                 .'z.OPE3COD = LABOPE.OPE1COD)' : '')
-            // Quien graba resultados y no tiene empleado (p. ej. el administrador) las ve todas (como el escritorio)
-            .($results && $this->employee === null ? ' OR 1 = 1' : '')
             .')'.$this->delegationSql('LABOPE.DEL3COD', $b).' ORDER BY LABOPE.OPEDCOM';
 
         foreach (DB::connection('dynamic')->select($sql, $b) as $row) {

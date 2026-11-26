@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
+use App\Support\VeolabAgenda;
 use App\Support\VeolabDocuments;
+use App\Support\VeolabVersion;
 use Illuminate\Support\Facades\DB;
 
 class EquipoController extends BaseController
@@ -119,11 +121,18 @@ class EquipoController extends BaseController
         }
     }
 
+    /** Fila antes de modificarla: al darlo de baja se cierran sus planificaciones. */
+    private ?object $beforeEquipment = null;
+
     protected function validateAdditionalCriteria(array $data, array $keys = []): array
     {
         $isCreating = empty($keys);
         $code = $keys['codigo'] ?? null;
         $delegation = $keys['delegacion'] ?? '';
+        if (! $isCreating) {
+            $this->beforeEquipment = DB::connection('dynamic')->table('LABEQU')
+                ->where('DEL3COD', $delegation)->where('EQU1COD', $code)->first(['EQUBBAJ', 'EQUCEST']);
+        }
 
         if (! empty($data['descripcion'])) {
             $query = DB::connection('dynamic')->table('LABEQU')->where('EQUCDES', $data['descripcion']);
@@ -143,6 +152,24 @@ class EquipoController extends BaseController
                 ->where('EQU1COD', $data['codigo'])->exists();
             if ($exists) {
                 throw new BusinessRuleException('El código del equipo ya está en uso');
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Veolab 3 (Equipos.Baja y FichaEquipo.Grabar): al darlo de baja, o pasarlo
+     * a baja definitiva, sus planificaciones se cierran.
+     */
+    protected function updateAdditionalData(array $data, array $keys): array
+    {
+        $before = $this->beforeEquipment;
+        if ($before && VeolabVersion::isV3()) {
+            $withdrawn = (($data['es_baja'] ?? null) === 'T' && $before->EQUBBAJ !== 'T')
+                || (($data['estado'] ?? null) === 'B' && $before->EQUCEST !== 'B');
+            if ($withdrawn) {
+                VeolabAgenda::closePlanningsForWithdrawal(['EQU2DEL' => $keys['delegacion'] ?? '', 'EQU2COD' => $keys['codigo'] ?? '']);
             }
         }
 

@@ -1045,6 +1045,7 @@ class ResultadoController extends BaseController
     {
         $db = DB::connection('dynamic');
         $changed = false;
+        $analystChanged = false;
 
         foreach ($resChanges as $tec => $changes) {
             $technique = $techniques[$tec];
@@ -1077,10 +1078,36 @@ class ResultadoController extends BaseController
             if (array_key_exists('EMP2COD', $changes)) {
                 VeolabAudit::record(VeolabAudit::MODIFICACION_CAMPO, 'LABRES', $row, 'LABRESEMP2COD',
                     $changes['EMP2DEL'].' '.$changes['EMP2COD']);
+                $analystChanged = true;
             }
         }
 
+        if ($analystChanged) {
+            $this->syncOperationAnalysts($operation);
+        }
+
         return $changed;
+    }
+
+    /**
+     * Analistas de la operación (LABOYE) rehechos con los de sus técnicas
+     * (FichaResultados.SincronizarAnalistasOperaciones): de ellos dependen el
+     * filtro por analista y el acceso restringido a las operaciones propias.
+     */
+    private function syncOperationAnalysts(array $operation): void
+    {
+        $db = DB::connection('dynamic');
+        $key = ['OPE3DEL' => $operation[0], 'OPE3SER' => $operation[1], 'OPE3COD' => $operation[2]];
+
+        $analysts = [];
+        foreach ($db->table('LABRES')->where($key)->where('EMP2COD', '<>', 0)->get(['EMP2DEL', 'EMP2COD']) as $r) {
+            $analysts[(string) $r->EMP2DEL."\x1B".(int) $r->EMP2COD] = [(string) $r->EMP2DEL, (int) $r->EMP2COD];
+        }
+
+        $db->table('LABOYE')->where($key)->delete();
+        foreach ($analysts as [$empDel, $empCod]) {
+            $db->table('LABOYE')->insert($key + ['EMP3DEL' => $empDel, 'EMP3COD' => $empCod]);
+        }
     }
 
     /** Valor y marca de las celdas modificadas (auditoría con el título de la columna). */

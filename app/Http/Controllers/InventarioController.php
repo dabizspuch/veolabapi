@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\BusinessRuleException;
 use App\Support\ServerError;
+use App\Support\VeolabAgenda;
 use App\Support\VeolabCodes;
 use App\Support\VeolabDocuments;
 use App\Support\VeolabMetrology;
@@ -339,6 +340,10 @@ class InventarioController extends BaseController
             }
             if ($movement) {
                 VeolabStock::movement($delegation, $product, $lot, $movement[1], $movement[0]);
+            }
+            // Veolab 3 (FichaInventario.Grabar, ALM_BajaSeries): de baja o fuera de uso, sus planificaciones se cierran
+            if (VeolabVersion::isV3() && in_array($newState, ['B', 'F'], true) && ! in_array($oldState, ['B', 'F'], true)) {
+                VeolabAgenda::closePlanningsForWithdrawal(['PRD2DEL' => $delegation, 'PRD2COD' => $product, 'SEL2COD' => $lot]);
             }
         }
 
