@@ -19,6 +19,8 @@ class VeolabLicense
     public const PROFESIONAL = 2;
     public const EMPRESARIAL = 3;
     public const EMPRESARIAL_VERIFACTU = 4;
+    /** Como la Empresarial (sin Verifactu) y sin límite de usuarios (LIC_CORPORATIVA). */
+    public const CORPORATIVA = 5;
 
     /** Caché por BD durante la petición. */
     private static array $types = [];
@@ -50,6 +52,7 @@ class VeolabLicense
         self::GRATUITA              => '',
         self::PROFESIONAL           => 'COM,MEN,SIN,LOT,PLA,ORD',
         self::EMPRESARIAL           => 'VEN,FAC,ALM,EST,AGE,COM,MEN,DOC,WEB,SIN,EQC,LOT,PLA,ORD,BAR,GEO,GDR,FIR,IGE,CDC,CAL,SOL',
+        self::CORPORATIVA           => 'VEN,FAC,ALM,EST,AGE,COM,MEN,DOC,WEB,SIN,EQC,LOT,PLA,ORD,BAR,GEO,GDR,FIR,IGE,CDC,CAL,SOL',
         self::EMPRESARIAL_VERIFACTU => 'VEN,FAC,VFU,ALM,EST,AGE,COM,MEN,DOC,WEB,SIN,EQC,LOT,PLA,ORD,BAR,GEO,GDR,FIR,IGE,CDC,CAL,SOL',
     ];
 
@@ -87,7 +90,7 @@ class VeolabLicense
         return in_array($module, explode(',', self::MODULES[$type]), true);
     }
 
-    /** Tipo de licencia (1-4) o null si no se puede determinar. */
+    /** Tipo de licencia (1-5) o null si no se puede determinar. */
     public static function type(string $connection, string $database): ?int
     {
         if (array_key_exists($database, self::$types)) {

@@ -37,6 +37,7 @@ class ConfiguracionGeneralController extends BaseController
         VeolabLicense::PROFESIONAL           => 'Profesional',
         VeolabLicense::EMPRESARIAL           => 'Empresarial',
         VeolabLicense::EMPRESARIAL_VERIFACTU => 'Empresarial Verifactu',
+        VeolabLicense::CORPORATIVA           => 'Corporativa',
     ];
 
     protected array $mapping = [

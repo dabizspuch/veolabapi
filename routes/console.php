@@ -14,7 +14,7 @@ Artisan::command('veolab:licencia {bd : Nombre de la BD del laboratorio}', funct
         'database.connections.dynamic' => array_merge(config('database.connections.mysql'), ['database' => $bd]),
     ]);
 
-    $names = [1 => 'Gratuita', 2 => 'Profesional', 3 => 'Empresarial', 4 => 'Empresarial* (Verifactu)'];
+    $names = [1 => 'Gratuita', 2 => 'Profesional', 3 => 'Empresarial', 4 => 'Empresarial* (Verifactu)', 5 => 'Corporativa'];
     $type = VeolabLicense::type('dynamic', $bd);
 
     $this->line('Patrones configurados: '.(VeolabLicense::configured() ? 'sí' : 'NO'));
